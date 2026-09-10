@@ -1,0 +1,7 @@
+# Captured 2026-09-10 on this box: sway 1.11 headless with one
+# HEADLESS-1 at 1280x720, Xwayland 24.1.10, through the recording
+# forwarder scratchpad/b7/rec.py. RANDR major 139, root 0x234,
+# crtc 0x20, output 0x21.
+# GetCrtcTransform(0x20) reply: the identity matrix twice (current
+# and pending) and the filter name.
+010010001000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000

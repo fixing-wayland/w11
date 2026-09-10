@@ -39,6 +39,7 @@ unlinked our display file (`xw11 --stop`).
 """
 
 import array
+import collections
 import os
 import selectors
 import signal
@@ -53,6 +54,8 @@ from xw11 import client as client_mod
 from xw11 import display as display_mod
 from xw11 import policy, wire
 from xw11 import pump as pump_mod
+from xw11 import randr as randr_mod
+from xw11 import req_read
 from xw11 import shadow as shadow_mod
 from xw11 import upstream as upstream_mod
 
@@ -185,10 +188,23 @@ class Server:
         #: number the kernel hands out again is a socket the loop never reads
         self._own_fd = None
         #: request handlers, keyed by `client.Request.key`: the opcode for a
-        #: core request, `(extension name, minor)` for an extension one. Empty
-        #: here -- every policy row is PASS in this batch -- and a class with no
-        #: handler forwards, so an unwritten row behaves exactly like X.
+        #: core request, `(extension name, minor)` for an extension one. A
+        #: class with no handler forwards, so an unwritten row behaves exactly
+        #: like X. Each batch installs its own module's table into this one
+        #: dict; a key written twice is a collision both batches can see.
         self.handlers = {}
+        #: `wxrandr`'s backend, built at the first RandR write and never before
+        #: (design section 7.4 step 3). One per proxy, so a display's whole
+        #: RandR history goes through one connection to the compositor.
+        self.randr = randr_mod.Applier(log=self.say)
+        #: what a worker thread finished, waiting for the loop thread to run it.
+        #: A backend apply is up to five seconds on Mutter [recon/seams.md 6.2]
+        #: and every byte it touches -- an out-buffer, a client's reads -- is
+        #: the loop's, so the work happens off the loop and its CONSEQUENCE
+        #: happens on it.
+        self.worker_done = collections.deque()
+        req_read.install(self)
+        randr_mod.install(self)
         if watch_wayland:
             hit = session.find_wayland_socket()
             self.wayland_socket = hit[2] if hit else None
@@ -408,6 +424,73 @@ class Server:
     def is_shadow(self, xid: int) -> bool:
         return self.shadows is not None and self.shadows.is_shadow(xid)
 
+    def major_for(self, name: str) -> int:
+        """The major THIS upstream gave an extension, for the errors the proxy
+        writes itself: an X error carries the failing request's own major, and
+        RANDR's is 139 on Xwayland and 140 on Xvfb [recon/env.md 2.5,
+        recon/tools.md 7]. Zero when nobody has asked -- an error with a major
+        of 0 is still an error, and a proxy that guessed 139 would put a lie
+        into the one line a user reads when something failed."""
+        entry = self.majors.get(name)
+        return entry[0] if entry else 0
+
+    # -- the worker hand-back --------------------------------------------------
+
+    def pause_reads(self, conn) -> None:
+        """Stop reading this client, and stop framing what it has already sent.
+        The RandR apply's half of design section 7.4: its sync after
+        `UngrabServer` is answered once the layout has moved."""
+        conn.reads_paused = True
+        self._interest(conn)
+
+    def resume_reads(self, conn) -> None:
+        """Read it again, and frame what arrived while it was paused --
+        `feed_client(b"")` runs the framer over `in_down` with no syscall."""
+        if not conn.reads_paused:
+            return
+        conn.reads_paused = False
+        if conn.state != client_mod.CLOSED:
+            conn.feed_client(b"")
+        self.pump(conn)
+
+    def run_worker(self, conn, fn) -> None:
+        """`fn()` on a thread of its own; whatever it returns -- a callable, or
+        None -- runs on the LOOP thread, and the client's reads resume after it.
+
+        One thread per apply rather than a pool: an apply happens once per
+        `xrandr` invocation, the backends serialise on `Applier.lock` anyway,
+        and a pool would be a second lifetime to get right for a thing that
+        takes tens of milliseconds on sway."""
+
+        def body():
+            done = None
+            try:
+                done = fn()
+            except Exception as e:              # never lose the resume
+                self.say("xw11: a worker thread raised %r" % (e,))
+            self.worker_done.append((conn, done))
+            if self._wake_w is not None:
+                try:
+                    os.write(self._wake_w, b"\1")
+                except OSError:
+                    pass
+        threading.Thread(target=body, daemon=True).start()
+
+    def drain_workers(self) -> int:
+        """Everything a worker finished since the last wake, on the loop thread:
+        its log line or its error packet, and then the reads it paused."""
+        n = 0
+        while self.worker_done:
+            conn, done = self.worker_done.popleft()
+            n += 1
+            if done is not None:
+                try:
+                    done()
+                except Exception as e:
+                    self.say("xw11: a worker's hand-back raised %r" % (e,))
+            self.resume_reads(conn)
+        return n
+
     def handle(self, conn, req, cls) -> bool:
         """One non-PASS request. True when the frame must NOT be forwarded.
 
@@ -436,6 +519,19 @@ class Server:
             if cls != policy.CONSUME:
                 return False
             got = None
+        if cls == policy.BATCH:
+            # A RandR write inside a grab: the handler has already recorded it
+            # and says which of the two halves design section 3.1 splits BATCH
+            # into -- bytes for ANSWER, None for CONSUME -- or `FORWARD` for the
+            # three that are PASS *and* a marker (GrabServer, UngrabServer,
+            # SetOutputPrimary).
+            if got is policy.FORWARD:
+                return False
+            if got is None:
+                conn.consume()
+                return True
+            conn.answer(got, req.seq)
+            return True
         if cls == policy.CONSUME:
             conn.consume()
             return True
@@ -503,6 +599,7 @@ class Server:
     def close_conn(self, conn) -> None:
         if conn not in self.conns:
             return
+        randr_mod.dropped(self, conn)
         self.conns.remove(conn)
         for sock in (conn.down, conn.up):
             if sock is None:
@@ -598,9 +695,10 @@ class Server:
         PEER's out-buffer is deep, writing while it has bytes of its own. The
         hysteresis is the measured pair -- stop over 4 MiB, resume under 1 MiB --
         so a slow reader costs one pause and not one per packet."""
-        for sock, out, peer_out, eof in (
-                (conn.down, conn.out_down, conn.out_up, conn.down_eof),
-                (conn.up, conn.out_up, conn.out_down, conn.up_eof)):
+        for sock, out, peer_out, eof, held in (
+                (conn.down, conn.out_down, conn.out_up, conn.down_eof,
+                 conn.reads_paused),
+                (conn.up, conn.out_up, conn.out_down, conn.up_eof, False)):
             if sock is None:
                 continue
             fd = sock.fileno()
@@ -612,7 +710,7 @@ class Server:
             want = selectors.EVENT_WRITE if out else 0
             # A socket at EOF is readable for ever; asking for EVENT_READ again
             # would spin the loop at 100% until the buffers drained.
-            if not paused and not eof:
+            if not paused and not eof and not held:
                 want |= selectors.EVENT_READ
             self._want(sock, want)
 
@@ -770,6 +868,7 @@ class Server:
                         except OSError:
                             pass
                         self.drain_pump()
+                        self.drain_workers()
                         continue
                     entry = self.clients.get(key.fd)
                     if entry is None:
@@ -787,6 +886,7 @@ class Server:
         return 0
 
     def shutdown(self) -> None:
+        self.randr.close()
         if self.events_pump is not None:
             self.events_pump.stop()
             self.events_pump = None

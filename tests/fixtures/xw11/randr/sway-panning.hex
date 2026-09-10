@@ -1,0 +1,6 @@
+# Captured 2026-09-10 on this box: sway 1.11 headless with one
+# HEADLESS-1 at 1280x720, Xwayland 24.1.10, through the recording
+# forwarder scratchpad/b7/rec.py. RANDR major 139, root 0x234,
+# crtc 0x20, output 0x21.
+# GetPanning(0x20) reply: all zeros. `--panning` is a row.
+01000f0001000000d0df6331000000000000000000000000000000000000000000000000

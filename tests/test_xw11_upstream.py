@@ -27,6 +27,7 @@ same windows (design section 2.6).
 
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -310,7 +311,15 @@ class RootSelected(OwnCase):
         `conn_index=0` is that own connection: `accept()` opens it before the
         client's twin, which is the same index the mask above is read from.
         `stamp=False` because an event's sequence field is a watermark and this
-        one is not being read for it."""
+        one is not being read for it.
+
+        The atom is `_NET_CLIENT_LIST` and not zero, because batch 3 narrowed
+        the drain to the packets design section 2.4 step 1 names
+        (`OwnConn.interesting`): a `PropertyNotify` for a name the proxy does
+        NOT answer for says nothing about which toplevels exist, and dropping
+        the cache for it defeats the 20 ms TTL on any busy X plane. The claim
+        this test makes -- server writes an event, framer hands it to
+        `on_event`, registry re-lists -- is unchanged."""
         rig = self.rig()
         rig.conn()
         rig.wait_own()
@@ -320,8 +329,30 @@ class RootSelected(OwnCase):
         shadows.ttl = 10.0
         shadows.snapshot()
         self.assertFalse(shadows.stale())
-        rig.upstream.push_event(b"\x1c" + b"\0" * 31, conn_index=0, stamp=False)
+        atom = rig.server.own.atom_id("_NET_CLIENT_LIST")
+        self.assertTrue(atom, "the proxy never interned _NET_CLIENT_LIST")
+        rig.upstream.push_event(
+            b"\x1c\0\0\0" + b"\0" * 4 + struct.pack("<I", atom) + b"\0" * 20,
+            conn_index=0, stamp=False)
         rig.wait(shadows.stale, what="the root event")
+
+    def test_a_property_write_the_proxy_does_not_own_costs_no_relist(self):
+        """The other half of batch 3's filter, over the same wire: a root
+        `PropertyNotify` for a name nobody synthesizes -- `RESOURCE_MANAGER`, a
+        selection, a client's own state -- leaves the cache alone. Without it
+        one `xprop -set` anywhere under the root costs the next read a whole
+        `views()` (design section 2.4 step 1)."""
+        rig = self.rig(num=36, upstream_num=37)
+        rig.conn()
+        rig.wait_own()
+        shadows = rig.server.shadows
+        shadows.ttl = 10.0
+        shadows.snapshot()
+        self.assertFalse(shadows.stale())
+        rig.upstream.push_event(b"\x1c" + b"\0" * 31, conn_index=0, stamp=False)
+        time.sleep(0.3)
+        self.assertFalse(shadows.stale(),
+                         "a PropertyNotify for atom 0 dropped the cache")
 
     def test_and_the_handler_itself_drops_the_cache(self):
         """The smaller half of the same claim, without a socket in it."""

@@ -1,0 +1,15 @@
+# `xrandr --output HEADLESS-1 --scale 2x2`, measured 2026-09-10 (cap1.log
+# connection 10, requests 19-23): grab, disable, SetScreenSize(2560x1440),
+# SetCrtcTransform, enable. No ungrab -- Xwayland answered the transform
+# BadValue (minor 26, value 0x20 [recon/env.md 2.4]) and xrandr died.
+#
+# The transform is the whole reason this request is decoded rather than passed:
+# `--scale 2x2` sends exactly [[2,0,0],[0,2,0],[0,0,1]] in 16.16 fixed point
+# plus the filter name `bilinear`, and that is a scale every output-management
+# protocol carries. Anything with a shear or a translation in it is not, and
+# answers BadValue -- the same byte Xwayland answers for all of them today.
+24000100
+8b1507002000000000000000d0df6331000000000000000001000000
+8b07050034020000000aa005a30200007c010000
+8b1a0e00200000000000020000000000000000000000000000000200000000000000000000000000000001000800000062696c696e656172
+8b1508002000000000000000d0df633100000000410000000100000021000000

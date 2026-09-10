@@ -84,6 +84,14 @@ ROOT_EVENT_MASK = 0x00400000 | 0x00080000      # PropertyChange | SubstructureNo
 #: CWEventMask, the one value ChangeWindowAttributes is sent with here.
 _CW_EVENT_MASK = 0x0800
 
+#: The root events that mean the X plane's structure moved, so the pairing of
+#: design section 4.2 may be stale: CreateNotify, DestroyNotify, UnmapNotify,
+#: MapNotify, ConfigureNotify [recon/wire.md 4.4], plus MappingNotify (34),
+#: which is the keyboard's and is kept for batch 6.
+_STRUCTURE_EVENTS = frozenset((wire.EV_CREATE_NOTIFY, wire.EV_DESTROY_NOTIFY,
+                               wire.EV_UNMAP_NOTIFY, wire.EV_MAP_NOTIFY,
+                               wire.EV_CONFIGURE_NOTIFY, 34))
+
 
 class UpstreamGone(Exception):
     """The own connection is not there: it was never opened, or the server went
@@ -425,6 +433,67 @@ class OwnConn:
             self.atom_names[atom] = name
         return name
 
+    def randr_snapshot(self, timeout: float = None):
+        """The upstream's RandR tables, read here and now (design section 7.4
+        step 1).
+
+        Ten round trips at 70 us [recon/env.md 5.3]: `GetScreenResourcesCurrent`
+        first, because everything after it is keyed by the ids and the config
+        timestamp that reply carries, then one `GetOutputInfo` per output, one
+        `GetCrtcInfo` per crtc, `GetOutputPrimary` and `GetScreenInfo` in a
+        single burst -- one wait instead of nine, the way `_startup` pipelines
+        the atoms.
+
+        `GetScreenResourcesCurrent` and not `GetScreenResources`: `Current` is
+        what every xrandr write path asks for and it does not re-poll the
+        hardware [recon/tools.md 7]. None when the extension is not there at
+        all, which is a server the proxy has nothing to apply against."""
+        from xw11 import randr as randr_mod
+        entry = self.majors.get("RANDR")
+        if not entry:
+            return None
+        op = entry[0]
+        box = {}
+        self.send(op, randr_mod.GET_SCREEN_RESOURCES_CURRENT,
+                  struct.pack("<I", self.root),
+                  on_reply=lambda pkt: box.__setitem__("res", pkt))
+        self._drain_until(lambda: "res" in box, timeout)
+        res = randr_mod.parse_screen_resources(box["res"])
+        done = {"n": 0}
+        want = 0
+
+        def took(key):
+            def fn(pkt):
+                done["n"] += 1
+                box[key] = pkt
+            return fn
+        for output in list(res.outputs):
+            self.send(op, randr_mod.GET_OUTPUT_INFO,
+                      struct.pack("<II", output, res.config_timestamp),
+                      on_reply=took(("out", output)))
+            want += 1
+        for crtc in list(res.crtcs):
+            self.send(op, randr_mod.GET_CRTC_INFO,
+                      struct.pack("<II", crtc, res.config_timestamp),
+                      on_reply=took(("crtc", crtc)))
+            want += 1
+        self.send(op, randr_mod.GET_OUTPUT_PRIMARY,
+                  struct.pack("<I", self.root), on_reply=took("primary"))
+        want += 1
+        self.send(op, randr_mod.GET_SCREEN_INFO, struct.pack("<I", self.root),
+                  on_reply=took("screen"))
+        want += 1
+        self._drain_until(lambda: done["n"] >= want, timeout)
+        for output in list(res.outputs):
+            res.outputs[output] = randr_mod.parse_output_info(
+                box[("out", output)], output)
+        for crtc in list(res.crtcs):
+            res.crtcs[crtc] = randr_mod.parse_crtc_info(box[("crtc", crtc)],
+                                                        crtc)
+        res.primary = randr_mod.parse_output_primary(box["primary"])
+        randr_mod.parse_screen_info(box["screen"], res)
+        return res
+
     # -- requests -------------------------------------------------------------
 
     def select_root(self, mask: int) -> int:
@@ -533,20 +602,60 @@ class OwnConn:
                 return True
             pkt = bytes(self._in[:total])
             del self._in[:total]
-            if self.on_event is not None:
+            if self.on_event is not None and self.interesting(pkt):
                 self.on_event(pkt)
 
+    def interesting(self, pkt: bytes) -> bool:
+        """Whether one packet on the root's own stream is worth a re-list.
+
+        Every packet used to be: `Server.on_root_event` dropped the registry's
+        cache for anything at all that arrived here. On a busy X plane that
+        defeats the 20 ms TTL outright -- one `xprop -set` anywhere under the
+        root costs the next read a whole `views()` -- so the set is narrowed to
+        what design section 2.4 step 1 names.
+
+        Create, Destroy, Map, Unmap and Configure are the structure of the X
+        plane, and the X plane is where the pairing comes from: a window that
+        appeared there may be the twin of a toplevel this registry is currently
+        shadowing [design section 4.2]. `PropertyNotify` counts only for a name
+        the proxy answers for itself (`policy.OVERRIDES`) -- `_NET_CLIENT_LIST`
+        moving means the xwm just managed or dropped a window, and
+        `_NET_ACTIVE_WINDOW` moving means the focus did. Every other property
+        write under the root -- `RESOURCE_MANAGER`, a selection, a client's own
+        state -- says nothing about which toplevels exist.
+
+        `MappingNotify` (34) is here because batch 6's keycode table is fed
+        from it; today `Server.on_root_event` only invalidates the registry,
+        which costs one `list()` on a keymap change and is the cheapest correct
+        thing until that batch branches on the code.
+        """
+        if len(pkt) < 32:
+            return False
+        code = pkt[0] & 0x7F
+        if code in _STRUCTURE_EVENTS:
+            return True
+        if code != wire.EV_PROPERTY_NOTIFY:
+            return False
+        (atom,) = struct.unpack_from("<I", pkt, 8)
+        return self.atom_names.get(atom) in policy.OVERRIDES
+
     def _drain_until(self, ready, timeout: float = None) -> None:
-        """Block until `ready()` or the deadline. The only blocking read after
-        the handshake, and it happens once per open: everything after it comes
-        through the selector."""
+        """Block until `ready()` or the deadline. The two blocking reads after
+        the handshake are here: `_startup`'s, once per open, and
+        `randr_snapshot`'s, which happens at every `GrabServer` and costs
+        `2 + outputs + crtcs` requests in two round trips of ~70 us
+        [recon/env.md 5.3]. Everything else comes through the selector, and the
+        RandR caller passes a deadline of its own
+        (`randr.SNAPSHOT_TIMEOUT`, 1 s) rather than this connection's five so
+        that a wedged upstream cannot stop the loop forwarding."""
         deadline = time.monotonic() + (self.open_timeout if timeout is None
                                        else timeout)
         while not ready():
             left = deadline - time.monotonic()
             if left <= 0:
                 raise UpstreamGone("the upstream did not answer in %gs"
-                                   % self.open_timeout)
+                                   % (self.open_timeout if timeout is None
+                                      else timeout))
             # The write set too: after `open()` the socket is non-blocking, so
             # a `send()` that the kernel would not take whole leaves bytes in
             # `_out` -- and a request still in `_out` is a reply that never

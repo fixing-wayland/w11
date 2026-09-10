@@ -1,0 +1,18 @@
+# The error Xwayland answers a RRSetScreenSize with, measured 2026-09-10
+# (cap1.log connection 3, the reply to request 21) and again in recon/env.md 2.4
+# as the five lines Xlib's default handler prints:
+#
+#   X Error of failed request:  BadMatch (invalid parameter attributes)
+#     Major opcode of failed request:  139 (RANDR)
+#     Minor opcode of failed request:  7 (RRSetScreenSize)
+#     Serial number of failed request:  21
+#     Current serial number in output stream:  22
+#
+# Fields: code 8 (BadMatch), sequence 0x0015 = 21, bad = 0x00000234 = the ROOT
+# window, minor 0x0007, major 0x8b = 139. This is the packet `xw11/randr.py`
+# writes itself when an apply fails inside a batch that carried a
+# SetScreenSize, so a script that checks $? sees what it always saw.
+#
+# Xvfb answers the same request BadValue (code 2, major 140, bad 0) instead
+# [recon/env.md 3] -- one more reason the major comes from QueryExtension.
+000815003402000007008b000000000000000000000000000000000000000000

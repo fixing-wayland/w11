@@ -1,0 +1,8 @@
+# Captured 2026-09-10 on this box: sway 1.11 with WLR_BACKENDS=headless
+# and one HEADLESS-1 at 1280x720, Xwayland 24.1.10 on :0, through the
+# recording forwarder scratchpad/b7/rec.py. RANDR major 139, root 0x234,
+# crtc 0x20, output 0x21 named HEADLESS-1, sixteen modes 0x41..0x50,
+# config timestamp 0x3163dfd0.
+# GetCrtcInfo(0x20) reply: 1280x720 at 0,0, mode 0x41, rotation 1,
+# rotations 0x3f, driving output 0x21.
+01000d0002000000d0df6331000000000005d0024100000001003f00010001002100000021000000

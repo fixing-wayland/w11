@@ -1,0 +1,8 @@
+# Captured 2026-09-10 against Xvfb 21.1.22 on :91 through the same
+# recorder: no compositor at all, RANDR major **140** (not 139 -- the
+# single sharpest reason no major is ever written down in this package
+# [recon/env.md 3]), one output named `screen`, one mode, and a write
+# side that succeeds for --mode and fails at minor 7 for --off with
+# BadValue rather than Xwayland's BadMatch.
+# GetOutputInfo reply: the output named `screen`.
+0100100005000000f89e6d313b00000000000000000000000000010001000000000006003b0000003a00000073637265656e0000

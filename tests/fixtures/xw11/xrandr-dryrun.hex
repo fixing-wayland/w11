@@ -1,0 +1,8 @@
+# `xrandr --output HEADLESS-1 --dryrun --mode 800x600`, measured 2026-09-10 on
+# sway + Xwayland (scratchpad/b7/cap1.log connection 9, requests 19-20).
+# `--dryrun` still grabs: `grab_server` is a separate flag defaulting true and
+# cleared only by --nograb [xrandr.c:55, 2723]. So an EMPTY grab is a real
+# batch that must commit nothing -- a proxy that read it as "apply what is
+# there" would make --dryrun the one flag that changes the screen.
+24000100
+25000100

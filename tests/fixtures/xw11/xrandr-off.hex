@@ -1,0 +1,19 @@
+# `xrandr --output HEADLESS-1 --off`, measured 2026-09-10 (cap1.log connection
+# 6, requests 18-20): the grab, a SetCrtcConfig with mode None and an EMPTY
+# output list, and SetScreenSize(16, 16, 4, 4) -- the smallest framebuffer the
+# server's GetScreenSizeRange allows, because nothing is left on the screen.
+#
+# There is no UngrabServer on this line and that is the measurement, not an
+# omission: Xwayland answered the SetScreenSize BadMatch (minor 7) and xrandr
+# died inside Xlib's default error handler with the server still grabbed
+# [recon/tools.md 7]. It is why a client that disconnects with a batch open has
+# that batch DROPPED (design section 7.5): what it collected here is a disable
+# with no enable, and applying half of it turns a screen off with nothing left
+# to turn it back on.
+#
+# The disable's bytes are byte-identical to the disable half of --mode
+# (xrandr-mode-write.hex line 2, allowing for the different ids): --off sets the
+# output's mode to None and crtc_apply returns early on !crtc->mode_info.
+24000100
+8b1507002000000000000000d0df6331000000000000000001000000
+8b07050034020000100010000400000004000000

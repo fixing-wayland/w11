@@ -1,0 +1,22 @@
+# wm-d wmctrl -d
+# from recon/tools/caps/xwl.jsonl line 2876 (MARK), connection 36; Xwayland
+# 24.1.10 under headless sway, 2026-09-10. Rebuilt from the decoded capture
+# by scratchpad/b3/mkcaps.py: every CORE request is byte-exact against the
+# layout of recon/wire.md 4.1-4.3, and an extension request whose body the
+# capture decoded only the head of is zero-padded to its recorded length and
+# marked `pad`.
+# ROOT 0x234
+# ATOM 335 _NET_NUMBER_OF_DESKTOPS
+# ATOM 336 _WIN_WORKSPACE_COUNT
+620005000c0000004249472d5245515545535453  # 2879 QueryExtension
+85000100  # 2881 BIG-REQUESTS.Enable pad
+370005000000e000340200000000000000000000  # 2883 CreateGC pad
+1400060034020000170000001f0000000000000000e1f505  # 2884 GetProperty
+6200050009000000584b4559424f415244000000  # 2886 QueryExtension
+8700020001000000  # 2888 XKEYBOARD.UseExtension pad
+10000800170000005f4e45545f4e554d4245525f4f465f4445534b544f505300  # 2890 InternAtom
+14000600340200004f010000060000000000000000040000  # 2892 GetProperty
+10000700140000005f57494e5f574f524b53504143455f434f554e54  # 2894 InternAtom
+140006003402000050010000060000000000000000040000  # 2896 GetProperty
+3c00020000000000  # 2898 FreeGC pad
+2b000100  # 2899 GetInputFocus

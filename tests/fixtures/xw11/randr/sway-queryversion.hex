@@ -1,0 +1,6 @@
+# Captured 2026-09-10 against Xwayland 24.1.10 under sway:
+# RANDR.QueryVersion's reply to xrandr 1.5.3's ask for 1.6 --
+# major 1, minor 6. Every xrandr invocation sends it first, and
+# the box's own :355 answered the same two numbers
+# [recon/wire.md 6], which is why one fixture serves every rig.
+01000a0000000000010000000600000000000000000000000000000000000000

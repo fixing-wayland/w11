@@ -1,0 +1,22 @@
+# `xrandr -s 800x600`, measured 2026-09-10 (cap1.log connection 11, requests
+# 11-14): the RandR 1.1 path, with NO grab at all.
+#   GetScreenInfo(root)
+#   ChangeWindowAttributes(root, CWEventMask, StructureNotify)
+#   RANDR.SelectInput(root, enable=1)   <- the only path that ever selects
+#   RANDR.SetScreenConfig(root, ts 0, config_ts 0x3163dfd0, sizeID 1,
+#                         rotation 1, rate 0)
+# sizeID 1 is the second entry of that GetScreenInfo table, 800x600.
+#
+# On this rig it SUCCEEDED (exit 0): the reply was
+# `01000e0000000000 6de06331 d0df6331 34020000 0000...` -- status 0, a new
+# timestamp, the config timestamp, the root and subpixel 0 -- and Xwayland
+# resized its own screen to 800x600 (a ConfigureNotify on the root and an
+# RRScreenChangeNotify followed). What it did NOT do is move the compositor's
+# output, which is the half this proxy adds. tools.md 11 row 64 measured exit 1
+# for `-s 1280x1024`, a size not in the table, refused client-side before the
+# wire [recon/env.md 2.4] -- the proxy inherits that refusal, because the list
+# xrandr checks is upstream's and passes through.
+8b05020034020000
+02000400340200000008000000000200
+8b0403003402000001000000
+8b0206003402000000000000d0df63310100010000000000

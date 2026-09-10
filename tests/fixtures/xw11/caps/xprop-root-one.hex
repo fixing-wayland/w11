@@ -1,0 +1,27 @@
+# xp-root-one xprop -root _NET_CLIENT_LIST
+# from recon/tools/caps/xwl.jsonl line 3324 (MARK), connection 48; Xwayland
+# 24.1.10 under headless sway, 2026-09-10. Rebuilt from the decoded capture
+# by scratchpad/b3/mkcaps.py: every CORE request is byte-exact against the
+# layout of recon/wire.md 4.1-4.3, and an extension request whose body the
+# capture decoded only the head of is zero-padded to its recorded length and
+# marked `pad`.
+# ROOT 0x234
+# ATOM 0 WM_COLORMAP_WINDOWS
+# ATOM 0 _NET_WM_ICON
+# ATOM 234 WM_PROTOCOLS
+# ATOM 237 UTF8_STRING
+# ATOM 266 WM_STATE
+# ATOM 307 _NET_CLIENT_LIST
+620005000c0000004249472d5245515545535453  # 3327 QueryExtension
+85000100  # 3329 BIG-REQUESTS.Enable pad
+370005000000e000340200000000000000000000  # 3331 CreateGC pad
+1400060034020000170000001f0000000000000000e1f505  # 3332 GetProperty
+6200050009000000584b4559424f415244000000  # 3334 QueryExtension
+8700020001000000  # 3336 XKEYBOARD.UseExtension pad
+100105000b000000555446385f535452494e4700  # 3338 InternAtom
+1001070013000000574d5f434f4c4f524d41505f57494e444f575300  # 3340 InternAtom
+100105000c000000574d5f50524f544f434f4c53  # 3342 InternAtom
+100105000c0000005f4e45545f574d5f49434f4e  # 3344 InternAtom
+1001040008000000574d5f5354415445  # 3346 InternAtom
+10010600100000005f4e45545f434c49454e545f4c495354  # 3348 InternAtom
+140006003402000033010000000000000000000048e80100  # 3350 GetProperty

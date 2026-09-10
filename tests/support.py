@@ -365,8 +365,20 @@ class HeadlessSway:
             "xwayland enable\n"
             "default_border none\n")
 
+    #: The second head, for the tests that need more than one output. The
+    #: wlroots headless backend makes the outputs (`WLR_HEADLESS_OUTPUTS`) and
+    #: the config line places the second one, because sway's auto-arranger
+    #: otherwise puts it where it likes and a test asserting a position would be
+    #: asserting sway's mood. Measured 2026-09-10: with `outputs=2` sway reports
+    #: HEADLESS-2 at x=1280 and HEADLESS-1 at x=2560, and Xwayland pairs its
+    #: crtcs the other way round -- which is exactly why anything reading them
+    #: takes the NAME out of GetOutputInfo and never an order.
+    SECOND_OUTPUT = "output HEADLESS-2 mode 1280x720 position 1280 0\n"
+
     def __init__(self, prefix, extra_conf="", extra_env=None,
-                 need_display=True):
+                 need_display=True, outputs=1):
+        if outputs > 1:
+            extra_conf = self.SECOND_OUTPUT + extra_conf
         self.rtdir = tempfile.mkdtemp(prefix=prefix)
         os.chmod(self.rtdir, 0o700)
         conf = os.path.join(self.rtdir, "sway.conf")
@@ -383,6 +395,8 @@ class HeadlessSway:
             # dodge the nixpkgs sway wrapper's dbus-run-session fallback
             DBUS_SESSION_BUS_ADDRESS="unix:path=%s/no-bus" % self.rtdir,
         )
+        if outputs > 1:
+            self.env["WLR_HEADLESS_OUTPUTS"] = str(outputs)
         if callable(extra_env):
             extra_env = extra_env(self.rtdir)
         self.env.update(extra_env or {})
@@ -2224,6 +2238,184 @@ class _FakeWire:
             self.sock.sendall(data)
 
 
+# -- the RandR side of the fake server -----------------------------------------
+#
+# Every byte below was measured. `tests/fixtures/xw11/randr/` holds the replies
+# a real Xwayland 24.1.10 under sway, and a real Xvfb 21.1.22, gave to the reads
+# the proxy's own connection makes -- captured 2026-09-10 through a recording
+# forwarder (scratchpad/b7/rec.py). Serving those bytes rather than packing
+# fresh ones is what makes a parser test a test of the parser: a fake that
+# built its own replies from the same struct format the parser reads would
+# agree with any offset error in either.
+
+RANDR_FIXTURES = os.path.join(FIXTURE_DIR, "xw11", "randr")
+
+
+def randr_fixture(name: str) -> bytes:
+    """One `<name>.hex` out of the RandR fixture directory: `#` comments
+    dropped, the rest one packet's worth of hex."""
+    raw = []
+    with open(os.path.join(RANDR_FIXTURES, name + ".hex")) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                raw.append(line)
+    return bytes.fromhex("".join(raw))
+
+
+def restamp(pkt: bytes, seq: int) -> bytes:
+    """A captured reply with this connection's sequence in bytes 2-3. Every
+    other byte is the server's own."""
+    return pkt[:2] + struct.pack("<H", seq & 0xFFFF) + pkt[4:]
+
+
+class RandrTables:
+    """What a `FakeUpstream` answers the RandR minors with.
+
+    Three rigs, all measured on this box on 2026-09-10:
+
+    * `"sway"` -- one output, `HEADLESS-1` 1280x720, crtc 0x20, output 0x21,
+      sixteen modes 0x41..0x50, no primary. RANDR major 139.
+    * `"sway2"` -- `WLR_HEADLESS_OUTPUTS=2`: crtcs 0x20 and 0x22, outputs 0x21
+      (`HEADLESS-2`, at x=1280) and 0x23 (`HEADLESS-1`, at x=2560). R2's rig.
+    * `"xvfb"` -- no compositor at all: one output called `screen`, one mode
+      whose dot clock is zero, RANDR major 140.
+    * `"vnc"` -- the box's own :355 with one TigerVNC screen `VNC-0`, crtc 0x3a,
+      output 0x3b: the rig `tests/fixtures/xw11/xrandr-mode-write.hex` came off,
+      and the one rig whose resources reply is reconstructed rather than
+      captured (its fixture's header says which of its fields are measured).
+
+    The write minors behave the way that server behaved: `SetOutputPrimary`,
+    `CreateMode` and `AddOutputMode` succeed and take effect [recon/env.md 2.4],
+    and **`SetScreenSize` answers `BadMatch` minor 7 with `bad` = the root** --
+    which is what makes "the proxy consumed it" a claim a test can prove, since
+    a SetScreenSize that reached this server would come back as that error.
+    """
+
+    #: The root of the setup `FakeXServer` hands out, which is what Xwayland
+    #: puts in the `bad` field of that BadMatch (0x234 on the real rig).
+    ROOT = FakeXServer.ROOTS[0]
+
+    #: minor -> the fixture that answers it, per rig
+    READS = {
+        "sway": {0: "sway-queryversion", 8: "sway-screenresources",
+                 25: "sway-screenresources-current",
+                 5: "sway-screeninfo", 6: "sway-screensizerange",
+                 31: "sway-outputprimary", 23: "sway-crtcgamma",
+                 27: "sway-crtctransform", 28: "sway-panning",
+                 42: "sway-monitors"},
+        "sway2": {0: "sway-queryversion", 8: "sway2-screenresources-current",
+                  25: "sway2-screenresources-current",
+                  6: "sway-screensizerange", 31: "sway2-outputprimary",
+                  5: "sway-screeninfo", 23: "sway-crtcgamma",
+                  27: "sway-crtctransform", 28: "sway-panning",
+                  42: "sway-monitors"},
+        "xvfb": {0: "sway-queryversion", 8: "xvfb-screenresources", 25: "xvfb-screenresources",
+                 5: "xvfb-screeninfo", 6: "sway-screensizerange",
+                 31: "xvfb-outputprimary"},
+        "vnc": {0: "sway-queryversion", 8: "vnc-screenresources-current",
+                25: "vnc-screenresources-current",
+                6: "sway-screensizerange", 31: "vnc-outputprimary"},
+    }
+    #: output id -> fixture, crtc id -> fixture, per rig
+    OUTPUTS = {
+        "sway": {0x21: "sway-outputinfo"},
+        "sway2": {0x21: "sway2-outputinfo-21", 0x23: "sway2-outputinfo-23"},
+        "xvfb": {0x3C: "xvfb-outputinfo"},
+        "vnc": {0x3B: "vnc-outputinfo"},
+    }
+    CRTCS = {
+        "sway": {0x20: "sway-crtcinfo"},
+        "sway2": {0x20: "sway2-crtcinfo-20", 0x22: "sway2-crtcinfo-22"},
+        "xvfb": {0x3B: "xvfb-crtcinfo"},
+        "vnc": {0x3A: "vnc-crtcinfo"},
+    }
+
+    def __init__(self, rig="sway"):
+        self.rig = rig
+        self.reads = dict(self.READS[rig])
+        self.outputs = dict(self.OUTPUTS[rig])
+        self.crtcs = dict(self.CRTCS[rig])
+        #: every write minor this server was asked for, in order
+        self.writes = []
+        #: every READ minor, in order: what a test asks when the claim is that
+        #: a batch did NOT go to the upstream for its tables
+        self.reads_done = []
+        #: what SetOutputPrimary last named, the way Xwayland really keeps it
+        self.primary = 0
+        #: modes CreateMode minted, and what AddOutputMode attached where
+        self.created = []
+        self.added = []
+        #: turn the measured BadMatch off, for the test that wants to see a
+        #: SetScreenSize that was NOT consumed reach a server that takes it
+        self.screen_size_refuses = True
+
+    def reply(self, name, seq):
+        return restamp(randr_fixture(name), seq)
+
+    def dispatch(self, server, conn, minor, payload, seq) -> bool:
+        """True when this table answered. Anything it does not know falls
+        through to `FakeXServer._dispatch`, which is a `BadRequest` -- the same
+        thing a server that lacks the minor would say."""
+        if minor in self.reads:
+            self.reads_done.append(minor)
+            conn.sendall(self.reply(self.reads[minor], seq))
+            return True
+        if minor == 9 and len(payload) >= 4:                # GetOutputInfo
+            self.reads_done.append(minor)
+            (output,) = struct.unpack_from("<I", payload, 0)
+            name = self.outputs.get(output)
+            if name is None:
+                server._error(conn, seq, 0, 0)              # BadOutput-ish
+                return True
+            conn.sendall(self.reply(name, seq))
+            return True
+        if minor == 20 and len(payload) >= 4:               # GetCrtcInfo
+            self.reads_done.append(minor)
+            (crtc,) = struct.unpack_from("<I", payload, 0)
+            name = self.crtcs.get(crtc)
+            if name is None:
+                server._error(conn, seq, 0, 0)
+                return True
+            conn.sendall(self.reply(name, seq))
+            return True
+        if minor == 7:                                      # SetScreenSize
+            self.writes.append(("SetScreenSize", bytes(payload)))
+            if self.screen_size_refuses:
+                # code 8 BadMatch, bad = the root, minor 7, major = RANDR's:
+                # `000815003402000007008b00...` on the real rig
+                # (scratchpad/b7/cap1.log connection 3, the reply to request 21)
+                major = server.extensions.get("RANDR", (0, 0, 0))[0]
+                conn.sendall(struct.pack("<BBHIHB21x", 0, 8, seq & 0xFFFF,
+                                         self.ROOT, 7, major))
+            return True
+        if minor == 30 and len(payload) >= 8:               # SetOutputPrimary
+            (self.primary,) = struct.unpack_from("<I", payload, 4)
+            self.writes.append(("SetOutputPrimary", self.primary))
+            return True
+        if minor == 16:                                     # CreateMode
+            self.created.append(bytes(payload))
+            self.writes.append(("CreateMode", len(self.created)))
+            conn.sendall(struct.pack("<BxHII20x", 1, seq & 0xFFFF, 0,
+                                     0x100 + len(self.created)))
+            return True
+        if minor == 18 and len(payload) >= 8:               # AddOutputMode
+            self.added.append(struct.unpack_from("<II", payload, 0))
+            self.writes.append(("AddOutputMode", self.added[-1]))
+            return True
+        if minor == 4:                                      # SelectInput
+            # No reply on a real server, and the only path that ever sends it
+            # is `xrandr -s` [recon/wire.md 6]. A fake that answered it
+            # BadRequest would make the RandR 1.1 path untestable.
+            self.writes.append(("SelectInput", bytes(payload)))
+            return True
+        if minor == 21:                                     # SetCrtcConfig
+            self.writes.append(("SetCrtcConfig", bytes(payload)))
+            conn.sendall(struct.pack("<BBHII20x", 1, 0, seq & 0xFFFF, 0, 0))
+            return True
+        return False
+
+
 class FakeUpstream(FakeXServer):
     """FakeXServer grown into something a proxy can sit in front of."""
 
@@ -2243,6 +2435,11 @@ class FakeUpstream(FakeXServer):
         self._last_request = time.monotonic()
         self._idle_seconds = None
         self._idle_thread = None
+        #: What the RandR read minors answer, and what the write minors do.
+        #: Loaded from the measured replies of tests/fixtures/xw11/randr/; a
+        #: test that wants another rig assigns `RandrTables("sway2")` or
+        #: `RandrTables("xvfb")` over it.
+        self.randr = RandrTables()
         super().__init__(sockdir, num=num, cookie=cookie,
                          accept_empty=accept_empty)
 
@@ -2398,6 +2595,10 @@ class FakeUpstream(FakeXServer):
         return struct.pack("<BBHI24x", 1, per, seq, len(body) // 4) + body
 
     def _dispatch(self, conn, opcode, dbyte, payload, seq):
+        randr_major = self.extensions.get("RANDR", (0, 0, 0))[0]
+        if randr_major and opcode == randr_major:
+            if self.randr.dispatch(self, conn, dbyte, payload, seq):
+                return
         if opcode == 2:         # ChangeWindowAttributes -- the root selection
             win, mask = struct.unpack_from("<II", payload, 0)
             values = struct.unpack_from("<%dI" % ((len(payload) - 8) // 4),
@@ -2438,6 +2639,14 @@ class FakeUpstream(FakeXServer):
         if opcode == 127:       # NoOperation, the CONSUME substitute
             self.noops += 1
             self.log.append(("NoOperation", seq))
+            return
+        if opcode in (36, 37):  # GrabServer / UngrabServer -- no reply at all
+            # Both PASS through the proxy and both open and close a RandR
+            # batch on the way (design section 7.4), so every RandR test sends
+            # them; a server that answered them BadRequest would be the fake
+            # disagreeing with X about the two requests the batch is made of.
+            self.log.append(("GrabServer" if opcode == 36 else "UngrabServer",
+                             seq))
             return
         if opcode in (3, 15):   # GetWindowAttributes, QueryTree
             # Logged and then answered by FakeXServer as before. These two plus
@@ -2785,3 +2994,123 @@ class FakeBackendEvents(FakeBackend):
             if token is None:
                 return
             yield token
+
+
+# -- the layout backend double -------------------------------------------------
+#
+# `wxrandr`'s backends are the six-method contract of recon/seams.md 6.2 --
+# `name`, `snapshot`, `predicted_dims`, `verify`, `apply`, `close` -- and the
+# proxy calls exactly those five methods on whichever one the session has. This
+# is that contract with a log, so a test can ask what the proxy asked the
+# compositor for without a compositor.
+
+
+def randr_mode(w, h, hz=60.0, preferred=False, mode_id=""):
+    """A `wxrandr.core.Mode` with a real refresh, in the shape a compositor's
+    mode list has: `refresh_mhz` in thousandths, no modeline."""
+    from wxrandr import core
+    return core.Mode(w=w, h=h, refresh_mhz=int(round(hz * 1000)),
+                     preferred=preferred, mode_id=mode_id)
+
+
+def randr_output(name, x=0, y=0, w=1280, h=720, active=True, modes=None,
+                 current=None, transform="normal", scale=1.0,
+                 virtual_modes=False):
+    """A `wxrandr.core.OutputState`, the thing every backend's `snapshot`
+    returns and `build_targets` matches stanzas against."""
+    from wxrandr import core
+    modes = list(modes if modes is not None else [randr_mode(w, h,
+                                                             preferred=True)])
+    if current is None and active and modes:
+        current = modes[0]
+    return core.OutputState(name=name, active=active, x=x, y=y, w=w, h=h,
+                            scale=scale, transform=transform, modes=modes,
+                            current=current, virtual_modes=virtual_modes)
+
+
+class FakeRandrBackend:
+    """One `wxrandr` layout backend, recorded.
+
+    `apply` keeps the `Target` list it was given and the `persistent` it was
+    called with -- the second is the whole of `PersistentNever`'s claim -- and
+    returns the outputs it was told to return next, which is what a real
+    `apply` does (it hands back the FRESH snapshot, recon/seams.md 6.2).
+
+    `slow` is Mutter's five-second `ApplyMonitorsConfig` wait in miniature
+    [recon/seams.md 6.2]: it is why the apply happens on a worker thread at all,
+    and `ApplyOffLoop` measures that the loop keeps forwarding through it.
+    `fail` is the `Fatal` a resolver or an apply raises, which is what design
+    section 7.5 turns into an X error.
+    """
+
+    name = "fake-randr"
+
+    def __init__(self, outputs=None, slow=0.0, fail=None, verify_fail=None,
+                 after=None):
+        self.outputs = list(outputs) if outputs else [randr_output("HEADLESS-1")]
+        self.slow = slow
+        self.fail = fail
+        self.verify_fail = verify_fail
+        self.after = after           # the snapshot `apply` hands back, if any
+        self.snapshots = 0
+        self.applies = []            # one entry per apply: the target list
+        self.persistent = []         # the `persistent=` of each apply
+        self.verified = []
+        self.closed = False
+        self.started = threading.Event()
+
+    def snapshot(self, state):
+        self.snapshots += 1
+        return list(self.outputs)
+
+    def predicted_dims(self, t, state):
+        from wxrandr import core
+        return core.predicted_dims(t, state)
+
+    def verify(self, state, targets):
+        self.verified.append(list(targets))
+        if self.verify_fail is not None:
+            raise self.verify_fail
+
+    def apply(self, state, targets, persistent=False):
+        self.started.set()
+        self.persistent.append(persistent)
+        if self.slow:
+            time.sleep(self.slow)
+        if self.fail is not None:
+            raise self.fail
+        self.applies.append(list(targets))
+        return list(self.after if self.after is not None else self.outputs)
+
+    def close(self):
+        self.closed = True
+
+    # -- what a test asks it --------------------------------------------------
+
+    @property
+    def targets(self):
+        """The targets of the ONE apply, and an assertion error's worth of
+        detail when there was not exactly one."""
+        assert len(self.applies) == 1, "%d applies, not 1" % len(self.applies)
+        return self.applies[0]
+
+    def target(self, name):
+        for t in self.targets:
+            if t.name == name:
+                return t
+        raise AssertionError("no target for %r in %r"
+                             % (name, [t.name for t in self.targets]))
+
+
+def install_fake_randr(server, backend, statedir):
+    """Give a proxy that layout backend and a state file of its own, without
+    letting `Applier.ensure` go looking for a compositor. `statedir` is a
+    directory the caller owns: `State.save()` really writes, and a test that
+    let it write to the session's own store would edit the box's layout."""
+    from wxrandr import core
+    server.randr.backend = backend
+    server.randr.name = backend.name
+    server.randr.tried = True
+    server.randr.state = core.State("fake-randr",
+                                    path=os.path.join(statedir, "state.json"))
+    return backend

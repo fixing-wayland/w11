@@ -1,0 +1,21 @@
+# *** RECONSTRUCTED, not captured. *** Everything else in this directory is
+# bytes a real server sent; this one is not, and the header says so where a
+# reader will trip over it.
+#
+# recon/wire/proxy.py logged this reply's LENGTH (564 bytes, connection 2
+# request 12 of trace_rr2.log) and not its body, and the VNC screen that
+# produced it is not on this box any more. What is measured about the rig, and
+# is packed here in the layout of recon/wire.md 6, is: one crtc 0x3a, one
+# output 0x3b, config timestamp 0x304a204b (all three from the requests and the
+# other two replies of that same connection), mode 0x3f = 1680x1050 (the mode
+# `xrandr --output VNC-0 --mode 1680x1050` selected) and mode 0x42 = 1280x1024
+# (the crtc's current mode, from the GetCrtcInfo reply's width and height).
+#
+# The other eleven mode ids the measured GetOutputInfo lists -- 0x3c, 0x3d,
+# 0x3e, 0x40, 0x41, 0x43..0x48 -- are left out because their sizes were never
+# captured, and inventing them would put numbers in a fixture directory whose
+# whole point is that it holds none. The two here are the two the capture's
+# own command names. Dot clocks are zero, so a refresh reads as 0.0 and the
+# stanza built from it carries no rate -- which is the honest answer for a
+# modeline nobody recorded.
+01000c00170000004b204a304b204a30010001000200120000000000000000003a0000003b0000003f00000090061a0400000000000000000000000000000000000009000000000042000000000500040000000000000000000000000000000000000900000000003136383078313035303132383078313032340000

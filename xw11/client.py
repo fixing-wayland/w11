@@ -61,6 +61,9 @@ CLOSED = "CLOSED"
 #: reply is never coming (design section 2.3).
 _SEQ_WINDOW = 32768
 
+#: "no entry", where None is a value a book really holds (`ClientConn.holding`).
+_NOTHING = object()
+
 
 #: Where the window a request names lives, which is the axis design section 3.2
 #: writes its table on. The three names are the three fields of `policy.Row`, so
@@ -135,6 +138,24 @@ class ClientConn:
         self.editors = {}
         self.masks = {}
         self.batch = None
+        #: an open RandR grab's reads are paused while its layout is applying
+        #: (design section 7.4): the client's `GetInputFocus` sync after
+        #: `UngrabServer` must be answered AFTER the screen moved, the way it is
+        #: on a server that did the work itself. It gates the FRAMER as well as
+        #: the selector, because a client writes `UngrabServer` and the sync
+        #: after it in one go and both are in `in_down` by the time the commit
+        #: starts (measured: xrandr sends requests 23 and 24 back to back
+        #: [recon/wire.md 6]).
+        self.reads_paused = False
+        #: sequence -> None while a locally answered reply is being held back,
+        #: then the packet itself once the substitute's own reply has come back
+        #: (`hold_reply`). The RandR batches of one are the callers: X answers
+        #: `SetCrtcConfig` and `SetScreenConfig` after the crtc has moved, so a
+        #: script whose next line reads the geometry reads the new one.
+        self.holding = {}
+        #: packets that may not go out before every reply this client is still
+        #: owed (`write_after_replies`)
+        self.tail = []
         self.held = set()
         self.buttons = set()
         self.deferred = collections.deque()
@@ -158,7 +179,7 @@ class ClientConn:
         """Bytes from the client. Whatever can be framed is framed; the rest
         waits, however small the trickle."""
         self.in_down += data
-        while not self.closing:
+        while not self.closing and not self.reads_paused:
             if self.state == SETUP:
                 if not self._setup_request():
                     return
@@ -349,6 +370,64 @@ class ClientConn:
         self.placeholders[self.seq if seq is None else seq] = bytes(packet)
         self.out_up += wire.GET_INPUT_FOCUS
 
+    def hold_reply(self, seq: int) -> None:
+        """Do not give this sequence's locally answered reply to the client when
+        the substitute's own reply comes back: keep it until `release_reply`.
+
+        Nothing later can overtake it: a hold is only taken with the client's
+        reads paused (`Server.pause_reads`), so no request of its own is framed
+        while it is held and no reply of its own can be answered. Cost: exactly
+        the time the work takes -- 1-44 ms across eleven applies on this box's
+        sway, up to Mutter's five seconds [recon/seams.md 6.2]."""
+        self.holding[seq] = None
+
+    def release_reply(self, seq: int, packet: bytes = None) -> None:
+        """Let it go, as it was or replaced by `packet` (the refusal, for the
+        paths whose failure is a reply of its own shape). A release for a
+        sequence whose substitute has not come back yet leaves `packet` waiting
+        in the placeholder, so the client still gets exactly one answer."""
+        waiting = self.holding.pop(seq, _NOTHING)
+        if waiting is _NOTHING:
+            return
+        if waiting is None:
+            if packet is None:
+                return
+            if seq in self.placeholders:
+                self.placeholders[seq] = bytes(packet)
+            else:
+                self.out_down += packet
+                self._flush_tail()
+            return
+        self.out_down += packet if packet is not None else waiting
+        self._flush_tail()
+
+    def write_after_replies(self, packet: bytes) -> None:
+        """Write `packet` once every reply this client is still owed has gone
+        out, and not before.
+
+        A RandR refusal carries the sequence of the request that CLOSED the
+        batch, and every `SetCrtcConfig` before it was answered through a
+        placeholder -- a round trip. A client that pipelined its whole grab in
+        one write can still have those replies in flight when the apply fails,
+        and a packet whose 16-bit sequence goes BACKWARDS past a reply libxcb
+        has already read makes libxcb widen it by 65536 (`xcb_in.c:
+        read_packet`), after which every later reply reads as "already
+        completed" and the connection is torn down -- measured 2026-09-10, and
+        the reason `randr._fail` carries the closing sequence at all. `xrandr`
+        itself cannot get here (`XRRSetCrtcConfig` blocks on its reply, so its
+        grab is never in flight), but a client that pipelines is a client X
+        served."""
+        if self.placeholders or self.holding:
+            self.tail.append(bytes(packet))
+        else:
+            self.out_down += packet
+
+    def _flush_tail(self) -> None:
+        if self.tail and not self.placeholders and not self.holding:
+            for pkt in self.tail:
+                self.out_down += pkt
+            self.tail = []
+
     def edit(self, fn, seq: int = None) -> None:
         """The request is forwarded and its reply rewritten on the way back. The
         sequence never moves; a length-changing edit rewrites the length word
@@ -368,11 +447,14 @@ class ClientConn:
             self.editors[self.seq] = fn
 
     def _forget_stale(self) -> None:
-        if not self.editors and not self.placeholders and not self._qext_pending:
+        if not self.editors and not self.placeholders and not self._qext_pending \
+                and not self.holding:
             return
-        for book in (self.editors, self.placeholders, self._qext_pending):
+        for book in (self.editors, self.placeholders, self._qext_pending,
+                     self.holding):
             for seq in [s for s in book if (self.seq - s) % 0x10000 > _SEQ_WINDOW]:
                 del book[seq]
+        self._flush_tail()
 
     # -- the server's side ----------------------------------------------------
 
@@ -449,6 +531,17 @@ class ClientConn:
             return False
         if self.server is not None:
             self.server.log_packet(self, code, seq, total)
+        if placeholder is not None and seq in self.holding:
+            # Ours is not due yet (`hold_reply`): the substitute's reply is
+            # dropped here all the same -- it is the round trip that fixed the
+            # order, and its 32 bytes are not the client's.
+            self.holding[seq] = placeholder
+            del self.in_up[:32]
+            self.raw_drop = total - 32
+            self.editors.pop(seq, None)
+            if self.raw_drop:
+                self._drop_raw()
+            return True
         if placeholder is not None:
             # The substitute's own reply, dropped where it stands, and ours
             # written in its place. A GetInputFocus reply is 32 bytes exactly,
@@ -460,6 +553,7 @@ class ClientConn:
             self.raw_drop = total - 32
             self.out_down += placeholder
             self.editors.pop(seq, None)
+            self._flush_tail()
             if self.raw_drop:
                 self._drop_raw()
             return True
@@ -468,6 +562,9 @@ class ClientConn:
             self.editors.pop(seq, None)
         if editor is None:
             head = bytes(self.in_up[:32])
+            if code > 1 and self._drop_root_property(head):
+                del self.in_up[:32]
+                return True
             if code == 1 and seq in self._qext_pending:
                 # A QueryExtension reply is 32 bytes exactly, so the whole of it
                 # is here even on the streaming path -- which is the path it
@@ -486,6 +583,35 @@ class ClientConn:
             self._learn_extension(name, pkt)
         self.out_down += self._apply_editor(editor, pkt)
         return True
+
+    def _drop_root_property(self, pkt: bytes) -> bool:
+        """Whether this event is upstream's root `PropertyNotify` for a name the
+        proxy synthesizes -- in which case the client never sees it.
+
+        The compositor is the single source for the seven names of
+        `policy.OVERRIDES` (design section 4.6): the proxy answers
+        `GetProperty` for them out of the registry and batch 5 writes their
+        `PropertyNotify` itself. Letting upstream's own through as well means
+        `xprop -spy -root _NET_ACTIVE_WINDOW` prints every focus change twice,
+        once for the X plane's change and once for the compositor's.
+
+        An event consumes no sequence number [recon/wire.md 3.2a], so dropping
+        one costs nothing downstream -- which is the whole reason this is the
+        one packet class a proxy may drop at all.
+
+        A `SendEvent`-injected copy (bit 0x80) is dropped too: a client that
+        sent it to the root was asking the WINDOW MANAGER to notice, and the
+        window manager here is the compositor, not the reader.
+        """
+        if pkt[0] & 0x7F != wire.EV_PROPERTY_NOTIFY or self.setup is None:
+            return False
+        own = getattr(self.server, "own", None) if self.server is not None else None
+        if own is None:
+            return False
+        win, atom = struct.unpack_from("<II", pkt, 4)
+        if win not in self.setup.roots:
+            return False
+        return own.atom_names.get(atom) in policy.OVERRIDES
 
     def _drop_raw(self) -> None:
         """Bytes of a substituted reply's body that are here already. Whatever

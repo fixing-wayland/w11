@@ -1,0 +1,8 @@
+# Captured 2026-09-10 with WLR_HEADLESS_OUTPUTS=2: two heads, sway
+# placing HEADLESS-2 at 1280 and HEADLESS-1 at 2560. Xwayland pairs
+# them the other way round -- output 0x21 on crtc 0x20 is HEADLESS-2 at
+# x=1280 and output 0x23 on crtc 0x22 is HEADLESS-1 at x=2560 -- which
+# is why a proxy takes output NAMES from GetOutputInfo and never
+# assumes an order. This is R2's rig (scratchpad/b7/cap2.log conn 14).
+# GetCrtcInfo(0x20): 1280x720 at x=1280, mode 0x43, output 0x21.
+01000d0002000000ddb06531000500000005d0024300000001003f00010001002100000021000000

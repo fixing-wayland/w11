@@ -1,10 +1,13 @@
 """What the proxy does with a request, as data.
 
-Five classes (design section 3.1), and in this stage every row is PASS: stage 1
-of the plan is a proxy that changes not one byte, and the parity oracle through
-it is the gate that says so. The table is here now, complete and inert, because
-the batches that follow only change rows -- never the shape of the lookup, and
-never `xw11/server.py`'s loop.
+Five classes (design section 3.1). The table's shape never changes -- the
+batches after this one only turn rows on, never the lookup and never
+`xw11/server.py`'s loop -- and the rows that are on today are the READ side:
+the seven requests of design section 3.2's first table, on a shadow and on the
+root. Everything else is still PASS, including every request on a real X
+window, which is what keeps `W11_PARITY_PROXY=1 sh scripts/parity-oracle.sh`
+byte-identical to the direct run on a box with no Wayland session (a proxy with
+nothing to shadow consults no table at all).
 
 * **PASS** -- forwarded byte for byte; the reply, if any, streams back untouched.
 * **EDIT** -- forwarded; the reply is rewritten on the way back. The sequence
@@ -35,6 +38,13 @@ BATCH = "BATCH"
 
 CLASSES = (PASS, EDIT, CONSUME, ANSWER, BATCH)
 
+#: What a BATCH handler returns when the request must still be forwarded byte
+#: for byte after the batch has recorded it: `GrabServer`, `UngrabServer` and
+#: `SetOutputPrimary` are all PASS **and** a marker (design section 7.3), and a
+#: class alone cannot say both. `None` from a BATCH handler is CONSUME and bytes
+#: are ANSWER, which is the two halves design section 3.1 splits BATCH into.
+FORWARD = "FORWARD"
+
 
 class Row(NamedTuple):
     """One request, in the three places design section 3.2 distinguishes:
@@ -54,31 +64,54 @@ PASS_ROW = Row()
 
 POLICY = {
     2: PASS_ROW,     # ChangeWindowAttributes -- event masks (section 5.4)
-    3: PASS_ROW,     # GetWindowAttributes
+    3: Row(shadow=ANSWER),          # GetWindowAttributes (section 4.5)
     4: PASS_ROW,     # DestroyWindow
     8: PASS_ROW,     # MapWindow
     10: PASS_ROW,    # UnmapWindow
     12: PASS_ROW,    # ConfigureWindow
-    14: PASS_ROW,    # GetGeometry
-    15: PASS_ROW,    # QueryTree
+    14: Row(shadow=ANSWER),         # GetGeometry (section 4.5)
+    15: Row(shadow=ANSWER, root=EDIT),      # QueryTree (section 3.2)
     16: PASS_ROW,    # InternAtom -- always PASS: atoms are server-global
     17: PASS_ROW,    # GetAtomName -- likewise (recon/wire.md 7.2)
     18: PASS_ROW,    # ChangeProperty
     19: PASS_ROW,    # DeleteProperty
-    20: PASS_ROW,    # GetProperty
-    21: PASS_ROW,    # ListProperties
+    20: Row(shadow=ANSWER, root=ANSWER),    # GetProperty (sections 4.6, 4.7)
+    21: Row(shadow=ANSWER, root=EDIT),      # ListProperties
     25: PASS_ROW,    # SendEvent -- the EWMH ClientMessages (section 3.4)
-    36: PASS_ROW,    # GrabServer -- opens a RandR batch (section 7.4)
-    37: PASS_ROW,    # UngrabServer -- commits it
+    36: Row(BATCH, BATCH, BATCH),   # GrabServer -- opens a RandR batch (7.4)
+    37: Row(BATCH, BATCH, BATCH),   # UngrabServer -- commits it
     38: PASS_ROW,    # QueryPointer
-    40: PASS_ROW,    # TranslateCoordinates
+    40: Row(ANSWER, ANSWER, ANSWER),  # TranslateCoordinates (section 4.5)
     41: PASS_ROW,    # WarpPointer
     42: PASS_ROW,    # SetInputFocus
-    43: PASS_ROW,    # GetInputFocus
+    43: Row(EDIT, EDIT, EDIT),      # GetInputFocus -- it names no window
     98: PASS_ROW,    # QueryExtension -- watched, and DRI3's reply edited
     113: PASS_ROW,   # KillClient
     127: PASS_ROW,   # NoOperation
 }
+
+#: `GetProperty` on the ROOT is ANSWER for every target rather than for the
+#: override names alone, because the class is decided by the row and the NAME
+#: is only readable once the handler has the frame. The handler answers bytes
+#: for an override, registers an editor of its own for `_NET_SUPPORTED`, and
+#: returns None for everything else -- which `Server.handle` turns back into a
+#: plain forward (design section 3.2's "PASS otherwise"). The cost is one dict
+#: lookup per root `GetProperty`; `xprop -root` sends 15 of them
+#: [recon/tools.md 6].
+#:
+#: `TranslateCoordinates` is ANSWER wherever its SOURCE is, for the same
+#: reason: the request carries a SECOND window at offset 8 [recon/wire.md 4.1]
+#: and `policy.WINDOW_FIELD` reads only the first, so `TranslateCoordinates(src
+#: = root, dst = shadow)` -- which is the inverse direction design section 4.5
+#: names -- looks like a plain root request until the handler has the frame.
+#: The handler answers only when one of the two IS a shadow and returns None
+#: otherwise, which forwards. wmctrl sends one per window it lists
+#: [recon/tools.md 5], so the cost is one dict lookup per listed window.
+
+#: The RandR writes design section 7.3 owns. Every one of them is BATCH in all
+#: three places: none of them names a window the registry could have minted, so
+#: the row's three fields can never disagree.
+BATCH_ROW = Row(BATCH, BATCH, BATCH)
 
 #: Extension requests, keyed by the extension's NAME (never its major) and minor
 #: opcode. XTEST, RANDR and BIG-REQUESTS are the three the later stages own.
@@ -89,21 +122,24 @@ EXT_POLICY = {
     ("XTEST", 3): PASS_ROW,          # GrabControl
     ("BIG-REQUESTS", 0): PASS_ROW,   # Enable -- always PASS, and always watched
     ("RANDR", 0): PASS_ROW,          # QueryVersion
-    ("RANDR", 2): PASS_ROW,          # SetScreenConfig
+    ("RANDR", 2): BATCH_ROW,         # SetScreenConfig -- a batch of one (7.6)
     ("RANDR", 4): PASS_ROW,          # SelectInput
     ("RANDR", 5): PASS_ROW,          # GetScreenInfo
     ("RANDR", 6): PASS_ROW,          # GetScreenSizeRange
-    ("RANDR", 7): PASS_ROW,          # SetScreenSize
+    ("RANDR", 7): BATCH_ROW,         # SetScreenSize -- recorded, never applied
     ("RANDR", 8): PASS_ROW,          # GetScreenResources
     ("RANDR", 9): PASS_ROW,          # GetOutputInfo
     ("RANDR", 15): PASS_ROW,         # GetOutputProperty
+    ("RANDR", 16): PASS_ROW,         # CreateMode -- Xwayland lists the mode
+    ("RANDR", 18): PASS_ROW,         # AddOutputMode -- and attaches it
     ("RANDR", 20): PASS_ROW,         # GetCrtcInfo
-    ("RANDR", 21): PASS_ROW,         # SetCrtcConfig
+    ("RANDR", 21): BATCH_ROW,        # SetCrtcConfig -- recorded, answered now
     ("RANDR", 23): PASS_ROW,         # GetCrtcGamma
     ("RANDR", 25): PASS_ROW,         # GetScreenResourcesCurrent
+    ("RANDR", 26): BATCH_ROW,        # SetCrtcTransform -- a pure scale, or BadValue
     ("RANDR", 27): PASS_ROW,         # GetCrtcTransform
     ("RANDR", 28): PASS_ROW,         # GetPanning
-    ("RANDR", 30): PASS_ROW,         # SetOutputPrimary
+    ("RANDR", 30): BATCH_ROW,        # SetOutputPrimary -- PASS *and* recorded
     ("RANDR", 31): PASS_ROW,         # GetOutputPrimary
 }
 
@@ -253,6 +289,70 @@ ATOMS = (
     # NOT synthesize (docs/WXPROP.md:103) and the proxy answers zero for
     "_NET_DESKTOP_GEOMETRY", "_NET_FRAME_EXTENTS",
 )
+
+#: The root names the proxy answers from the compositor instead of from
+#: upstream, in the order `ListProperties(root)` appends the ones upstream does
+#: not already have (design section 4.6's table).
+#:
+#: Three things key on this one tuple, which is why it is a tuple and not three:
+#: `GetProperty(root, <name>)` is ANSWERed from the registry **whether or not
+#: upstream has the name** -- sway deletes `_NET_CLIENT_LIST` outright when no X
+#: client is mapped rather than emptying it [recon/env.md 2.7]; `ListProperties`
+#: on the root is EDITed to the union; and upstream's own root `PropertyNotify`
+#: for one of these is DROPPED on the way down, because the compositor is the
+#: single source and `xprop -spy -root _NET_ACTIVE_WINDOW` would otherwise print
+#: every focus change twice (design section 4.6).
+#:
+#: `_NET_SUPPORTED` is deliberately NOT here: its reply is EDITed into a union
+#: of upstream's list and ours, so upstream is still a source for it and a
+#: `PropertyNotify` saying it changed is real news.
+OVERRIDES = (
+    "_NET_CLIENT_LIST", "_NET_CLIENT_LIST_STACKING", "_NET_ACTIVE_WINDOW",
+    "_NET_NUMBER_OF_DESKTOPS", "_NET_CURRENT_DESKTOP", "_NET_DESKTOP_NAMES",
+    "_NET_DESKTOP_GEOMETRY",
+)
+
+#: What the proxy adds to upstream's `_NET_SUPPORTED`, in this order (design
+#: section 4.6's union). The list is every name the proxy answers for or acts
+#: on, and it is ordered by hand rather than sorted so that two runs of `xprop
+#: -root` against the same session print the same bytes.
+#:
+#: It is not decoration. `xdotool get_desktop`, `set_desktop` and
+#: `get_num_desktops` and `wmctrl -d` all read `_NET_SUPPORTED` first and print
+#: "Your windowmanager claims not to support _NET_CURRENT_DESKTOP" and exit 1
+#: when the name is not in it -- five commands that exit 1 on sway today
+#: [recon/tools.md 4.10], and wlroots' Xwayland root names 19 atoms with every
+#: desktop name missing [recon/env.md 2.1].
+SUPPORTED = (
+    # the root set of design section 4.6
+    "_NET_CLIENT_LIST", "_NET_CLIENT_LIST_STACKING", "_NET_ACTIVE_WINDOW",
+    "_NET_NUMBER_OF_DESKTOPS", "_NET_CURRENT_DESKTOP", "_NET_DESKTOP_NAMES",
+    "_NET_DESKTOP_GEOMETRY",
+    # the per-window set of design section 4.4
+    "_NET_WM_NAME", "_NET_WM_PID", "_NET_WM_DESKTOP", "_NET_WM_STATE",
+    "_NET_WM_WINDOW_TYPE", "_NET_FRAME_EXTENTS",
+    # the window types _NET_WM_WINDOW_TYPE is answered with
+    "_NET_WM_WINDOW_TYPE_NORMAL", "_NET_WM_WINDOW_TYPE_DESKTOP",
+    "_NET_WM_WINDOW_TYPE_DOCK", "_NET_WM_WINDOW_TYPE_DIALOG",
+    "_NET_WM_WINDOW_TYPE_TOOLBAR", "_NET_WM_WINDOW_TYPE_MENU",
+    "_NET_WM_WINDOW_TYPE_UTILITY", "_NET_WM_WINDOW_TYPE_SPLASH",
+    "_NET_WM_WINDOW_TYPE_DROPDOWN_MENU", "_NET_WM_WINDOW_TYPE_POPUP_MENU",
+    "_NET_WM_WINDOW_TYPE_TOOLTIP", "_NET_WM_WINDOW_TYPE_NOTIFICATION",
+    "_NET_WM_WINDOW_TYPE_COMBO", "_NET_WM_WINDOW_TYPE_DND",
+    # the _NET_WM_STATE names the proxy reads back and batch 4 routes
+    "_NET_WM_STATE_FULLSCREEN", "_NET_WM_STATE_MAXIMIZED_HORZ",
+    "_NET_WM_STATE_MAXIMIZED_VERT", "_NET_WM_STATE_HIDDEN",
+    "_NET_WM_STATE_STICKY", "_NET_WM_STATE_ABOVE", "_NET_WM_STATE_BELOW",
+    "_NET_WM_STATE_SKIP_TASKBAR", "_NET_WM_STATE_SKIP_PAGER",
+    "_NET_WM_STATE_DEMANDS_ATTENTION", "_NET_WM_STATE_FOCUSED",
+    # the client messages design section 3.4 routes to the backend.
+    # `_NET_ACTIVE_WINDOW` is one of them and is already in the root set above,
+    # where the union takes it from: a name appears in this tuple ONCE, so that
+    # "the order the names are appended in" is a property of the tuple and not
+    # of the de-duplication.
+    "_NET_CLOSE_WINDOW", "_NET_MOVERESIZE_WINDOW", "WM_CHANGE_STATE",
+)
+
 
 #: The predefined atoms the proxy names by id. 1..68 are fixed by the protocol
 #: and interning them would be a round trip for a number that is written in
