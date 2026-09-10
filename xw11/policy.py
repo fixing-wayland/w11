@@ -203,6 +203,101 @@ WANTED_EXTENSIONS = ("BIG-REQUESTS", "XTEST", "RANDR", "XKEYBOARD", "XINERAMA",
                      "Generic Event Extension", "XInputExtension", "DRI3")
 
 
+#: The names the proxy interns on its own connection at open (design section
+#: 2.4 step 3), in one burst, in this order -- which is also the order design
+#: section 4.6's `_NET_SUPPORTED` union appends in, so the union is stable
+#: between two runs of the same tool.
+#:
+#: The first 45 are `wxprop.core._EXTENDED_ATOMS`, exactly and in its order --
+#: the set the native property synthesis already builds and the read side is a
+#: port of (`NativeViewTarget._props()`, wxprop/core.py:529-597); the list is
+#: repeated here rather than imported so that `import xw11` does not pull
+#: wxprop.core's 10 ms in (measured on this box, 2026-09-10) for a proxy that
+#: has not opened a connection yet, and
+#: `tests/test_xw11_upstream.py::AtomsOnce` compares the two tables so they
+#: cannot drift. The rest are the names the proxy needs that the native plane
+#: never had a server to intern in: the two _NET_WM_STATE_* names wmctrl -b
+#: takes and wxprop does not synthesize, the EWMH messages design section 3.4
+#: routes, and the root names of design section 4.6.
+#:
+#: Atoms 1..68 are predefined and are never interned [recon/wire.md 7.2]; they
+#: are in PREDEFINED_ATOMS below with the ids the protocol gives them.
+ATOMS = (
+    # wxprop.core._EXTENDED_ATOMS, in its own order
+    "UTF8_STRING", "WM_STATE", "WM_PROTOCOLS", "WM_DELETE_WINDOW",
+    "WM_TAKE_FOCUS", "_NET_WM_NAME", "_NET_WM_ICON_NAME", "_NET_WM_PID",
+    "_NET_WM_DESKTOP", "_NET_WM_STATE", "_NET_WM_STATE_FULLSCREEN",
+    "_NET_WM_STATE_HIDDEN", "_NET_WM_STATE_STICKY", "_NET_WM_STATE_FOCUSED",
+    "_NET_WM_WINDOW_TYPE", "_NET_WM_WINDOW_TYPE_NORMAL", "_NET_WM_ICON",
+    "_NET_SUPPORTED", "_NET_CLIENT_LIST", "_NET_CLIENT_LIST_STACKING",
+    "_NET_ACTIVE_WINDOW", "_NET_SUPPORTING_WM_CHECK", "_NET_CURRENT_DESKTOP",
+    "_NET_NUMBER_OF_DESKTOPS", "_NET_DESKTOP_NAMES",
+    "_NET_WM_STATE_MAXIMIZED_HORZ", "_NET_WM_STATE_MAXIMIZED_VERT",
+    "_NET_WM_STATE_ABOVE", "_NET_WM_STATE_BELOW",
+    "_NET_WM_STATE_SKIP_TASKBAR", "_NET_WM_STATE_SKIP_PAGER",
+    "_NET_WM_STATE_DEMANDS_ATTENTION", "_NET_WM_WINDOW_TYPE_DESKTOP",
+    "_NET_WM_WINDOW_TYPE_DOCK", "_NET_WM_WINDOW_TYPE_DIALOG",
+    "_NET_WM_WINDOW_TYPE_TOOLBAR", "_NET_WM_WINDOW_TYPE_MENU",
+    "_NET_WM_WINDOW_TYPE_UTILITY", "_NET_WM_WINDOW_TYPE_SPLASH",
+    "_NET_WM_WINDOW_TYPE_DROPDOWN_MENU", "_NET_WM_WINDOW_TYPE_POPUP_MENU",
+    "_NET_WM_WINDOW_TYPE_TOOLTIP", "_NET_WM_WINDOW_TYPE_NOTIFICATION",
+    "_NET_WM_WINDOW_TYPE_COMBO", "_NET_WM_WINDOW_TYPE_DND",
+    # the two states wmctrl -b names that the native synthesis has no source
+    # for and the proxy still has to be able to read back from an overlay
+    "_NET_WM_STATE_MODAL", "_NET_WM_STATE_SHADED",
+    # the EWMH client messages design section 3.4 routes, and WM_CHANGE_STATE,
+    # which is how wmctrl and xdotool ask for iconify
+    "_NET_CLOSE_WINDOW", "_NET_MOVERESIZE_WINDOW", "_NET_WM_MOVERESIZE",
+    "_NET_SHOWING_DESKTOP", "WM_CHANGE_STATE",
+    # the rest of design section 4.6's root set, plus the one name wxprop does
+    # NOT synthesize (docs/WXPROP.md:103) and the proxy answers zero for
+    "_NET_DESKTOP_GEOMETRY", "_NET_FRAME_EXTENTS",
+)
+
+#: The predefined atoms the proxy names by id. 1..68 are fixed by the protocol
+#: and interning them would be a round trip for a number that is written in
+#: /usr/include/X11/Xatom.h [recon/wire.md 7.2]. Every one here is a type or a
+#: property the read and write sides handle: STRING and UTF8_STRING are the two
+#: text types, WM_NAME is the one xterm sets first [recon/seams.md 4], WM_CLASS
+#: is the pair `search --class` matches.
+PREDEFINED_ATOMS = {
+    "ATOM": 4, "CARDINAL": 6, "INTEGER": 19, "PIXMAP": 20, "STRING": 31,
+    "WINDOW": 33, "WM_COMMAND": 34, "WM_HINTS": 35, "WM_CLIENT_MACHINE": 36,
+    "WM_ICON_NAME": 37, "WM_NAME": 39, "WM_NORMAL_HINTS": 40,
+    "WM_SIZE_HINTS": 41, "WM_CLASS": 67, "WM_TRANSIENT_FOR": 68,
+}
+
+#: Where the window/drawable id sits in a core request, as an offset into the
+#: frame. Every one of them is 4 -- the id is the first field after the 4-byte
+#: header -- and the table is a table anyway, because "which requests name a
+#: window at all" is the question `dispatch` asks: a request that names none is
+#: `Row.other` and passes [recon/wire.md 4].
+#:
+#: TranslateCoordinates and WarpPointer carry a SECOND window at offset 8
+#: (dst_window, dst_window); the row is decided by the first here and the
+#: handlers of batches 3 and 6 read the second themselves.
+WINDOW_FIELD = {
+    2: 4,    # ChangeWindowAttributes
+    3: 4,    # GetWindowAttributes
+    4: 4,    # DestroyWindow
+    8: 4,    # MapWindow
+    10: 4,   # UnmapWindow
+    12: 4,   # ConfigureWindow
+    14: 4,   # GetGeometry (a DRAWABLE: a pixmap here is never a shadow)
+    15: 4,   # QueryTree
+    18: 4,   # ChangeProperty
+    19: 4,   # DeleteProperty
+    20: 4,   # GetProperty
+    21: 4,   # ListProperties
+    25: 4,   # SendEvent -- the destination, which is the root for the EWMH
+    38: 4,   # QueryPointer
+    40: 4,   # TranslateCoordinates -- src_window; dst_window is at 8
+    41: 4,   # WarpPointer -- src_window; dst_window is at 8
+    42: 4,   # SetInputFocus
+    113: 4,  # KillClient (a RESOURCE)
+}
+
+
 def request_name(opcode: int, minor: int = 0, ext: str = None) -> str:
     """`GetProperty`, `RANDR.SetCrtcConfig`, or `op 200.3` for a major nobody
     has resolved yet -- the shape recon/tools/xwlog.py logged in."""

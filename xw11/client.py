@@ -31,8 +31,9 @@ which go up as a substitute -- and equals upstream's count for ever.
 
 import collections
 import struct
+from typing import NamedTuple
 
-from xw11 import wire
+from xw11 import policy, wire
 
 #: What a 'B' client is told. A `Failed` reason is one byte of length, so it has
 #: 255 bytes to say it in -- and it says the route and the cost, because
@@ -59,6 +60,37 @@ CLOSED = "CLOSED"
 #: An editor or a placeholder older than half the sequence space is one whose
 #: reply is never coming (design section 2.3).
 _SEQ_WINDOW = 32768
+
+
+#: Where the window a request names lives, which is the axis design section 3.2
+#: writes its table on. The three names are the three fields of `policy.Row`, so
+#: the class is `getattr(row, target)` and there is no second table mapping one
+#: to the other.
+SHADOW = "shadow"
+ROOT = "root"
+OTHER = "other"
+
+
+class Request(NamedTuple):
+    """One request, decoded exactly as far as the policy needs it: the frame it
+    came in, its opcode and second byte, the extension it belongs to (by NAME,
+    never by major -- majors are per server [recon/env.md 2.5]), the window it
+    names and where that window lives."""
+
+    frame: bytes
+    opcode: int
+    byte1: int
+    ext: str = None
+    minor: int = 0
+    target: str = OTHER
+    xid: int = 0
+    seq: int = 0
+
+    @property
+    def key(self):
+        """What a handler is registered under: the opcode for a core request,
+        `(extension name, minor)` for an extension one."""
+        return self.opcode if self.ext is None else (self.ext, self.minor)
 
 
 def failed_setup(reason: str) -> bytes:
@@ -94,6 +126,8 @@ class ClientConn:
         self.bigreq = False
         #: bytes of a reply/GenericEvent still to pass through untouched
         self.raw_remaining = 0
+        #: bytes of a SUBSTITUTED reply still to drop on the floor
+        self.raw_drop = 0
         #: the parsed setup reply (status 1 only)
         self.setup = None
         #: design section 2.3's reserved fields; the batches after this one fill them
@@ -208,9 +242,24 @@ class ClientConn:
                             "enabled: BadLength, major %d" % (self.seq, opcode))
 
     def dispatch(self, frame: bytes, opcode: int, byte1: int) -> None:
-        """The policy, which in this stage is PASS for every row: the frame goes
-        upstream byte for byte. What it does do is watch two requests go past,
-        because both change how the bytes after them are framed or read.
+        """The policy, as a lookup and three ways to answer it.
+
+        Two requests are watched on the way past whatever the table says,
+        because both change how the bytes after them are framed or read: this
+        connection's `QueryExtension` replies name the majors, and BIG-REQUESTS'
+        `Enable` arms the splitter.
+
+        Every row is PASS in this batch, so what runs below is the shape and not
+        yet the behaviour: a row that is not PASS asks the server for the
+        handler registered under `Request.key`, and **a class with no handler
+        forwards**. PASS is the floor of this proxy, not a special case -- the
+        splitter needs no opcode to forward [recon/wire.md 2], so a request
+        nobody has written a handler for behaves exactly like X.
+
+        A proxy in pass-through -- `--passthrough`, or a box with no Wayland
+        session for the registry to read -- never leaves that floor: the table
+        is not consulted at all, which is what makes the parity oracle's answer
+        through the proxy the same bytes as its answer without one.
         """
         if opcode == wire.OP_QUERY_EXTENSION:
             self._watch_query_extension(frame)
@@ -220,10 +269,92 @@ class ClientConn:
             # this as request 2 of every connection, before anything else
             # (recon/wire.md 2, recon/tools.md 2), so it is not an edge case.
             self.bigreq = True
-        self.out_up += frame
+        req = self.decode(frame, opcode, byte1)
+        cls = getattr(policy.lookup(opcode, req.ext, req.minor), req.target)
         if self.server is not None:
             self.server.log_request(self, opcode, byte1, len(frame))
+        if cls != policy.PASS and self.server is not None \
+                and not self.server.passthrough:
+            if self.server.handle(self, req, cls):
+                self._forget_stale()
+                return
+        self.out_up += frame
         self._forget_stale()
+
+    def decode(self, frame: bytes, opcode: int, byte1: int) -> Request:
+        """Which extension a major belongs to, which window the request names,
+        and where that window lives.
+
+        The extension is resolved from this connection's own QueryExtension
+        replies first and from the proxy's own connection second: a client that
+        asked gets the name it asked about, and one that inherited a major from
+        somewhere else (a library with a cached table) still resolves, because
+        majors are server-global [recon/wire.md 5.1].
+        """
+        ext = minor = None
+        if opcode >= 128:
+            minor = byte1
+            ext = self.major_ext.get(opcode)
+            if ext is None and self.server is not None:
+                ext = self.server.ext_for_major(opcode)
+        offset = policy.WINDOW_FIELD.get(opcode)
+        xid = 0
+        if offset is not None and len(frame) >= offset + 4:
+            (xid,) = struct.unpack_from("<I", frame, offset)
+        return Request(frame, opcode, byte1, ext, minor or 0,
+                       self.where(xid), xid, self.seq)
+
+    def where(self, xid: int) -> str:
+        """`SHADOW` for an id the registry minted, `ROOT` for the setup's root,
+        `OTHER` for everything else -- a real X window, a pixmap, a dead shadow.
+        An unknown id passes and upstream answers `BadWindow` itself, with the
+        serial the tools print [recon/tools.md 9]: inventing that error here
+        would be more code for the same bytes (design section 3.1)."""
+        if not xid:
+            return OTHER
+        if self.server is not None and self.server.is_shadow(xid):
+            return SHADOW
+        if self.setup is not None and xid in self.setup.roots:
+            return ROOT
+        return OTHER
+
+    # -- the two substitutes (design section 3.1) ------------------------------
+
+    def consume(self) -> None:
+        """The request produces nothing for the client, and upstream gets a
+        `NoOperation` in its place.
+
+        Not "nothing goes up": a request the proxy eats still costs one sequence
+        number upstream for ever, and a divergence poisons replies AND events,
+        because an event carries the watermark of the last request the server
+        processed rather than its own number (recon/wire.md 3.2). Measured
+        against a real client: with nothing sent upstream, `xdotool search`
+        wedges for ever -- libxcb waits for reply N+1 while the server's next
+        reply carries N (recon/wire.md 3.3's `swallow` row). Four bytes,
+        no state."""
+        self.out_up += wire.NOOP
+
+    def answer(self, packet: bytes, seq: int = None) -> None:
+        """The proxy has the reply (or the error); upstream gets a
+        `GetInputFocus` whose own 32-byte reply comes back **in stream order**
+        carrying this sequence, and is replaced by `packet` on the way down.
+
+        The placeholder is what keeps ordering exact with no opcode-has-reply
+        table anywhere: libxcb sets `request_completed = request_read - 1` on
+        any reply or error it reads (`xcb_in.c: read_packet`), so a local reply
+        for request N+1 written before the forwarded reply for request N arrives
+        makes the client read NULL for N. Cost: one 32-byte round trip per
+        locally answered request, 70 us a trip [recon/env.md 5.3].
+        `tests/test_xw11_subst.py::Ordering` is the measurement (R1)."""
+        self.placeholders[self.seq if seq is None else seq] = bytes(packet)
+        self.out_up += wire.GET_INPUT_FOCUS
+
+    def edit(self, fn, seq: int = None) -> None:
+        """The request is forwarded and its reply rewritten on the way back. The
+        sequence never moves; a length-changing edit rewrites the length word
+        (`_apply_editor`). An error for that sequence passes untouched and drops
+        the editor -- the reply it belonged to is not coming."""
+        self.editors[self.seq if seq is None else seq] = fn
 
     def _watch_query_extension(self, frame: bytes) -> None:
         try:
@@ -253,6 +384,12 @@ class ClientConn:
         (recon/tools.md 2) cost only the bytes actually sent."""
         self.in_up += data
         while True:
+            if self.raw_drop:
+                before = self.raw_drop
+                self._drop_raw()
+                if self.raw_drop and self.raw_drop == before:
+                    return
+                continue
             if self.raw_remaining:
                 take = min(self.raw_remaining, len(self.in_up))
                 if not take:
@@ -303,6 +440,7 @@ class ClientConn:
             return False
         (seq,) = struct.unpack_from("<H", self.in_up, 2)
         code = self.in_up[0]
+        placeholder = self.placeholders.pop(seq, None) if code in (0, 1) else None
         editor = self.editors.get(seq) if code == 1 else None
         if editor is not None and len(self.in_up) < total:
             # An edited packet is held whole (design section 2.2). The log line
@@ -311,6 +449,20 @@ class ClientConn:
             return False
         if self.server is not None:
             self.server.log_packet(self, code, seq, total)
+        if placeholder is not None:
+            # The substitute's own reply, dropped where it stands, and ours
+            # written in its place. A GetInputFocus reply is 32 bytes exactly,
+            # so `total - 32` is zero here for every packet this proxy
+            # substitutes; it is subtracted anyway so that a server answering
+            # something longer for that sequence cannot leak a body into the
+            # client's stream.
+            del self.in_up[:32]
+            self.raw_drop = total - 32
+            self.out_down += placeholder
+            self.editors.pop(seq, None)
+            if self.raw_drop:
+                self._drop_raw()
+            return True
         if code == 0:
             # An error for a sequence drops its editor: the reply is not coming.
             self.editors.pop(seq, None)
@@ -332,8 +484,29 @@ class ClientConn:
         name = self._qext_pending.pop(seq, None)
         if name is not None:
             self._learn_extension(name, pkt)
-        self.out_down += editor(pkt)
+        self.out_down += self._apply_editor(editor, pkt)
         return True
+
+    def _drop_raw(self) -> None:
+        """Bytes of a substituted reply's body that are here already. Whatever
+        is not here yet is dropped by `feed_server` as it arrives."""
+        take = min(self.raw_drop, len(self.in_up))
+        del self.in_up[:take]
+        self.raw_drop -= take
+
+    @staticmethod
+    def _apply_editor(editor, pkt: bytes) -> bytes:
+        """The editor's answer, with the reply's length word rewritten when the
+        edit changed the length (design section 3.1). The body is padded to the
+        4-byte boundary the protocol counts in, and bytes 0-3 -- code, the
+        reply-specific byte and the SEQUENCE -- are the editor's own, so an
+        editor that moved a sequence is visible rather than silently corrected.
+        """
+        out = bytes(editor(pkt))
+        if len(out) == len(pkt) or len(out) < 32 or out[0] != 1:
+            return out
+        body = wire.pad4(out[32:])
+        return out[:4] + struct.pack("<I", len(body) // 4) + out[8:32] + body
 
     def _learn_extension(self, name: str, pkt: bytes) -> None:
         if len(pkt) >= 32 and pkt[0] == 1 and pkt[8]:

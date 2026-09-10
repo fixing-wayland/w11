@@ -42,10 +42,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import support                                                      # noqa: E402
 from support import ProxyRig, _recvn                                # noqa: E402
+from w11common.errors import CmdError                               # noqa: E402
 from wdotool import x11_mini                                        # noqa: E402
 from xw11 import display as display_mod                             # noqa: E402
 from xw11 import server as server_mod                               # noqa: E402
-from xw11 import wire                                               # noqa: E402
+from xw11 import policy, wire                                       # noqa: E402
 
 # The suite never hands a tool over to the real X11 one: see tests/conftest.py
 # and tests/test_passthrough.py; this line covers `python3 tests/<file>.py`.
@@ -879,6 +880,230 @@ class Sockets(RigCase):
         else:
             self.fail("_flush never reported the dead peer")
         a.close()
+
+
+class UpstreamRestart(RigCase):
+    """R16."""
+
+    def shadow_rig(self):
+        backend = support.FakeBackend(
+            windows=[support.fake_window(1, "a"), support.fake_window(2, "b")])
+        rig = self.rig(num=58, upstream_num=59, passthrough=False,
+                       backend=backend, check=0.02)
+        return rig
+
+    def test_a_client_sees_the_eof_and_the_next_one_gets_a_reopened_connection(self):
+        """An Xwayland restart under a live proxy reaches each client as EOF on
+        its own upstream socket, which is what X does when the server goes. The
+        proxy does not die with it: the next accept reopens the proxy's own
+        connection, and root, atoms and extension majors come back the same --
+        they are stable across a restart, and only XIDs are not
+        [recon/env.md 2.5, 6]."""
+        rig = self.shadow_rig()
+        first, _body = rig.raw()
+        own = rig.wait_own()
+        before = {e.handle: e.shadow for e in rig.server.shadows.snapshot()}
+        keep = (own.root, dict(own.atoms), dict(own.majors))
+        rig.upstream.close_when_idle(0.15)
+        self.assertEqual(first.recv(4096), b"")          # EOF, after the bytes
+        rig.wait(lambda: not rig.server.own.open, timeout=10,
+                 what="the upstream going away")
+        rig.upstream._idle_seconds = None
+        second, body = rig.raw()
+        rig.wait(lambda: rig.server.own.open, timeout=10, what="the reopen")
+        own = rig.server.own
+        self.assertEqual((own.root, own.atoms, own.majors), keep)
+        after = {e.handle: e.shadow for e in rig.server.shadows.snapshot()}
+        self.assertEqual(sorted(after), sorted(before))
+        self.assertEqual([], [h for h in after if after[h] == before[h]])
+        base, _mask = struct.unpack_from("<II", body, 4)
+        self.assertTrue(base)
+        first.close()
+        second.close()
+
+    def test_the_proxy_keeps_its_display_through_the_restart(self):
+        """The number, the sockets and the lock belong to the proxy and not to
+        the X server behind it; a client that arrives during the gap is answered
+        by the same listener."""
+        rig = self.shadow_rig()
+        first, _body = rig.raw()
+        rig.wait_own()
+        name = rig.display.name
+        rig.upstream.close_when_idle(0.15)
+        rig.wait(lambda: not rig.server.own.open, timeout=10, what="the gap")
+        rig.upstream._idle_seconds = None
+        self.assertEqual(rig.display.name, name)
+        second, _body2 = rig.raw()
+        second.sendall(bytes(wire.GET_INPUT_FOCUS))
+        reply = _recvn(second, 32)
+        self.assertEqual(reply[0], 1)
+        first.close()
+        second.close()
+
+
+class HandlerTrouble(RigCase):
+    """A handler that cannot do the thing, on the loop thread. `CmdError` is
+    this compositor not doing it, which X answers with nothing at all when the
+    window manager ignores a request (design section 3.3) -- and which may not
+    take the loop, the client, or the other clients down with it."""
+
+    def rig_with(self, cls, handler, num=66):
+        backend = support.FakeBackend(windows=[support.fake_window(1, "a")])
+        rig = self.rig(num=num, upstream_num=num + 1, passthrough=False,
+                       backend=backend)
+        old = policy.POLICY[wire.OP_QUERY_TREE]
+        self.addCleanup(policy.POLICY.__setitem__, wire.OP_QUERY_TREE, old)
+        policy.POLICY[wire.OP_QUERY_TREE] = policy.Row(root=cls)
+        rig.server.handlers[wire.OP_QUERY_TREE] = handler
+        return rig
+
+    def refuse(self, _server, _conn, _request):
+        raise CmdError("sway cannot do that")
+
+    def test_a_consumed_request_whose_handler_refuses_is_silence_and_one_line(self):
+        """The sequence is still consumed -- the client counted it, and X's
+        sequence numbers are the client's own count [recon/wire.md 3.2] -- so
+        the substitute goes upstream and the next reply comes back at 2."""
+        rig = self.rig_with(policy.CONSUME, self.refuse)
+        buf = self.logged(rig)
+        sock, _body = rig.raw()
+        rig.wait_own()
+        root = support.FakeXServer.ROOTS[0]
+        sock.sendall(struct.pack("<BBHI", wire.OP_QUERY_TREE, 0, 2, root))
+        sock.sendall(bytes(wire.GET_INPUT_FOCUS))
+        reply = _recvn(sock, 32)
+        self.assertEqual(reply[0], 1)
+        self.assertEqual(struct.unpack_from("<H", reply, 2)[0], 2)
+        noops = [row for row in rig.upstream.log if row[0] == "NoOperation"]
+        self.assertEqual(len(noops), 1)
+        self.assertIn("sway cannot do that", buf.getvalue())
+        self.assertIn("silence on the wire", buf.getvalue())
+        self.assertFalse(rig.server.stopping)
+        sock.close()
+
+    def test_an_answered_request_whose_handler_refuses_is_forwarded_instead(self):
+        """The fall-back is X itself: the upstream answers, which is exactly
+        what this client would have read without the proxy in the way."""
+        rig = self.rig_with(policy.ANSWER, self.refuse, num=68)
+        buf = self.logged(rig)
+        rig.upstream.children = [0x333]
+        sock, _body = rig.raw()
+        rig.wait_own()
+        root = support.FakeXServer.ROOTS[0]
+        sock.sendall(struct.pack("<BBHI", wire.OP_QUERY_TREE, 0, 2, root))
+        head = _recvn(sock, 32)
+        (words,) = struct.unpack_from("<I", head, 4)
+        body = _recvn(sock, 4 * words)
+        self.assertEqual(head[0], 1)
+        self.assertEqual(struct.unpack_from("<H", head, 2)[0], 1)
+        self.assertEqual(struct.unpack("<I", body)[0], 0x333)
+        self.assertIn("sway cannot do that", buf.getvalue())
+        self.assertIn("forwarded", buf.getvalue())
+        self.assertFalse(rig.server.stopping)
+        sock.close()
+
+
+class OwnConnectionFraming(RigCase):
+    def test_a_lying_length_closes_the_own_connection_and_leaves_nothing_behind(self):
+        """A reply whose length field claims more than 16 MiB of body is a lying
+        server (`xw11/wire.py`'s cap). The framer cannot go on -- it does not
+        know where the next packet starts -- so the connection goes; and the
+        SERVER does the closing, because a socket shut behind its back would
+        leave a selector registration under a descriptor number the kernel hands
+        straight back out."""
+        backend = support.FakeBackend(windows=[support.fake_window(1, "a")])
+        rig = self.rig(num=70, upstream_num=71, passthrough=False,
+                       backend=backend)
+        first, _b = rig.raw()
+        own = rig.wait_own()
+        fd = own.fileno()
+        self.assertIn(fd, rig.server._events)
+        lying = struct.pack("<BBHI24x", 1, 0, 1, 0xFFFFFFF)
+        rig.upstream.push_event(lying, conn_index=0, stamp=False)
+        rig.wait(lambda: not rig.server.own.open, timeout=10, what="the close")
+        self.assertNotIn(fd, rig.server._events)
+        self.assertNotIn(fd, rig.server.clients)
+        self.assertFalse(rig.server.stopping)
+        # And it comes back: the next accept reopens it and the registry mints
+        # from the new base.
+        first.close()
+        second, _b2 = rig.raw()
+        rig.wait(lambda: rig.server.own.open, timeout=10, what="the reopen")
+        self.assertTrue(all(e.shadow for e in rig.server.shadows.snapshot()))
+        second.close()
+
+
+class HungBackend(RigCase):
+    """R13."""
+
+    def test_a_wedged_compositor_delays_another_client_and_loses_no_byte(self):
+        """Every backend bounds itself at 10 s (`IPC_TIMEOUT`/`CALL_TIMEOUT`/
+        `SCRIPT_TIMEOUT` [recon/seams.md 2.3]) and the loop makes its backend
+        calls on the loop thread, so a wedged compositor costs every other
+        client that much latency -- and nothing else. The bytes are in the
+        out-buffers either way: the second client's reply arrives late, not
+        never, and it is the right reply."""
+        backend = support.FakeBackend(windows=[support.fake_window(1, "a")])
+        rig = self.rig(num=60, upstream_num=61, passthrough=False,
+                       backend=backend)
+        old = policy.POLICY[wire.OP_QUERY_TREE]
+        self.addCleanup(policy.POLICY.__setitem__, wire.OP_QUERY_TREE, old)
+        policy.POLICY[wire.OP_QUERY_TREE] = policy.Row(root=policy.ANSWER)
+
+        def handler(server, conn, request):
+            server.shadows.snapshot()            # the wedged list() happens here
+            return wire.reply(conn.seq, 0, b"\0" * 24)
+        rig.server.handlers[wire.OP_QUERY_TREE] = handler
+        slow, _b1 = rig.raw(timeout=30)
+        other, _b2 = rig.raw(timeout=30)
+        rig.wait_own()
+        root = support.FakeXServer.ROOTS[0]
+        calls = len(backend.calls)
+        backend.wedge(0.5)
+        began = time.monotonic()
+        slow.sendall(struct.pack("<BBHI", wire.OP_QUERY_TREE, 0, 2, root))
+        # Until the loop is INSIDE the wedged call: the claim is about a client
+        # whose request arrives while the compositor is hung, and a second
+        # client that merely raced the first one into the same `select()` would
+        # prove nothing. Every call, not `counts["list"]`: the registry asks
+        # `views()` first (seams 2.1) and it is that one the wedge lands on.
+        rig.wait(lambda: len(backend.calls) > calls, what="the wedge")
+        wedged = time.monotonic()
+        # `other`'s replies are read on a thread of their own, started BEFORE
+        # the request goes out: reading them after `slow`'s would pass even if
+        # the loop had answered this client instantly, so the arrival TIME is
+        # half of what is being pinned.
+        arrived = []
+
+        def read_four():
+            try:
+                for _n in range(4):
+                    # The reply first and the clock after it: a tuple built the
+                    # other way round is stamped when the READ BEGAN, which is
+                    # before the wedge and would pass whatever the loop did.
+                    reply = _recvn(other, 32)
+                    arrived.append((time.monotonic(), reply))
+            except OSError as e:                        # pragma: no cover
+                arrived.append((time.monotonic(), e))
+        reader = threading.Thread(target=read_four, daemon=True)
+        reader.start()
+        other.sendall(bytes(wire.GET_INPUT_FOCUS) * 4)
+        answered = _recvn(slow, 32)
+        self.assertEqual(answered[0], 1)
+        self.assertGreaterEqual(time.monotonic() - began, 0.4)
+        reader.join(timeout=10)
+        self.assertFalse(reader.is_alive(), "the second client was never answered")
+        self.assertEqual(len(arrived), 4)
+        first_at, _first = arrived[0]
+        # Late, and not never: the delay is the wedge and the bound is the
+        # backend's own 10 s timeout [recon/seams.md 2.3].
+        self.assertGreaterEqual(first_at - wedged, 0.4)
+        self.assertLess(first_at - wedged, 10.0)
+        for n, (_at, reply) in enumerate(arrived, start=1):
+            self.assertEqual(reply[0], 1)
+            self.assertEqual(struct.unpack_from("<H", reply, 2)[0], n)
+        slow.close()
+        other.close()
 
 
 if __name__ == "__main__":

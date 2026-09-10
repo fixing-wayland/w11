@@ -15,7 +15,11 @@ rig the four XWayland live files boot, and stopping a spawned input
 daemon -- which three files do, all three differently and none of them
 reliably (see the daemon section below). Doubles that differ between their
 callers stay where they are -- `make_daemon` (three shapes of `geom`),
-`FakeDaemon` (two protocols), `FakeBackend`, the compositor fakes.
+`FakeDaemon` (two protocols), the two per-file `FakeBackend`s of
+test_input_cmds.py and test_windows_cmds.py (which answer for one command
+each), the compositor fakes.  The `FakeBackend` at the bottom of this file is
+the xw11 proxy's, added with batch 2: the proxy calls one backend for
+everything and needs one fake that answers all of it.
 
 Added for the second round of tests, under the same rule -- each one was
 about to be written twice: the markdown walker three files carry
@@ -35,10 +39,13 @@ dialect, and the five headless compositors the live tests boot
 is a recording under tests/fixtures/, named where it is used.
 """
 
+import collections
 import contextlib
+import dataclasses
 import errno
 import json
 import os
+import queue
 import re
 import shutil
 import signal
@@ -50,7 +57,9 @@ import threading
 import time
 import unittest
 
+from w11common.errors import CmdError
 from wdotool import keystate, uinput
+from wdotool.backend import View, Window, WindowBackend
 
 
 # -- recorded fixtures --------------------------------------------------------
@@ -2178,7 +2187,15 @@ RID_MASK = 0x1FFFFF
 
 class _FakeWire:
     """One connection as `FakeXServer._dispatch` sees it -- `recv` and
-    `sendall` and nothing else -- with the hold queue in the middle."""
+    `sendall` and nothing else -- with the hold queue in the middle.
+
+    A held sequence holds **everything after it too**, which is the only
+    faithful thing to do: a server processes one connection's requests in order
+    (`recon/wire.md 3.2`), so a reply that is late makes every later reply late
+    as well. Releasing one sequence lets the whole queue out in the order it was
+    generated. `push_event` deliberately bypasses this -- an event is behind
+    nothing and ahead of nothing.
+    """
 
     def __init__(self, server, sock, index):
         self.server = server
@@ -2186,18 +2203,22 @@ class _FakeWire:
         self.index = index
         self.seq = 0
         self.bigreq = False
+        self.holding = False
+        self.masks = {}                # window -> the event mask this connection set
         self.held = []
 
     def recv(self, n):
         return self.sock.recv(n)
 
     def sendall(self, data):
-        if self.seq in self.server._held:
+        if self.holding or self.seq in self.server._held:
+            self.holding = True
             self.held.append((self.seq, bytes(data)))
             return
         self.sock.sendall(data)
 
     def release(self):
+        self.holding = False
         pending, self.held = self.held, []
         for _seq, data in pending:
             self.sock.sendall(data)
@@ -2211,8 +2232,14 @@ class FakeUpstream(FakeXServer):
         self.extensions = dict(FAKE_EXTENSIONS if extensions is None else extensions)
         self.noops = 0                 # NoOperation, counted: the CONSUME substitute
         self.wires = []                # one _FakeWire per connection, in order
+        self.accepted = 0              # connections ever, which is what a base is minted from
         self.generation = 0            # bumped by close_when_idle, like a restarted Xwayland
         self._held = set()
+        #: What GetKeyboardMapping answers: (keysyms_per_keycode, {keycode: [keysyms]}).
+        #: The proxy keeps the reply raw for batch 6, so what matters here is
+        #: that the bytes are the ones this table says.
+        self.keysyms_per_keycode = 2
+        self.keysyms = {}
         self._last_request = time.monotonic()
         self._idle_seconds = None
         self._idle_thread = None
@@ -2234,10 +2261,20 @@ class FakeUpstream(FakeXServer):
         for wire in list(self.wires):
             wire.release()
 
-    def push_event(self, pkt, conn_index=0):
+    def push_event(self, pkt, conn_index=0, stamp=True):
         """32 raw bytes onto one connection, ahead of nothing and behind
-        nothing -- which is what an event is."""
-        self.wires[conn_index].sock.sendall(pkt)
+        nothing -- which is what an event is.
+
+        `stamp` writes this connection's own request count into bytes 2-3, which
+        is what the sequence field of an event MEANS: the watermark of the last
+        request the server processed on that connection, not a number of its own
+        (measured 61/69/77 for seven NoOperations and a ChangeProperty
+        [recon/wire.md 3.2b]). A test that asserts the client read its own count
+        there is asserting the proxy's sequence delta is zero."""
+        wire = self.wires[conn_index]
+        if stamp:
+            pkt = bytes(pkt[:2]) + struct.pack("<H", wire.seq) + bytes(pkt[4:])
+        wire.sock.sendall(pkt)
 
     def send_fds(self, payload, fds, conn_index=0):
         """A payload carrying SCM_RIGHTS. A plain `recv()` on the other end
@@ -2285,7 +2322,22 @@ class FakeUpstream(FakeXServer):
         """The same reply FakeXServer builds, with this connection's own
         resource-id-base: the server hands each connection its own, stepping by
         mask + 1, which is why the proxy opens one upstream connection per
-        client and forwards the setup verbatim [recon/wire.md 1.3]."""
+        client and forwards the setup verbatim [recon/wire.md 1.3].
+
+        `index` counts every connection this fake has ever accepted, and never
+        goes back down. A real server DOES hand a freed range out again -- two
+        consecutive connections measured 0x600000 then 0x400000 on Xwayland
+        [recon/env.md 2.5] -- and the proxy has to survive either, because what
+        it re-mints after an upstream restart is decided by the base it is
+        given and not by whether that base is new. The fake picks the shape
+        that makes a re-mint visible in a test.
+
+        The first base is 0x600000, which is what a real Xwayland handed the
+        first connection measured on this box [recon/env.md 2.5] -- and it is
+        deliberately above the `(client << 21) | serial` ids of Xwayland's own
+        xwm, `0x200001..0x200004` [recon/seams.md 3], so a shadow id in a test
+        can never accidentally equal one of the four internals those
+        measurements also name."""
         vendor = b"FAKE"
         screens = b""
         for root in self.ROOTS:
@@ -2293,7 +2345,7 @@ class FakeUpstream(FakeXServer):
             screens += struct.pack("<5I6HI4B", root, 0, 0, 0, 0,
                                    1280, 720, 300, 200, 1, 1,
                                    0x21, 0, 0, 24, 1) + depth
-        base = RID_STEP * (1 + index)
+        base = RID_STEP * (3 + index)
         extra = struct.pack("<4IHH8B4x", 1, base, RID_MASK, 256,
                             len(vendor), 0xFFFF, len(self.ROOTS), 0,
                             0, 0, 32, 32, 8, 255)
@@ -2313,7 +2365,8 @@ class FakeUpstream(FakeXServer):
                                      len(_pad4(reason)) // 4)
                          + _pad4(reason))
             return
-        wire = _FakeWire(self, sock, len(self.wires))
+        wire = _FakeWire(self, sock, self.accepted)
+        self.accepted += 1
         self.wires.append(wire)
         sock.sendall(self._setup_reply_for(wire.index))
         while True:
@@ -2332,7 +2385,47 @@ class FakeUpstream(FakeXServer):
             self._last_request = time.monotonic()
             self._dispatch(wire, opcode, dbyte, payload, wire.seq)
 
+    def keymap_reply(self, first, count, seq):
+        """GetKeyboardMapping's reply: `keysyms_per_keycode` in byte 1 and
+        `count * per` CARD32 keysyms, which is the shape batch 6's keycode ->
+        keysym table is built from."""
+        per = self.keysyms_per_keycode
+        body = b""
+        for code in range(first, first + count):
+            row = list(self.keysyms.get(code, [0x100 + code] + [0] * (per - 1)))
+            row = (row + [0] * per)[:per]
+            body += struct.pack("<%dI" % per, *row)
+        return struct.pack("<BBHI24x", 1, per, seq, len(body) // 4) + body
+
     def _dispatch(self, conn, opcode, dbyte, payload, seq):
+        if opcode == 2:         # ChangeWindowAttributes -- the root selection
+            win, mask = struct.unpack_from("<II", payload, 0)
+            values = struct.unpack_from("<%dI" % ((len(payload) - 8) // 4),
+                                        payload, 8)
+            self.log.append(("ChangeWindowAttributes", win, mask, values))
+            if mask == 0x0800 and values:
+                conn.masks[win] = values[0]
+            return
+        if opcode == 101:       # GetKeyboardMapping
+            first, count = struct.unpack_from("<BB", payload, 0)
+            self.log.append(("GetKeyboardMapping", first, count))
+            conn.sendall(self.keymap_reply(first, count, seq))
+            return
+        if opcode == 43:        # GetInputFocus -- the ANSWER substitute
+            self.log.append(("GetInputFocus", seq))
+            conn.sendall(struct.pack("<BBHII20x", 1, 0, seq, 0, 1))
+            return
+        if opcode == 17:        # GetAtomName -- what a proxy asks for an id
+            (atom,) = struct.unpack_from("<I", payload, 0)
+            self.log.append(("GetAtomName", atom))
+            name = self._names.get(atom)
+            if name is None:
+                return self._error(conn, seq, 5, 17, bad=atom)   # BadAtom
+            raw = name.encode("latin-1")
+            body = _pad4(raw)
+            conn.sendall(struct.pack("<BxHIH22x", 1, seq, len(body) // 4,
+                                     len(raw)) + body)
+            return
         if opcode == 98:        # QueryExtension
             (n,) = struct.unpack_from("<H", payload, 0)
             name = payload[4:4 + n].decode("latin-1")
@@ -2344,8 +2437,18 @@ class FakeUpstream(FakeXServer):
             return
         if opcode == 127:       # NoOperation, the CONSUME substitute
             self.noops += 1
-            self.log.append(("NoOperation",))
+            self.log.append(("NoOperation", seq))
             return
+        if opcode in (3, 15):   # GetWindowAttributes, QueryTree
+            # Logged and then answered by FakeXServer as before. These two plus
+            # GetProperty are the walk `X11Conn.client_list()` falls back to
+            # when the root has no `_NET_CLIENT_LIST`, and the one that answered
+            # `[2097153..2097156]` on a bare sway [recon/seams.md 3]. The proxy
+            # owns both ends and must not repeat it, which is only a claim a
+            # test can make if the fake writes the attempt down.
+            (win,) = struct.unpack_from("<I", payload, 0)
+            self.log.append(("QueryTree" if opcode == 15
+                             else "GetWindowAttributes", win))
         big = self.extensions.get("BIG-REQUESTS", (0, 0, 0))[0]
         if big and opcode == big and dbyte == 0:
             conn.bigreq = True
@@ -2366,7 +2469,8 @@ class ProxyRig:
     """
 
     def __init__(self, num=20, upstream_num=7, cookie=None, idle=0.0,
-                 check=0.05, extensions=None, server_kwargs=None):
+                 check=0.05, extensions=None, server_kwargs=None,
+                 passthrough=True, backend=None):
         from wdotool import x11_mini
         from xw11 import display as display_mod
         from xw11 import server as server_mod
@@ -2384,9 +2488,15 @@ class ProxyRig:
         self.display = display_mod.allocate(":%d" % num)
         self.name = self.display.name
         self.log = open(os.devnull, "w")
+        # `passthrough=True` by default: a rig has no compositor and no
+        # session, and a proxy that opened its own upstream connection here
+        # would take a resource-id base out from under the FIRST CLIENT of
+        # every test written before the shadow side existed. The tests that
+        # want the machinery ask for it, with a FakeBackend to run it over.
         self.server = server_mod.Server(
             self.display, self.upstream_name, log=self.log,
             idle=idle, check=check, watch_wayland=False,
+            passthrough=passthrough, backend=backend,
             **(server_kwargs or {}))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -2412,6 +2522,25 @@ class ProxyRig:
         self._conns.append(s)
         return s, body
 
+    def wait(self, ready, timeout=5.0, what="the rig"):
+        """Spin until `ready()` is true. The server runs on its own thread, so
+        everything a test asserts about it has to be waited for rather than
+        assumed -- and a deadline that fires is a failure with a name, never a
+        hang."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if ready():
+                return True
+            time.sleep(0.005)
+        raise AssertionError("%s never became ready in %gs" % (what, timeout))
+
+    def wait_own(self, timeout=5.0):
+        """The proxy's own upstream connection, once it is open. It opens at the
+        FIRST ACCEPT (design section 2.6), so something has to connect first."""
+        self.wait(lambda: self.server.own is not None and self.server.own.open,
+                  timeout, "the proxy's own connection")
+        return self.server.own
+
     def stop(self):
         for c in self._conns:
             try:
@@ -2426,3 +2555,233 @@ class ProxyRig:
         self._x11_mini._SOCK_DIR = self._old_sock_dir
         self._display_mod._LOCK_DIR = self._old_lock_dir
         shutil.rmtree(self.dir, ignore_errors=True)
+
+
+# -- the window backend double -------------------------------------------------
+#
+# One fake for every backend the proxy can be handed, because the proxy calls
+# the same six required methods and the same handful of optional ones on all of
+# them (`WindowBackend`, wdotool/backend.py:223). Two things it models that a
+# simpler stub would not:
+#
+# * **`events()` is either really overridden or really absent.**
+#   `wxprop.core._events_hook` decides which by comparing
+#   `type(backend).events` with `WindowBackend.events` (core.py:1072), so
+#   `has_events=False` has to reach that comparison honestly -- wlr and COSMIC
+#   have no event stream at all and are polled instead [recon/seams.md 2.3],
+#   and the poll path only runs when the hook really answers None.
+# * **a call can be slow or can fail.** `wedge(seconds)` is R13's 10 s stall in
+#   miniature (every backend's own timeout is 10 s [recon/seams.md 2.3]) and
+#   `raise_on` is the `CmdError`/`NoSessionError` pair the tree raises.
+
+
+def fake_window(wid, title="", **kw):
+    """A `backend.Window` with an id and whatever else the test cares about."""
+    return Window(id=wid, title=title, **kw)
+
+
+def fake_view(window, xid=0, **kw):
+    """A `backend.View` around a `Window`. `xid` is the pairing: non-zero means
+    the compositor says this toplevel IS an Xwayland window, which is what the
+    proxy trusts and never re-derives [recon/seams.md 3]."""
+    return View(window=window, xid=xid, **kw)
+
+
+class FakeBackend(WindowBackend):
+    """A window backend with a list a test can move, a log of every write, and
+    two ways to be unkind. Constructed with `has_events=True` you get the
+    subclass below, which really overrides `events()`."""
+
+    name = "fake"
+
+    def __new__(cls, *args, **kw):
+        if cls is FakeBackend and kw.get("has_events", True):
+            return object.__new__(FakeBackendEvents)
+        return object.__new__(cls)
+
+    def __init__(self, windows=None, views=None, has_events=True,
+                 desktop=0, num_desktops=1, size=(1280, 720), pointer=None):
+        self.windows = list(windows or [])
+        self.views_ = list(views) if views is not None else None
+        self.desktop_ = desktop
+        self.num_ = num_desktops
+        self.size_ = size
+        self.pointer_ = pointer
+        self.calls = []                 # (op, args) for every call that lands
+        self.counts = collections.Counter()
+        self.queue = queue.Queue()
+        self._wedge = 0.0
+        self._raise = {}
+
+    # -- the levers -----------------------------------------------------------
+
+    def wedge(self, seconds):
+        """The NEXT call sleeps this long before answering. Every backend in the
+        tree bounds itself at 10 s (`IPC_TIMEOUT`/`CALL_TIMEOUT`/
+        `SCRIPT_TIMEOUT`) [recon/seams.md 2.3], and R13 is the claim that a
+        client waiting on one delays every other client by at most that and
+        loses no byte."""
+        self._wedge = seconds
+
+    def raise_on(self, op, exc):
+        """The next call to `op` raises `exc`. `NoSessionError` is a compositor
+        that went away, which nothing in the tree re-detects for itself
+        [recon/seams.md 2.2]."""
+        self._raise[op] = exc
+
+    def feed(self, token):
+        """One `(window_id, change)` pair onto the event stream, in sway's own
+        vocabulary. An exception instance is raised by the generator instead --
+        a compositor restart, or KWin unloading the script."""
+        self.queue.put(token)
+
+    def _enter(self, op, *args):
+        self.calls.append((op, args))
+        self.counts[op] += 1
+        exc = self._raise.pop(op, None)
+        if exc is not None:
+            raise exc
+        if self._wedge:
+            seconds, self._wedge = self._wedge, 0.0
+            time.sleep(seconds)
+
+    def _find(self, wid):
+        for w in self.windows:
+            if w.id == wid:
+                return w
+        raise CmdError("window %d not found" % wid)
+
+    # -- reads ----------------------------------------------------------------
+
+    def list(self):
+        self._enter("list")
+        return [dataclasses.replace(w) for w in self.windows]
+
+    def views(self):
+        self._enter("views")
+        if self.views_ is None:
+            return None
+        return [dataclasses.replace(v, window=dataclasses.replace(v.window))
+                for v in self.views_]
+
+    # Copies, always: every real backend builds its records fresh out of an IPC
+    # answer, so a caller that kept one from the last call is holding the state
+    # of the last call. A fake that handed out the same mutable object twice
+    # would make a diff between two listings impossible to write a test for --
+    # the "previous" record would change under the registry's feet.
+
+    def get_desktop(self):
+        self._enter("get_desktop")
+        return self.desktop_
+
+    def num_desktops(self):
+        self._enter("num_desktops")
+        return self.num_
+
+    def display_size(self):
+        self._enter("display_size")
+        return self.size_
+
+    def pointer(self):
+        self._enter("pointer")
+        return self.pointer_
+
+    def is_mapped(self, wid):
+        self._enter("is_mapped", wid)
+        return self._find(wid).visible
+
+    # -- writes ---------------------------------------------------------------
+
+    def activate(self, wid):
+        self._enter("activate", wid)
+        for w in self.windows:
+            w.focused = (w.id == wid)
+
+    def close(self, wid):
+        self._enter("close", wid)
+        self.windows = [w for w in self.windows if w.id != wid]
+        if self.views_ is not None:
+            self.views_ = [v for v in self.views_ if v.window.id != wid]
+
+    def kill(self, wid):
+        self._enter("kill", wid)
+
+    def focus(self, wid):
+        self._enter("focus", wid)
+        for w in self.windows:
+            w.focused = (w.id == wid)
+
+    def map(self, wid):
+        self._enter("map", wid)
+        self._find(wid).visible = True
+
+    def unmap(self, wid):
+        self._enter("unmap", wid)
+        self._find(wid).visible = False
+
+    def minimize(self, wid):
+        self._enter("minimize", wid)
+        self._find(wid).visible = False
+
+    def raise_(self, wid):
+        self._enter("raise_", wid)
+        self._reorder(wid, last=True)
+
+    def lower(self, wid):
+        self._enter("lower", wid)
+        self._reorder(wid, last=False)
+
+    def _reorder(self, wid, last):
+        """Both lists, always: `list()` is stacking order bottom to top
+        (backend.py:295) and `views()` is the same order with more in each row,
+        so a fake that moved one and not the other would answer two different
+        stacking orders depending on which the caller asked for."""
+        w = self._find(wid)
+        rest = [x for x in self.windows if x.id != wid]
+        self.windows = rest + [w] if last else [w] + rest
+        if self.views_ is not None:
+            mine = [v for v in self.views_ if v.window.id == wid]
+            others = [v for v in self.views_ if v.window.id != wid]
+            self.views_ = others + mine if last else mine + others
+
+    def move_window(self, wid, x, y):
+        self._enter("move_window", wid, x, y)
+        w = self._find(wid)
+        w.x, w.y = x, y
+
+    def resize(self, wid, w_, h):
+        self._enter("resize", wid, w_, h)
+        w = self._find(wid)
+        w.w, w.h = w_, h
+
+    def set_state(self, wid, state, action):
+        self._enter("set_state", wid, state, action)
+        return None
+
+    def set_desktop(self, n):
+        self._enter("set_desktop", n)
+        self.desktop_ = n
+
+    def set_num_desktops(self, n):
+        self._enter("set_num_desktops", n)
+        self.num_ = n
+
+    def set_window_desktop(self, wid, n):
+        self._enter("set_window_desktop", wid, n)
+        self._find(wid).desktop = n
+
+
+class FakeBackendEvents(FakeBackend):
+    """The half with an event stream. Separate class and not a flag, because
+    `wxprop.core._events_hook` asks whether the TYPE overrides `events`."""
+
+    def events(self, timeout=None, workspaces=False):
+        self.calls.append(("events", (timeout, workspaces)))
+        self.counts["events"] += 1
+        while True:
+            token = self.queue.get()
+            if isinstance(token, BaseException):
+                raise token
+            if token is None:
+                return
+            yield token
