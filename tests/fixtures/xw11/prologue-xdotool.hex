@@ -1,0 +1,67 @@
+# The 31 requests xdotool sends before the first one about the command
+# (recon/tools.md section 2, `xdotool key ctrl+a` on Xvfb :71 through
+# recon/tools/xwlog.py with XWLOG_RAW=200; recon/tools/caps/raw.jsonl,
+# connection 1, the c2s lines with seq 1..31, `raw` field verbatim).
+# One request per line; the comment on each is the logger's own name for it.
+# seq 1  QueryExtension
+620005000c0000004249472d5245515545535453
+# seq 2  BIG-REQUESTS.Enable
+85000100
+# seq 3  CreateGC
+370005000000a0001f02000008000000ffffff00
+# seq 4  GetProperty
+140006001f020000170000001f0000000000000000e1f505
+# seq 5  QueryExtension
+620005000900a000584b4559424f415244000000
+# seq 6  XKEYBOARD.UseExtension
+8700020001000000
+# seq 7  QueryExtension
+620006000f00000058496e707574457874656e73696f6e00
+# seq 8  QueryExtension
+62000400050000005854455354000000
+# seq 9  QueryExtension
+620008001700000047656e65726963204576656e7420457874656e73696f6e00
+# seq 10 Generic Event Extension.QueryVersion
+8000020001000000
+# seq 11 XTEST.GetVersion
+8400020002000200
+# seq 12 XKEYBOARD.GetMap
+87080700000107000000000000000000000000000000000000000000
+# seq 13 GetModifierMapping
+77000100
+# seq 14 XKEYBOARD.GetNames
+8711030003000700c0080000
+# seq 15 XKEYBOARD.GetMap
+87080700000107000000000000000000000000000000000000000000
+# seq 16 XKEYBOARD.SelectEvents
+8701050003000100000000000000000005000500
+# seq 17 XKEYBOARD.SelectEvents
+87010400030002000000000007000700
+# seq 18 GetAtomName
+1100020089000000
+# seq 19 GetAtomName
+110002008b000000
+# seq 20 GetAtomName
+110002008c000000
+# seq 21 GetAtomName
+110002008e000000
+# seq 22 GetAtomName
+1100020080000000
+# seq 23 GetAtomName
+1100020097000000
+# seq 24 GetAtomName
+1100020098000000
+# seq 25 GetAtomName
+110002007f000000
+# seq 26 GetAtomName
+1100020099000000
+# seq 27 GetAtomName
+110002007e000000
+# seq 28 GetAtomName
+1100020090000000
+# seq 29 GetAtomName
+1100020095000000
+# seq 30 GetAtomName
+1100020081000000
+# seq 31 GetAtomName
+110002008a000000

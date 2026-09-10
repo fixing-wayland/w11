@@ -32,11 +32,18 @@
 # [recon2/pkg-nix §1 defect 2].
 #
 #   W11_PARITY_DISPLAY   display to use for the Xvfb we start (default :99)
+#   W11_PARITY_PROXY=1   run everything through `python3 -m xw11` on
+#                        $W11_PARITY_PROXY_DISPLAY (default :98) instead of
+#                        straight at $DISPLAY.  Stage 1 of the X11 proxy is
+#                        "not one byte changes", and this is what says so: both
+#                        runs must differ only in the `Ran N tests in` lines
+#                        [recon/env.md 7, measured with a 61-line forwarder].
 set -eu
 cd "$(dirname "$0")/.."
 
 XDO_PIN=$(python3 -c 'import sys; sys.path.insert(0, "."); from wdotool import cli; print(cli.XDO_VERSION)')
 : "${W11_PARITY_DISPLAY:=:99}"
+: "${W11_PARITY_PROXY_DISPLAY:=:98}"
 
 die() { printf 'parity-oracle: %s\n' "$*" >&2; exit 2; }
 say() { printf '\n== %s\n' "$*"; }
@@ -79,7 +86,12 @@ printf 'parity-oracle: wmctrl 1.07 at %s\n' "$(command -v wmctrl)"
 # -- a display, because xdo_new() runs before xdotool dispatches --------------
 
 xvfb_pid=""
-cleanup() { [ -n "$xvfb_pid" ] && kill "$xvfb_pid" 2>/dev/null; :; }
+proxy_pid=""
+cleanup() {
+  [ -n "$proxy_pid" ] && kill "$proxy_pid" 2>/dev/null
+  [ -n "$xvfb_pid" ] && kill "$xvfb_pid" 2>/dev/null
+  :
+}
 trap cleanup EXIT INT TERM HUP PIPE
 if [ -z "${DISPLAY:-}" ] || ! xdotool getdisplaygeometry >/dev/null 2>&1; then
   command -v Xvfb >/dev/null 2>&1 || die "no usable DISPLAY and no Xvfb to start one"
@@ -96,6 +108,27 @@ if [ -z "${DISPLAY:-}" ] || ! xdotool getdisplaygeometry >/dev/null 2>&1; then
   [ "$i" -lt 100 ] || die "Xvfb on $W11_PARITY_DISPLAY never came up"
 fi
 printf 'parity-oracle: DISPLAY=%s (%s)\n' "$DISPLAY" "$(xdotool getdisplaygeometry | tr '\n' ' ')"
+
+# -- and, when asked, the proxy in front of it --------------------------------
+#
+# The same wait the Xvfb above gets, for the same reason: the proxy is up when a
+# client can talk through it, not when the process exists.
+
+if [ -n "${W11_PARITY_PROXY:-}" ]; then
+  python3 -m xw11 --upstream "$DISPLAY" --display "$W11_PARITY_PROXY_DISPLAY" \
+      --passthrough --foreground &
+  proxy_pid=$!
+  DISPLAY=$W11_PARITY_PROXY_DISPLAY
+  export DISPLAY
+  i=0
+  while [ "$i" -lt 100 ]; do
+    xdotool getdisplaygeometry >/dev/null 2>&1 && break
+    i=$((i + 1))
+    sleep 0.1
+  done
+  [ "$i" -lt 100 ] || die "xw11 on $W11_PARITY_PROXY_DISPLAY never came up"
+  printf 'parity-oracle: through xw11 on DISPLAY=%s (pid %s)\n' "$DISPLAY" "$proxy_pid"
+fi
 
 # -- the '#'-anywhere comment rule, straight off the oracle -------------------
 #

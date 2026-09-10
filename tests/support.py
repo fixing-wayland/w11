@@ -1888,3 +1888,541 @@ def write_wl_mirror_stub(dirpath, name="wl-mirror"):
         fh.write(WL_MIRROR_STUB)
     os.chmod(path, 0o755)
     return path
+
+
+# -- the X11 wire doubles ------------------------------------------------------
+#
+# Moved here from tests/test_wwmctl_x11.py:52-291 unchanged (batch 1 of the xw11
+# proxy): six test files already imported `FakeXServer` back out of that file by
+# name, and the proxy's own `FakeUpstream` subclasses it, so it belongs where the
+# project keeps its doubles. test_wwmctl_x11.py imports all four names back and
+# stays the file everything else imports them from.
+
+
+def _pad4(b: bytes) -> bytes:
+    return b + b"\0" * (-len(b) % 4)
+
+
+def _recvn(conn, n: int) -> bytes:
+    buf = b""
+    while len(buf) < n:
+        chunk = conn.recv(n - len(buf))
+        if not chunk:
+            raise EOFError
+        buf += chunk
+    return buf
+
+
+def write_xauth(path: str, entries):
+    """entries: (family, address, number, name, data) — the binary
+    .Xauthority format (big-endian u16 lengths)."""
+    with open(path, "wb") as f:
+        for family, addr, num, name, data in entries:
+            f.write(struct.pack(">H", family))
+            for field in (addr, num, name, data):
+                f.write(struct.pack(">H", len(field)) + field)
+
+
+class FakeXServer(threading.Thread):
+    """Just enough X server: setup handshake + the 8 requests the client
+    uses. Properties live in self.props[(win, prop_name)] =
+    (type_name, format, bytes); ChangeProperty writes back into it."""
+
+    ROOTS = [0x5A, 0x5B]  # two screens, to exercise screen selection
+
+    def __init__(self, sockdir, num=7, cookie=None, accept_empty=True):
+        super().__init__(daemon=True)
+        self.cookie = cookie
+        self.accept_empty = accept_empty
+        self.props = {}
+        self.children = []          # QueryTree children of the root
+        self.geometry = {}          # win -> (x, y, w, h) for GetGeometry
+        self.translate = {}         # win -> (root_x, root_y)
+        self.error_windows = set()  # BadWindow on any request naming these
+        self.max_chunk_units = None  # cap GetProperty chunks (force the loop)
+        self.fonts = {}             # name -> [(prop name, CARD32)]
+        self.colors = {}            # LookupColor name -> (r16, g16, b16)
+        self._open_fonts = {}       # fid -> name
+        self.setup_attempts = []    # (auth_name, auth_data) per connection
+        self.log = []               # parsed requests
+        self._atoms = {}
+        self._names = {}
+        self.path = os.path.join(sockdir, "X%d" % num)
+        self._ls = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._ls.bind(self.path)
+        self._ls.listen(8)
+        self._ls.settimeout(0.2)
+        self._stopped = False
+        self.start()
+
+    def intern(self, name: str) -> int:
+        a = self._atoms.get(name)
+        if a is None:
+            a = 100 + len(self._atoms)
+            self._atoms[name] = a
+            self._names[a] = name
+        return a
+
+    def set_prop(self, win, name, type_name, fmt, data):
+        self.intern(name)
+        self.intern(type_name)
+        self.props[(win, name)] = (type_name, fmt, data)
+
+    def stop(self):
+        self._stopped = True
+        self._ls.close()
+        self.join(timeout=5)
+
+    # -- server internals ---------------------------------------------------
+
+    def run(self):
+        # each connection gets a thread: tests keep several open at once
+        while not self._stopped:
+            try:
+                conn, _ = self._ls.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            threading.Thread(target=self._serve_one, args=(conn,),
+                             daemon=True).start()
+
+    def _serve_one(self, conn):
+        try:
+            self._serve(conn)
+        except (EOFError, OSError, AssertionError):
+            pass
+        finally:
+            conn.close()
+
+    def _serve(self, conn):
+        order, _maj, _min, nlen, dlen = struct.unpack(
+            "<BxHHHHxx", _recvn(conn, 12))
+        assert order == 0x6C
+        name = _recvn(conn, len(_pad4(b"x" * nlen)))[:nlen] if nlen else b""
+        data = _recvn(conn, len(_pad4(b"x" * dlen)))[:dlen] if dlen else b""
+        self.setup_attempts.append((name, data))
+        if not self._auth_ok(name, data):
+            reason = b"Authentication rejected by fake"
+            conn.sendall(struct.pack("<BBHHH", 0, len(reason), 11, 0,
+                                     len(_pad4(reason)) // 4)
+                         + _pad4(reason))
+            return
+        conn.sendall(self._setup_reply())
+        seq = 0
+        while True:
+            opcode, dbyte, rlen = struct.unpack("<BBH", _recvn(conn, 4))
+            payload = _recvn(conn, (rlen - 1) * 4)
+            seq = (seq + 1) & 0xFFFF
+            self._dispatch(conn, opcode, dbyte, payload, seq)
+
+    def _auth_ok(self, name, data):
+        if not name and not data:
+            return self.accept_empty
+        return (self.cookie is not None
+                and name == b"MIT-MAGIC-COOKIE-1" and data == self.cookie)
+
+    def _setup_reply(self):
+        vendor = b"FAKE"
+        screens = b""
+        for root in self.ROOTS:
+            depth = struct.pack("<BxH4x", 24, 1) + b"\0" * 24  # 1 visual
+            screens += struct.pack("<5I6HI4B", root, 0, 0, 0, 0,
+                                   1280, 720, 300, 200, 1, 1,
+                                   0x21, 0, 0, 24, 1) + depth
+        extra = struct.pack("<4IHH8B4x", 1, 0x400000, 0x3FFFFF, 256,
+                            len(vendor), 0xFFFF, len(self.ROOTS), 0,
+                            0, 0, 32, 32, 8, 255)
+        extra += _pad4(vendor) + screens
+        return struct.pack("<BxHHH", 1, 11, 0, len(extra) // 4) + extra
+
+    def _error(self, conn, seq, code, major, bad=0):
+        conn.sendall(struct.pack("<BBHIHB21x", 0, code, seq, bad, 0, major))
+
+    def _dispatch(self, conn, opcode, dbyte, payload, seq):
+        if opcode == 16:  # InternAtom
+            (n,) = struct.unpack_from("<H", payload, 0)
+            name = payload[4:4 + n].decode("latin-1")
+            self.log.append(("InternAtom", name, dbyte))
+            atom = self._atoms.get(name, 0)
+            if not atom and not dbyte:
+                atom = self.intern(name)
+            conn.sendall(struct.pack("<BBHII20x", 1, 0, seq, 0, atom))
+        elif opcode == 20:  # GetProperty
+            win, prop, _typ, offs, length = struct.unpack("<IIIII", payload)
+            pname = self._names.get(prop, "?")
+            self.log.append(("GetProperty", win, pname, offs))
+            if win in self.error_windows:
+                return self._error(conn, seq, 3, 20, bad=win)  # BadWindow
+            entry = self.props.get((win, pname))
+            if entry is None:
+                conn.sendall(struct.pack("<BBHIIII12x", 1, 0, seq, 0,
+                                         0, 0, 0))
+                return
+            tname, fmt, data = entry
+            if self.max_chunk_units is not None:
+                length = min(length, self.max_chunk_units)
+            chunk = data[offs * 4:offs * 4 + length * 4]
+            after = len(data) - offs * 4 - len(chunk)
+            body = _pad4(chunk)
+            conn.sendall(struct.pack("<BBHIIII12x", 1, fmt, seq,
+                                     len(body) // 4, self.intern(tname),
+                                     after, len(chunk) // (fmt // 8)) + body)
+        elif opcode == 18:  # ChangeProperty
+            win, prop, typ, fmt = struct.unpack_from("<IIIB", payload, 0)
+            (n,) = struct.unpack_from("<I", payload, 16)
+            data = payload[20:20 + n * (fmt // 8)]
+            pname = self._names.get(prop, "?")
+            tname = self._names.get(typ, "?")
+            self.log.append(("ChangeProperty", win, pname, tname, fmt, data))
+            self.props[(win, pname)] = (tname, fmt, data)
+        elif opcode == 92:  # LookupColor
+            cmap, n = struct.unpack_from("<IH", payload, 0)
+            name = payload[8:8 + n].decode("latin-1")
+            self.log.append(("LookupColor", cmap, name))
+            rgb = self.colors.get(name)
+            if rgb is None:
+                return self._error(conn, seq, 15, 92, bad=0)  # BadName
+            r, g, b = rgb
+            conn.sendall(struct.pack("<BxHIHHHHHH12x", 1, seq, 0,
+                                     r, g, b, r, g, b))
+        elif opcode == 45:  # OpenFont
+            fid, n = struct.unpack_from("<IH", payload, 0)
+            name = payload[8:8 + n].decode("latin-1")
+            self.log.append(("OpenFont", fid, name))
+            if name not in self.fonts:
+                return self._error(conn, seq, 15, 45, bad=0)  # BadName
+            self._open_fonts[fid] = name
+        elif opcode == 47:  # QueryFont
+            (fid,) = struct.unpack("<I", payload)
+            props = self.fonts.get(self._open_fonts.get(fid), [])
+            self.log.append(("QueryFont", fid))
+            # the reply's fixed part is 60 bytes: 32 of header plus 28 of
+            # body, with the FONTPROP count at overall offset 46
+            body = bytearray(28)
+            struct.pack_into("<H", body, 14, len(props))
+            for n, v in props:
+                body += struct.pack("<II", self.intern(n), v)
+            head = struct.pack("<BxHI", 1, seq, len(body) // 4) + b"\0" * 24
+            conn.sendall(head + bytes(body))
+        elif opcode == 46:  # CloseFont
+            (fid,) = struct.unpack("<I", payload)
+            self.log.append(("CloseFont", fid))
+            self._open_fonts.pop(fid, None)
+        elif opcode == 19:  # DeleteProperty
+            win, prop = struct.unpack("<II", payload)
+            pname = self._names.get(prop, "?")
+            self.log.append(("DeleteProperty", win, pname))
+            self.props.pop((win, pname), None)
+        elif opcode == 25:  # SendEvent
+            dest, mask = struct.unpack_from("<II", payload, 0)
+            self.log.append(("SendEvent", dest, mask, payload[8:40]))
+        elif opcode == 14:  # GetGeometry
+            (win,) = struct.unpack("<I", payload)
+            if win in self.error_windows:
+                return self._error(conn, seq, 3, 14, bad=win)
+            x, y, w, h = self.geometry.get(win, (0, 0, 0, 0))
+            conn.sendall(struct.pack("<BBHIIhhHHH10x", 1, 24, seq, 0,
+                                     self.ROOTS[0], x, y, w, h, 0))
+        elif opcode == 40:  # TranslateCoordinates
+            win, _dst, _sx, _sy = struct.unpack("<IIhh", payload)
+            rx, ry = self.translate.get(win, (0, 0))
+            conn.sendall(struct.pack("<BBHIIhh16x", 1, 1, seq, 0, 0, rx, ry))
+        elif opcode == 15:  # QueryTree
+            body = struct.pack("<%dI" % len(self.children), *self.children)
+            conn.sendall(struct.pack("<BBHIIIH14x", 1, 0, seq,
+                                     len(self.children), self.ROOTS[0], 0,
+                                     len(self.children)) + body)
+        elif opcode == 43:  # GetInputFocus (the client's sync)
+            self.log.append(("GetInputFocus",))
+            conn.sendall(struct.pack("<BBHII20x", 1, 0, seq, 0, 1))
+        else:
+            self._error(conn, seq, 1, opcode)  # BadRequest
+
+
+# -- the xw11 proxy's doubles --------------------------------------------------
+#
+# FakeUpstream is FakeXServer with the four things a proxy needs and a wire
+# client does not: BIG-REQUESTS framing (a zero 16-bit length is an 8-byte
+# header once the connection enabled it, and libX11 enables it as request 2 of
+# every connection -- recon/tools.md 2), a programmable QueryExtension table
+# with the majors env 2.5 measured on the two real servers, a resource-id-base
+# that steps by 0x200000 per connection (recon/wire.md 1.3), and the levers a
+# test needs to be unkind: hold a reply back, push an event, hand over a file
+# descriptor, go away.
+
+#: What `QueryExtension` answers, name -> (major, first_event, first_error).
+#: The majors are the ones measured on Xwayland under sway [recon/env.md 2.5];
+#: nothing in xw11 may hard-code them, and a test that changes this table is how
+#: that is proved (RANDR is 140 on Xvfb and 139 on Xwayland).
+FAKE_EXTENSIONS = {
+    "BIG-REQUESTS": (133, 0, 0),
+    "XTEST": (132, 0, 0),
+    "RANDR": (139, 88, 145),
+    "XKEYBOARD": (135, 85, 137),
+    "XINERAMA": (140, 0, 0),
+    "Generic Event Extension": (128, 0, 0),
+    "XInputExtension": (131, 66, 129),
+    "DRI3": (151, 0, 0),
+}
+
+#: The ceiling BIG-REQUESTS.Enable answers with, in 4-byte units. 4194303 words
+#: = 16777212 bytes, measured on both servers [recon/wire.md 2].
+BIG_REQUEST_WORDS = 4194303
+
+#: The step between two connections' resource-id-bases: mask + 1
+#: [recon/wire.md 1.3, three simultaneous connections to the box's :355].
+RID_STEP = 0x200000
+RID_MASK = 0x1FFFFF
+
+
+class _FakeWire:
+    """One connection as `FakeXServer._dispatch` sees it -- `recv` and
+    `sendall` and nothing else -- with the hold queue in the middle."""
+
+    def __init__(self, server, sock, index):
+        self.server = server
+        self.sock = sock
+        self.index = index
+        self.seq = 0
+        self.bigreq = False
+        self.held = []
+
+    def recv(self, n):
+        return self.sock.recv(n)
+
+    def sendall(self, data):
+        if self.seq in self.server._held:
+            self.held.append((self.seq, bytes(data)))
+            return
+        self.sock.sendall(data)
+
+    def release(self):
+        pending, self.held = self.held, []
+        for _seq, data in pending:
+            self.sock.sendall(data)
+
+
+class FakeUpstream(FakeXServer):
+    """FakeXServer grown into something a proxy can sit in front of."""
+
+    def __init__(self, sockdir, num=7, cookie=None, accept_empty=True,
+                 extensions=None):
+        self.extensions = dict(FAKE_EXTENSIONS if extensions is None else extensions)
+        self.noops = 0                 # NoOperation, counted: the CONSUME substitute
+        self.wires = []                # one _FakeWire per connection, in order
+        self.generation = 0            # bumped by close_when_idle, like a restarted Xwayland
+        self._held = set()
+        self._last_request = time.monotonic()
+        self._idle_seconds = None
+        self._idle_thread = None
+        super().__init__(sockdir, num=num, cookie=cookie,
+                         accept_empty=accept_empty)
+
+    # -- the levers -----------------------------------------------------------
+
+    def hold_reply(self, seq):
+        """Everything this server would send while answering request `seq` is
+        queued instead, so a test can let a later reply overtake it."""
+        self._held.add(seq)
+
+    def release(self, seq=None):
+        if seq is None:
+            self._held.clear()
+        else:
+            self._held.discard(seq)
+        for wire in list(self.wires):
+            wire.release()
+
+    def push_event(self, pkt, conn_index=0):
+        """32 raw bytes onto one connection, ahead of nothing and behind
+        nothing -- which is what an event is."""
+        self.wires[conn_index].sock.sendall(pkt)
+
+    def send_fds(self, payload, fds, conn_index=0):
+        """A payload carrying SCM_RIGHTS. A plain `recv()` on the other end
+        takes the payload and drops the descriptors with no error at all
+        [recon/env.md 2.6]; this is what proves the proxy does not."""
+        socket.send_fds(self.wires[conn_index].sock, [payload], list(fds))
+
+    def big_property(self, name, nbytes, win=None, type_name="STRING", fmt=8):
+        """A property big enough that its reply cannot be one packet's worth:
+        xprop's own read of a 200 kB property is the measured case
+        [recon/tools.md 6]."""
+        win = self.ROOTS[0] if win is None else win
+        self.set_prop(win, name, type_name, fmt, bytes(range(256)) * (nbytes // 256)
+                      + bytes(nbytes % 256))
+        return win
+
+    def close_when_idle(self, seconds):
+        """Xwayland's `-terminate` shape: the server drops every connection once
+        nothing has asked it anything for `seconds`, and the next connection is
+        a new generation with fresh resource-id-bases [recon/env.md 6]."""
+        self._idle_seconds = seconds
+        if self._idle_thread is None:
+            self._idle_thread = threading.Thread(target=self._idle_watch, daemon=True)
+            self._idle_thread.start()
+
+    def _idle_watch(self):
+        while not self._stopped:
+            time.sleep(0.05)
+            if self._idle_seconds is None or not self.wires:
+                continue
+            if time.monotonic() - self._last_request < self._idle_seconds:
+                continue
+            self.generation += 1
+            for wire in list(self.wires):
+                try:
+                    wire.sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+            self.wires = []
+            self._last_request = time.monotonic()
+
+    # -- the wire -------------------------------------------------------------
+
+    def _setup_reply_for(self, index):
+        """The same reply FakeXServer builds, with this connection's own
+        resource-id-base: the server hands each connection its own, stepping by
+        mask + 1, which is why the proxy opens one upstream connection per
+        client and forwards the setup verbatim [recon/wire.md 1.3]."""
+        vendor = b"FAKE"
+        screens = b""
+        for root in self.ROOTS:
+            depth = struct.pack("<BxH4x", 24, 1) + b"\0" * 24
+            screens += struct.pack("<5I6HI4B", root, 0, 0, 0, 0,
+                                   1280, 720, 300, 200, 1, 1,
+                                   0x21, 0, 0, 24, 1) + depth
+        base = RID_STEP * (1 + index)
+        extra = struct.pack("<4IHH8B4x", 1, base, RID_MASK, 256,
+                            len(vendor), 0xFFFF, len(self.ROOTS), 0,
+                            0, 0, 32, 32, 8, 255)
+        extra += _pad4(vendor) + screens
+        return struct.pack("<BxHHH", 1, 11, 0, len(extra) // 4) + extra
+
+    def _serve(self, sock):
+        order, _maj, _min, nlen, dlen = struct.unpack(
+            "<BxHHHHxx", _recvn(sock, 12))
+        assert order == 0x6C
+        name = _recvn(sock, len(_pad4(b"x" * nlen)))[:nlen] if nlen else b""
+        data = _recvn(sock, len(_pad4(b"x" * dlen)))[:dlen] if dlen else b""
+        self.setup_attempts.append((name, data))
+        if not self._auth_ok(name, data):
+            reason = b"Authentication rejected by fake"
+            sock.sendall(struct.pack("<BBHHH", 0, len(reason), 11, 0,
+                                     len(_pad4(reason)) // 4)
+                         + _pad4(reason))
+            return
+        wire = _FakeWire(self, sock, len(self.wires))
+        self.wires.append(wire)
+        sock.sendall(self._setup_reply_for(wire.index))
+        while True:
+            opcode, dbyte, rlen = struct.unpack("<BBH", _recvn(sock, 4))
+            if rlen == 0:
+                # BIG-REQUESTS: the true length is the next u32, in 4-byte units,
+                # counting the 8-byte header. A zero from a connection that never
+                # enabled it is the client's error and never reaches a real
+                # server's dispatch [recon/wire.md 2].
+                assert wire.bigreq, "zero length without BIG-REQUESTS"
+                (rlen,) = struct.unpack("<I", _recvn(sock, 4))
+                payload = _recvn(sock, (rlen - 2) * 4)
+            else:
+                payload = _recvn(sock, (rlen - 1) * 4)
+            wire.seq = (wire.seq + 1) & 0xFFFF
+            self._last_request = time.monotonic()
+            self._dispatch(wire, opcode, dbyte, payload, wire.seq)
+
+    def _dispatch(self, conn, opcode, dbyte, payload, seq):
+        if opcode == 98:        # QueryExtension
+            (n,) = struct.unpack_from("<H", payload, 0)
+            name = payload[4:4 + n].decode("latin-1")
+            self.log.append(("QueryExtension", name))
+            major, first_event, first_error = self.extensions.get(name, (0, 0, 0))
+            conn.sendall(struct.pack("<BBHIBBBB20x", 1, 0, seq, 0,
+                                     1 if major else 0, major,
+                                     first_event, first_error))
+            return
+        if opcode == 127:       # NoOperation, the CONSUME substitute
+            self.noops += 1
+            self.log.append(("NoOperation",))
+            return
+        big = self.extensions.get("BIG-REQUESTS", (0, 0, 0))[0]
+        if big and opcode == big and dbyte == 0:
+            conn.bigreq = True
+            self.log.append(("BigReqEnable",))
+            conn.sendall(struct.pack("<BxHII20x", 1, seq, 0, BIG_REQUEST_WORDS))
+            return
+        super()._dispatch(conn, opcode, dbyte, payload, seq)
+
+
+class ProxyRig:
+    """An `xw11.server.Server` on a thread, in front of a `FakeUpstream`, in a
+    socket directory of its own.
+
+    The directory is `x11_mini._SOCK_DIR`, so the proxy's own sockets and the
+    client that dials them move together -- and because the abstract name is
+    `"\\0" + <that dir>/XN`, two rigs never collide even though abstract names
+    are not scoped by the filesystem [recon/env.md 4].
+    """
+
+    def __init__(self, num=20, upstream_num=7, cookie=None, idle=0.0,
+                 check=0.05, extensions=None, server_kwargs=None):
+        from wdotool import x11_mini
+        from xw11 import display as display_mod
+        from xw11 import server as server_mod
+        self.dir = tempfile.mkdtemp(prefix="xw11rig-")
+        os.chmod(self.dir, 0o700)
+        self._old_sock_dir = x11_mini._SOCK_DIR
+        self._old_lock_dir = display_mod._LOCK_DIR
+        x11_mini._SOCK_DIR = self.dir
+        display_mod._LOCK_DIR = self.dir
+        self._x11_mini = x11_mini
+        self._display_mod = display_mod
+        self.upstream = FakeUpstream(self.dir, num=upstream_num, cookie=cookie,
+                                     extensions=extensions)
+        self.upstream_name = ":%d" % upstream_num
+        self.display = display_mod.allocate(":%d" % num)
+        self.name = self.display.name
+        self.log = open(os.devnull, "w")
+        self.server = server_mod.Server(
+            self.display, self.upstream_name, log=self.log,
+            idle=idle, check=check, watch_wayland=False,
+            **(server_kwargs or {}))
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self._conns = []
+
+    def conn(self):
+        """An `x11_mini.X11Conn` to the proxy -- the wire client this project
+        already trusts, pointed at the thing under test."""
+        c = self._x11_mini.X11Conn(self.name)
+        self._conns.append(c)
+        return c
+
+    def raw(self, timeout=5.0):
+        """A bare socket to the proxy with the setup done, for the tests that
+        need to pipeline bytes by hand. Returns (sock, setup_body)."""
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect("\0" + self.display.fs_path)
+        s.sendall(struct.pack("<BxHHHHxx", 0x6C, 11, 0, 0, 0))
+        head = _recvn(s, 8)
+        (extra,) = struct.unpack_from("<H", head, 6)
+        body = _recvn(s, extra * 4)
+        self._conns.append(s)
+        return s, body
+
+    def stop(self):
+        for c in self._conns:
+            try:
+                c.close()
+            except (OSError, AttributeError):
+                pass
+        self._conns = []
+        self.server.stop("the rig said so")
+        self.thread.join(timeout=5)
+        self.upstream.stop()
+        self.log.close()
+        self._x11_mini._SOCK_DIR = self._old_sock_dir
+        self._display_mod._LOCK_DIR = self._old_lock_dir
+        shutil.rmtree(self.dir, ignore_errors=True)

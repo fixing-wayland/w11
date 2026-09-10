@@ -1,0 +1,20 @@
+# R3, measured 2026-09-10 against Xvfb 21.1.22 on :131 from a raw socket
+# (scratchpad/b1/r3.py): after a successful cookie-less setup, request 1 was a
+# well-formed GetInputFocus (2b000100, answered seq=1), request 2 was the same
+# opcode with a ZERO 16-bit length -- 2b000000 -- and BIG-REQUESTS never enabled.
+# Line 1 is the request, line 2 the server's whole answer: one 32-byte
+# BadLength (code 16) naming seq=2, bad=0, minor=0, major=43.
+# The two facts the packet does not show and the proxy owes:
+#   * the connection STAYS OPEN -- a following GetInputFocus was answered;
+#   * the bad request STILL CONSUMED a sequence number -- that following
+#     GetInputFocus came back as seq=3, not seq=2.
+# And how MANY bytes the server ate, which a 4-byte request cannot show:
+# measured separately on the same server (scratchpad/b1/r3c.py, Xvfb 21.1.22 on
+# :137, 2026-09-10) by sending a zero-length GetProperty header -- 14000000 --
+# followed by 16 bytes of body, those bytes being four NoOperations. The answer
+# was ONE 32-byte BadLength for seq=2 naming major 20, and the GetInputFocus
+# after it came back as seq=7: the server consumed exactly the 4-byte header and
+# framed the other 16 bytes as four ordinary requests (seq 3, 4, 5, 6). That is
+# what xw11/client.py:_bad_length does.
+2b000000
+001002000000000000002b000000000000000000000000000000000000000000
