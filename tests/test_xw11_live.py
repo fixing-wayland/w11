@@ -397,6 +397,21 @@ class ProxyLive(unittest.TestCase):
         return None
 
     @classmethod
+    def workspace_of(cls, **match):
+        """The name of the workspace a matching node sits under, walked out of
+        `get_tree` -- which is where sway keeps the scratchpad too: a
+        scratchpad window is a node of the workspace named `__i3_scratch`, so
+        "minimized" and "on workspace 2" are the same question asked once."""
+        for ws in _walk(cls.tree()):
+            if ws.get("type") != "workspace":
+                continue
+            for kid in _walk(ws):
+                if kid.get("pid") and all(kid.get(k) == v
+                                          for k, v in match.items()):
+                    return ws.get("name")
+        return None
+
+    @classmethod
     def wait(cls, ready, timeout=30.0):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -486,6 +501,58 @@ class XTwinUntouched(ProxyLive):
         unchanged, because the shadow is appended and not substituted."""
         self.assert_identical(["xdotool", "search", "--class", "xterm"])
         self.assert_identical(["xdotool", "search", "--name", XTERM_TITLE])
+
+    def test_the_writes_on_the_x_twin_print_the_same_bytes(self):
+        """The write half of the same baseline: every one of these names a REAL
+        X id, so the row is PASS and the bytes are Xwayland's own
+        [recon/tools.md 11 rows 9-12, 39, 40]. They are run twice -- once
+        direct, once through -- which is also the only way to compare them."""
+        for argv in (["xdotool", "windowfocus", self.xterm],
+                     ["xdotool", "windowraise", self.xterm],
+                     ["xdotool", "windowmove", self.xterm, "100", "100"],
+                     ["xdotool", "windowsize", self.xterm, "400", "300"],
+                     ["wmctrl", "-i", "-r", self.xterm, "-e", "0,10,10,300,200"],
+                     ["wmctrl", "-i", "-r", self.xterm, "-b",
+                      "add,maximized_vert"],
+                     ["wmctrl", "-i", "-r", self.xterm, "-b",
+                      "remove,maximized_vert"]):
+            if argv[0] == "wmctrl" and not HAVE_WMCTRL:
+                continue
+            self.assert_identical(argv)
+
+    def test_windowminimize_on_the_x_twin_stays_on_the_xwms_plane(self):
+        """`WM_CHANGE_STATE` is ICCCM's, and no `_NET_SUPPORTED` list names it
+        [recon/env.md 2.1 lists wlroots' nineteen] -- so the dual-plane rule
+        cannot ask that list about it and the message goes to the xwm, which
+        reads it on its own path (`xwm_handle_wm_change_state` -> sway's
+        `handle_request_minimize`).
+
+        The bytes are equal either way (a `ClientMessage` is answered with
+        nothing), so this asserts the PLANE and not only the wire: sway's
+        `backend.minimize` is `move scratchpad` (backend_sway.py:373), and a
+        proxy that routed this would move an X window somebody else manages to
+        the scratchpad where a direct run leaves it exactly where it is."""
+        before = self.workspace_of(name=XTERM_TITLE)
+        self.assertIsNotNone(before, "the xterm is on no workspace at all")
+        self.assert_identical(["xdotool", "windowminimize", self.xterm])
+        self.assertFalse(self.wait(
+            lambda: self.workspace_of(name=XTERM_TITLE) != before, timeout=3.0),
+            "the xterm moved from %r to %r"
+            % (before, self.workspace_of(name=XTERM_TITLE)))
+
+    def test_a_property_written_on_the_x_twin_is_the_x_servers_own(self):
+        """`xprop -set` on a real window PASSes and the value comes back out of
+        Xwayland, not out of an overlay [recon/tools.md 6, rows 52 and 53].
+        The proxy's overlay exists for windows the X server has never heard
+        of."""
+        self.tool(["xprop", "-id", self.xterm, "-f", "XW11_TWIN", "8s",
+                   "-set", "XW11_TWIN", "hello"])
+        self.addCleanup(self.tool,
+                        ["xprop", "-id", self.xterm, "-remove", "XW11_TWIN"])
+        direct = self.tool(["xprop", "-id", self.xterm, "XW11_TWIN"],
+                           through=False)
+        self.assertIn("hello", direct.stdout)
+        self.assert_identical(["xprop", "-id", self.xterm, "XW11_TWIN"])
 
     def test_a_dead_window_still_draws_the_servers_own_error(self):
         """recon/tools.md 9: an id nobody knows PASSes and upstream answers
@@ -649,6 +716,259 @@ class NativeExists(ProxyLive):
         through = self.tool(["wmctrl", "-m"])
         self.assertEqual(direct.stdout.splitlines()[0], "Name: wlroots wm")
         self.assertEqual(direct.stdout, through.stdout)
+
+
+@unittest.skipUnless(HAVE_XDOTOOL and HAVE_WMCTRL, "needs xdotool and wmctrl")
+class WritesLand(ProxyLive):
+    """Design section 9.3's third claim: the writes land.
+
+    Every command here is one of recon/tools.md 11's rows aimed at a toplevel
+    that has no X window at all, and every one of them is checked against
+    `swaymsg -t get_tree` / `get_workspaces` rather than against the proxy's
+    own answer -- the compositor is the oracle, because the compositor is what
+    the clone would have moved.
+
+    The foot is floated first: sway refuses an absolute move or resize of a
+    TILED window with a `SoftCmdError` naming the dialect
+    (backend_sway.py:341, 355), which through the proxy is silence on the wire
+    and one line in the log (design section 3.3) -- the case
+    `test_a_tiled_move_is_silence_and_one_line` pins on purpose.
+    """
+
+    prefix = "xw11-writes-"
+    want_xterm = False
+
+    def setUp(self):
+        node = self.node(app_id=FOOT_APP_ID)
+        self.assertIsNotNone(node, "the foot left the tree")
+        self.shadow = self.shadow_id()
+
+    def float_it(self):
+        self.swaymsg("[app_id=%s] floating enable" % FOOT_APP_ID)
+        self.assertTrue(self.wait(
+            lambda: (self.node(app_id=FOOT_APP_ID) or {}).get("type")
+            == "floating_con", timeout=10), "the foot never floated")
+        self.addCleanup(self.swaymsg,
+                        "[app_id=%s] floating disable" % FOOT_APP_ID)
+
+    def rect(self):
+        return (self.node(app_id=FOOT_APP_ID) or {}).get("rect") or {}
+
+    def settle_rect(self, timeout=10.0):
+        """Wait until the compositor's rect stops moving: sway floats a
+        container at the size it had tiled and the client then answers the
+        configure with the size it wants, so a rect read the instant after
+        `floating enable` is a rect that is about to change on its own."""
+        deadline = time.monotonic() + timeout
+        last = None
+        while time.monotonic() < deadline:
+            now = self.rect()
+            if now and now == last:
+                return now
+            last = now
+            time.sleep(0.2)
+        return self.rect()
+
+    def geometry(self):
+        """What `xdotool getwindowgeometry` prints for the shadow: the
+        registry's own read-back, which is the other half of a write landing.
+        """
+        got = self.tool(["xdotool", "getwindowgeometry", str(self.shadow)])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        return got.stdout
+
+    def test_windowmove_puts_the_toplevel_where_the_compositor_says(self):
+        """`xdotool windowmove <w> 100 100` is one `ConfigureWindow` with
+        `{x, y}` [recon/tools.md 4.3, 11 row 10]."""
+        self.float_it()
+        self.settle_rect()
+        got = self.tool(["xdotool", "windowmove", str(self.shadow), "100", "100"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertEqual(got.stdout, "", "a write printed something")
+        self.assertTrue(self.wait(lambda: self.rect().get("x") == 100,
+                                  timeout=10),
+                        "sway put the foot at %r" % (self.rect(),))
+        self.assertTrue(self.wait(
+            lambda: "Position: 100,100" in self.geometry(), timeout=10),
+            "the proxy read back %r for sway's %r"
+            % (self.geometry(), self.rect()))
+
+    def test_windowsize_resizes_the_toplevel(self):
+        """Row 11: `{width, height}`.
+
+        The size that lands is the compositor's and not the request's, and the
+        assertion says so: `foot` sizes in whole character cells, so a request
+        of 500x400 arrived as 496x399 on this rig [M 2026-09-10] -- which is
+        what a Wayland client does with a configure and what an X client with
+        size hints does with `XResizeWindow`. What the proxy owes is that the
+        request reached the compositor and that the read-back afterwards is the
+        compositor's own number, to the pixel."""
+        self.float_it()
+        self.settle_rect()
+        got = self.tool(["xdotool", "windowsize", str(self.shadow), "500", "400"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(self.wait(
+            lambda: abs((self.rect().get("width") or 0) - 500) < 30, timeout=10),
+            "sway sized the foot %r" % (self.rect(),))
+        now = self.rect()
+        self.assertLess(abs(now["height"] - 400), 30, now)
+        self.assertTrue(self.wait(
+            lambda: "Geometry: %dx%d" % (self.rect()["width"],
+                                         self.rect()["height"])
+            in self.geometry(), timeout=10),
+            "the proxy read back %r for sway's %r" % (self.geometry(), now))
+
+    def test_a_tiled_move_is_silence_on_the_wire_and_one_line_in_the_log(self):
+        """sway refuses an absolute move of a tiled window (backend_sway.py:341
+        -- `resize set` on a tiled container moves the split ratio instead).
+        X gives a client no error when the window manager ignores a
+        `ConfigureWindow`, so neither does this: rc 0, nothing on either
+        stream, and the backend's own sentence in the proxy's log."""
+        self.swaymsg("[app_id=%s] floating disable" % FOOT_APP_ID)
+        before = len(self.proxy_log())
+        got = self.tool(["xdotool", "windowmove", str(self.shadow), "70", "70"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertEqual((got.stdout, got.stderr), ("", ""))
+        said = self.proxy_log()[before:]
+        self.assertIn("cannot move a tiled window", said)
+        self.assertIn("silence on the wire", said)
+
+    def test_windowactivate_focuses_the_native_toplevel(self):
+        """Row 8. Two `ClientMessage`s through the proxy -- the desktop one and
+        `_NET_ACTIVE_WINDOW` -- because the union puts `_NET_CURRENT_DESKTOP`
+        back into `_NET_SUPPORTED` [recon/env.md 2.1]."""
+        self.swaymsg("[app_id=%s] focus" % FOOT_APP_ID)
+        self.swaymsg("focus left")
+        got = self.tool(["xdotool", "windowactivate", str(self.shadow)])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(self.wait(
+            lambda: (self.node(app_id=FOOT_APP_ID) or {}).get("focused"),
+            timeout=10), "sway did not focus the foot")
+
+    def test_windowminimize_puts_it_in_the_scratchpad(self):
+        """Row 13: `WM_CHANGE_STATE [3]`, which is `IconicState`
+        [recon/tools.md 4.3]. sway's `minimize` is its `unmap` -- the
+        scratchpad (backend_sway.py:373) -- and that is what "minimized" means
+        on a compositor with no taskbar."""
+        self.addCleanup(self.swaymsg,
+                        "[app_id=%s] scratchpad show" % FOOT_APP_ID)
+        got = self.tool(["xdotool", "windowminimize", str(self.shadow)])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(self.wait(
+            lambda: self.workspace_of(app_id=FOOT_APP_ID) == "__i3_scratch",
+            timeout=10),
+            "sway has the foot on %r" % (self.workspace_of(app_id=FOOT_APP_ID),))
+
+    def test_wmctrl_r_e_moves_and_resizes_through_the_ewmh_message(self):
+        """Row 39. Against a bare Xwayland wmctrl falls back to
+        `ConfigureWindow`, because wlroots' xwm does not name
+        `_NET_MOVERESIZE_WINDOW` in `_NET_SUPPORTED` [M
+        recon/tools/caps/xwl.jsonl MARK 39]; through the proxy the union names
+        it and this is the `_NET_MOVERESIZE_WINDOW [0xf00, 10, 10, 300, 200]`
+        path of design section 3.4."""
+        self.float_it()
+        self.settle_rect()
+        got = self.tool(["wmctrl", "-r", FOOT_TITLE, "-e", "0,10,10,300,200"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(self.wait(
+            lambda: (self.rect().get("x"), self.rect().get("width")) == (10, 300),
+            timeout=10), "sway put the foot at %r" % (self.rect(),))
+
+    def test_wmctrl_b_add_fullscreen_reaches_the_compositor(self):
+        """Row 40's shape with the one state sway has a verb for:
+        `_NET_WM_STATE [1, atom]` -> `set_state(FULLSCREEN, add)`
+        (backend_sway.py:408)."""
+        self.addCleanup(self.swaymsg,
+                        "[app_id=%s] fullscreen disable" % FOOT_APP_ID)
+        got = self.tool(["wmctrl", "-r", FOOT_TITLE, "-b", "add,fullscreen"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(self.wait(
+            lambda: (self.node(app_id=FOOT_APP_ID) or {}).get("fullscreen_mode"),
+            timeout=10), "sway did not fullscreen the foot")
+
+    def test_wmctrl_b_add_maximized_vert_is_silence_and_one_line(self):
+        """The same row with a state sway has no word for: a plain `CmdError`
+        naming the route (backend_sway.py:427 -- "not yet here, and the route
+        is a patched compositor (AGENTS.md route 6)"). The client is told
+        nothing, because X tells a client nothing when the window manager
+        ignores its message."""
+        before = len(self.proxy_log())
+        got = self.tool(["wmctrl", "-r", FOOT_TITLE, "-b", "add,maximized_vert"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertEqual((got.stdout, got.stderr), ("", ""))
+        said = self.proxy_log()[before:]
+        self.assertIn("windowstate MAXIMIZED_VERT is not supported", said)
+        self.assertIn("not yet", said)
+
+    def test_wmctrl_s_switches_the_compositors_workspace(self):
+        """Row 42: `_NET_CURRENT_DESKTOP [1]` to the root -> `set_desktop(1)`,
+        which is sway's `workspace number 2` (desktop N is workspace N+1,
+        backend_sway.py:481)."""
+        self.addCleanup(self.tool, ["wmctrl", "-s", "0"])
+        got = self.tool(["wmctrl", "-s", "1"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(self.wait(self.on_workspace_two, timeout=10),
+                        "sway stayed on %r" % (self.workspace_names(),))
+
+    def test_set_desktop_switches_it_too(self):
+        """Rows 25 and 26, the pair that exits 1 on a bare Xwayland because the
+        atom is missing from `_NET_SUPPORTED` [recon/tools.md 4.10]."""
+        self.addCleanup(self.tool, ["xdotool", "set_desktop", "0"])
+        got = self.tool(["xdotool", "set_desktop", "1"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(self.wait(self.on_workspace_two, timeout=10),
+                        "sway stayed on %r" % (self.workspace_names(),))
+
+    def workspace_names(self):
+        return [(ws["name"], ws["focused"])
+                for ws in json.loads(self.swaymsg("", kind="get_workspaces").stdout)]
+
+    def on_workspace_two(self):
+        return ("2", True) in self.workspace_names()
+
+
+@unittest.skipUnless(HAVE_XDOTOOL and HAVE_WMCTRL, "needs xdotool and wmctrl")
+class WritesThatClose(ProxyLive):
+    """The two commands that end a window, each on a foot of its own: a class
+    whose first test closed the shared one would leave the rest of the class
+    testing an empty tree."""
+
+    prefix = "xw11-close-"
+    want_xterm = False
+
+    #: the second foot, closed by the test that opens it
+    VICTIM = "footdoomed"
+
+    def victim(self, title):
+        self.swaymsg("exec foot --app-id %s --title %s sh -c 'sleep 600'"
+                     % (self.VICTIM, title))
+        self.assertTrue(self.wait(lambda: self.node(app_id=self.VICTIM)),
+                        "the second foot never appeared")
+        got = self.tool(["xdotool", "search", "--class", self.VICTIM])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        ids = [int(x) for x in got.stdout.split()]
+        self.assertEqual(len(ids), 1, "search printed %r" % got.stdout)
+        return ids[0]
+
+    def test_windowclose_closes_the_toplevel(self):
+        """Row 31. `xdotool windowclose` is `DestroyWindow` and not
+        `KillClient` [recon/tools.md 4.3], and `backend.close` is the polite
+        close every clone sends."""
+        shadow = self.victim("WXL-Doomed-1")
+        got = self.tool(["xdotool", "windowclose", str(shadow)])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(self.wait(lambda: not self.node(app_id=self.VICTIM),
+                                  timeout=15), "the foot is still in the tree")
+
+    def test_wmctrl_c_closes_the_toplevel(self):
+        """Row 46: `_NET_CLOSE_WINDOW [0, ...]` sent to the ROOT with the
+        window in the event's own field [M recon/tools/caps/xwl.jsonl MARK
+        46]."""
+        self.victim("WXL-Doomed-2")
+        got = self.tool(["wmctrl", "-c", "WXL-Doomed-2"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(self.wait(lambda: not self.node(app_id=self.VICTIM),
+                                  timeout=15), "the foot is still in the tree")
 
 
 @unittest.skipUnless(HAVE_XDOTOOL, "needs xdotool")

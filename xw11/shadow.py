@@ -51,6 +51,13 @@ TTL = 0.020
 #: synthesized" -- the synthesis would put it straight back.
 TOMBSTONE = object()
 
+#: `ChangeProperty`'s three modes, at byte 1 of the request [recon/wire.md 4.2].
+REPLACE, PREPEND, APPEND = 0, 1, 2
+
+#: `PropertyNotify`'s `state` byte [recon/wire.md 4.4], which is what the
+#: `on_property` hook below carries.
+PROP_NEW_VALUE, PROP_DELETED = 0, 1
+
 #: The kinds of change a refresh reports. Batch 5 turns each into the events of
 #: design section 5.3; here they are computed, tested and handed out.
 NEW = "new"
@@ -625,6 +632,82 @@ class Shadows:
             self._root_props = root_props(self, self.own)
             self._root_gen = self.generation
         return self._root_props
+
+    # -- what the write side writes (design section 4.7) ------------------------
+
+    def write(self, entry, atom, type_atom, fmt, data, mode=REPLACE):
+        """One client's `ChangeProperty` on a shadow, into the overlay.
+
+        The three modes are honoured against the CURRENT value -- overlaid or
+        synthesized, whichever `props_for` answers -- because that is the value
+        the same client just read back and the one X would have appended to.
+        `xdotool set_window --name` writes `WM_NAME` and then `_NET_WM_NAME`,
+        both `Replace`, both typed `STRING` [recon/tools.md 4.3]; the type is
+        stored exactly as it came, `_NET_WM_NAME(STRING)` and all, because that
+        bug is xdotool's and a proxy that corrected it would answer bytes no X
+        server would have answered (AGENTS.md: bugs are features).
+
+        True when the overlay moved. A `Prepend`/`Append` whose type or format
+        disagrees with what is there is where a server answers `BadMatch`; this
+        answers False and one log line, and the error is NOT YET -- the seam is
+        `Server.handle`, which today can consume a request or answer it and not
+        both, and the cost of the fix is one class in `xw11/policy.py` plus its
+        arm in that method (AGENTS.md rung 5: rung 5 is this proxy, so a gap
+        inside it closes with more of it). Nothing measured sends one: xprop
+        `-set` and `set_window --name` are `Replace` [recon/tools.md 4.3, 6].
+        """
+        fmt = int(fmt)
+        data = bytes(data)
+        if mode != REPLACE:
+            current = self.props_for(entry).get(atom)
+            if current is not None:
+                have_type, have_fmt, have = current
+                if have_type != type_atom or have_fmt != fmt:
+                    self.say("ChangeProperty mode %d on atom %d of shadow 0x%x "
+                             "with type %d format %d over a value typed %d "
+                             "format %d: X answers BadMatch here and this "
+                             "proxy has no seam to answer an error on a "
+                             "request it consumes -- not yet; the route is one "
+                             "more class in xw11/policy.py and its arm in "
+                             "Server.handle (AGENTS.md rung 5). The write is "
+                             "dropped."
+                             % (mode, atom, entry.shadow, type_atom, fmt,
+                                have_type, have_fmt))
+                    return False
+                data = data + have if mode == PREPEND else have + data
+        entry.overlay[atom] = (type_atom, fmt, data)
+        self.on_property(entry, atom, PROP_NEW_VALUE)
+        return True
+
+    def delete(self, entry, atom):
+        """`xprop -remove`, and `GetProperty(delete = 1)` on a full read.
+
+        A synthesized value cannot be deleted -- the next re-list builds it
+        again -- so the overlay carries a `TOMBSTONE` for the life of the
+        entry, which is what X does for a property a window manager keeps
+        rewriting. False when there was nothing to delete: a real server sends
+        no `PropertyNotify` for a `DeleteProperty` on a name the window does
+        not have, and the tombstone would otherwise hide the synthesis on the
+        strength of a request that did nothing.
+        """
+        if self.props_for(entry).get(atom) is None:
+            return False
+        entry.overlay[atom] = TOMBSTONE
+        self.on_property(entry, atom, PROP_DELETED)
+        return True
+
+    def on_property(self, entry, atom, state) -> None:
+        """A property of a shadow moved, because a CLIENT wrote it: `state` is
+        `PropertyNotify`'s own byte, 0 NewValue and 1 Deleted
+        [recon/wire.md 4.4].
+
+        A no-op here and the seam batch 5 fills: design section 5.3's last row
+        sends the `PropertyNotify` to every `PropertyChange` selector on that
+        window at once, the way the server does, and this is where it learns
+        that it must. An instance attribute of the same name shadows this
+        method, which is how `OwnConn.on_event` is already wired
+        (xw11/upstream.py) -- so batch 5 assigns and never edits this file.
+        """
 
 
 # -- the properties a shadow wears (design section 4.4) -----------------------

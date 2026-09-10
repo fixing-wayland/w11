@@ -1,0 +1,30 @@
+# xp-remove xprop -id 6291468 -remove RECON_TEST
+# from recon/tools/caps/xwl.jsonl line 3609 (MARK), connection 53; 2026-09-10.
+# Rebuilt from the decoded capture by scratchpad/b4/mkcaps_write.py: every CORE
+# request is byte-exact against the layout of recon/wire.md 4.1-4.4, and an
+# extension request whose body the capture decoded only the head of is
+# zero-padded to its recorded length and marked `pad`.
+# ROOT 0x234
+# TARGET 0x60000c
+# WINDOW 0x60000c
+# ATOM 0 WM_COLORMAP_WINDOWS
+# ATOM 0 _NET_WM_ICON
+# ATOM 234 WM_PROTOCOLS
+# ATOM 237 UTF8_STRING
+# ATOM 266 WM_STATE
+# ATOM 339 RECON_TEST
+620005000c0000004249472d5245515545535453  # 3612 QueryExtension
+85000100  # 3614 BIG-REQUESTS.Enable pad
+370005000000e000340200000000000000000000  # 3616 CreateGC pad
+1400060034020000170000001f0000000000000000e1f505  # 3617 GetProperty
+6200050009000000584b4559424f415244000000  # 3619 QueryExtension
+8700020001000000  # 3621 XKEYBOARD.UseExtension pad
+100105000b000000555446385f535452494e4700  # 3623 InternAtom
+1001070013000000574d5f434f4c4f524d41505f57494e444f575300  # 3625 InternAtom
+100105000c000000574d5f50524f544f434f4c53  # 3627 InternAtom
+100105000c0000005f4e45545f574d5f49434f4e  # 3629 InternAtom
+1001040008000000574d5f5354415445  # 3631 InternAtom
+100105000a0000005245434f4e5f544553540000  # 3633 InternAtom
+130003000c00600053010000  # 3635 DeleteProperty
+3c00020000000000  # 3636 FreeGC pad
+2b000100  # 3637 GetInputFocus

@@ -69,6 +69,40 @@ STREAMS = (
     ("xprop-root", 40),
     ("xprop-root-one", 13),
     ("xprop-id", 41),
+    # batch 4's write side, same rule: the count is recon/tools.md 11's, per
+    # rig. `xdotool-windowactivate`, `xdotool-set_desktop` and `wmctrl-r-e`
+    # are the openbox rig's streams, because on a bare Xwayland those three
+    # commands send FEWER messages -- the atoms they gate on are missing from
+    # wlroots' `_NET_SUPPORTED` [recon/env.md 2.1] and the proxy's union is
+    # what puts them back, so the openbox stream is the one a run through the
+    # proxy makes. `xdotool-windowactivate-bare` and `wmctrl-r-e-configure`
+    # are the Xwayland streams of the same two commands.
+    ("xdotool-windowactivate", 47),
+    ("xdotool-windowactivate-bare", 41),
+    ("xdotool-windowfocus", 34),
+    ("xdotool-windowmove", 34),
+    ("xdotool-windowsize", 34),
+    ("xdotool-windowraise", 34),
+    ("xdotool-windowminimize", 37),
+    ("xdotool-windowmap", 34),
+    ("xdotool-windowunmap", 34),
+    ("xdotool-windowclose", 34),
+    ("xdotool-set_window", 38),
+    ("xdotool-set_desktop", 37),
+    # `xdotool windowstate` is not one of the 64 commands of recon/tools.md 11;
+    # it was captured beside them (xvfb2.jsonl MARK 5) and this count is that
+    # capture's own.
+    ("xdotool-windowstate-add", 36),
+    ("wmctrl-a", 27),
+    ("wmctrl-R", 26),
+    ("wmctrl-r-e", 21),
+    ("wmctrl-r-e-configure", 23),
+    ("wmctrl-b-add", 22),
+    ("wmctrl-c", 17),
+    ("wmctrl-s", 10),
+    ("wmctrl-k", 10),
+    ("xprop-set", 15),
+    ("xprop-remove", 15),
 )
 
 
@@ -98,6 +132,14 @@ class Capture:
         got = re.match(r"^WINDOW 0x([0-9a-f]+)$", text)
         if got:
             self.windows.append(int(got.group(1), 16))
+        got = re.match(r"^TARGET 0x([0-9a-f]+)$", text)
+        if got:
+            # The window the command's WRITE requests act on, which is not
+            # always the first window the stream names: `wmctrl -r <n> -e`
+            # reads `_NET_CLIENT_LIST` and asks three windows their names
+            # before it writes to one of them. Batch 4's fixtures carry it;
+            # the read-side eleven have no write to name a target for.
+            self.windows.insert(0, int(got.group(1), 16))
         got = re.match(r"^ATOM (\d+) (\S+)$", text)
         if got and int(got.group(1)):
             self.atoms[got.group(2)] = int(got.group(1))
@@ -154,8 +196,17 @@ class _Upstream(support.FakeUpstream):
         self._names[atom] = name
         return atom
 
+    #: The void requests: a real X server answers NOTHING at all for these
+    #: [recon/wire.md 4.2], and `FakeXServer` answers `BadRequest` for an
+    #: opcode nobody wrote a branch for. Every write stream below carries at
+    #: least one, and a stream replayed against a window this rig does not
+    #: shadow forwards it.
+    VOID = (4, 8, 10, 12, 25, 42, 113)
+
     def _dispatch(self, conn, opcode, dbyte, payload, seq):
         self.ops.append(opcode)
+        if opcode in self.VOID:
+            return
         if opcode == 21:                        # ListProperties
             (win,) = struct.unpack_from("<I", payload, 0)
             atoms = [self.intern(n) for (w, n) in self.props if w == win]
@@ -219,7 +270,7 @@ class Replay(unittest.TestCase):
         sock, _setup = rig.raw(timeout=20.0)
         frames = cap.tokenise(root, shadow)
         sock.sendall(b"".join(frames))
-        got = self.read_all(sock, len(frames))
+        got = self.read_all(sock, len(frames), last=len(frames))
         rig.wait(lambda: len(rig.upstream.ops) >= self.expected_ups(cap),
                  timeout=10.0, what="the upstream request log")
         return cap, frames, got, list(rig.upstream.ops), root, shadow
@@ -230,10 +281,20 @@ class Replay(unittest.TestCase):
         answers cost a `GetInputFocus` in their place (design section 3.1)."""
         return len(cap.frames)
 
-    def read_all(self, sock, want, timeout=20.0):
+    def read_all(self, sock, want, timeout=20.0, last=None):
         """Every packet the client is owed, framed the way a client frames
         them: 32 bytes, plus 4 * the length word for a reply or a
-        GenericEvent [recon/wire.md 3.1]."""
+        GenericEvent [recon/wire.md 3.1].
+
+        `last` is the sequence of the final request, and it is what says the
+        stream is finished: a CONSUMEd request produces NO packet at all
+        (design section 3.1), so a write stream owes fewer packets than it sent
+        requests and waiting for one each would be waiting for the timeout.
+        Every stream in `STREAMS` ends with the `GetInputFocus` libX11 closes a
+        connection's work with [recon/tools.md 2], and a server answers one
+        connection's requests in order [recon/wire.md 3.2], so its reply is
+        behind everything the stream is owed.
+        """
         buf = b""
         out = []
         deadline = timeout
@@ -247,6 +308,9 @@ class Replay(unittest.TestCase):
                 out.append(buf[:total])
                 buf = buf[total:]
             if len(out) >= want:
+                break
+            if last is not None and out and \
+                    struct.unpack_from("<H", out[-1], 2)[0] >= last:
                 break
             r, _w, _x = select.select([sock], [], [], deadline)
             if not r:
@@ -275,16 +339,20 @@ def _make_stream_test(name, count):
         self.assertEqual(seqs[-1], len(frames),
                          "the last reply's sequence is not the last request's")
         # The upstream stream is the same opcodes with the answered ones
-        # substituted, at the same positions.
+        # substituted, at the same positions: `GetInputFocus` (43) where the
+        # proxy answered the client itself and `NoOperation` (127) where it ate
+        # the request, because either way the sequence is still spent upstream
+        # [recon/wire.md 3.2a, 3.3].
         want = cap.opcodes()
         self.assertEqual(len(ups), len(want))
         for i, (mine, theirs) in enumerate(zip(ups, want)):
             if mine == theirs:
                 continue
-            self.assertEqual(mine, wire.OP_GET_INPUT_FOCUS,
-                             "request %d (op %d) went upstream as op %d, which "
-                             "is neither itself nor the ANSWER substitute"
-                             % (i + 1, theirs, mine))
+            self.assertIn(mine, (wire.OP_GET_INPUT_FOCUS,
+                                 wire.OP_NO_OPERATION),
+                          "request %d (op %d) went upstream as op %d, which is "
+                          "neither itself, the ANSWER substitute nor the "
+                          "CONSUME one" % (i + 1, theirs, mine))
     test.__name__ = "test_" + name.replace("-", "_")
     test.__doc__ = ("`%s` replayed: %d requests, %d packets back, and the "
                     "upstream stream differs only where the policy says ANSWER."

@@ -63,30 +63,30 @@ class Row(NamedTuple):
 PASS_ROW = Row()
 
 POLICY = {
-    2: PASS_ROW,     # ChangeWindowAttributes -- event masks (section 5.4)
+    2: Row(shadow=CONSUME, root=EDIT),      # ChangeWindowAttributes (5.4)
     3: Row(shadow=ANSWER),          # GetWindowAttributes (section 4.5)
-    4: PASS_ROW,     # DestroyWindow
-    8: PASS_ROW,     # MapWindow
-    10: PASS_ROW,    # UnmapWindow
-    12: PASS_ROW,    # ConfigureWindow
+    4: Row(shadow=CONSUME),         # DestroyWindow -> backend.close
+    8: Row(shadow=CONSUME),         # MapWindow -> backend.map
+    10: Row(shadow=CONSUME),        # UnmapWindow -> backend.unmap
+    12: Row(shadow=CONSUME),        # ConfigureWindow (section 3.2)
     14: Row(shadow=ANSWER),         # GetGeometry (section 4.5)
     15: Row(shadow=ANSWER, root=EDIT),      # QueryTree (section 3.2)
     16: PASS_ROW,    # InternAtom -- always PASS: atoms are server-global
     17: PASS_ROW,    # GetAtomName -- likewise (recon/wire.md 7.2)
-    18: PASS_ROW,    # ChangeProperty
-    19: PASS_ROW,    # DeleteProperty
+    18: Row(shadow=CONSUME, root=EDIT),     # ChangeProperty (section 4.7)
+    19: Row(shadow=CONSUME),        # DeleteProperty -> a tombstone
     20: Row(shadow=ANSWER, root=ANSWER),    # GetProperty (sections 4.6, 4.7)
     21: Row(shadow=ANSWER, root=EDIT),      # ListProperties
-    25: PASS_ROW,    # SendEvent -- the EWMH ClientMessages (section 3.4)
+    25: Row(BATCH, BATCH, BATCH),   # SendEvent -- section 3.4, and see below
     36: Row(BATCH, BATCH, BATCH),   # GrabServer -- opens a RandR batch (7.4)
     37: Row(BATCH, BATCH, BATCH),   # UngrabServer -- commits it
     38: PASS_ROW,    # QueryPointer
     40: Row(ANSWER, ANSWER, ANSWER),  # TranslateCoordinates (section 4.5)
     41: PASS_ROW,    # WarpPointer
-    42: PASS_ROW,    # SetInputFocus
+    42: Row(shadow=CONSUME),        # SetInputFocus -> backend.focus
     43: Row(EDIT, EDIT, EDIT),      # GetInputFocus -- it names no window
     98: PASS_ROW,    # QueryExtension -- watched, and DRI3's reply edited
-    113: PASS_ROW,   # KillClient
+    113: Row(shadow=CONSUME),       # KillClient -> backend.kill
     127: PASS_ROW,   # NoOperation
 }
 
@@ -107,6 +107,28 @@ POLICY = {
 #: The handler answers only when one of the two IS a shadow and returns None
 #: otherwise, which forwards. wmctrl sends one per window it lists
 #: [recon/tools.md 5], so the cost is one dict lookup per listed window.
+
+#: `SendEvent` is BATCH in all three places, which is the one class whose
+#: handler chooses per request between forwarding, consuming and answering
+#: (`FORWARD` above). It has to: design section 3.4 routes on the
+#: **ClientMessage's own `type` and `window`**, which live inside the 32-byte
+#: event at offset 12 and not in the field `WINDOW_FIELD` reads -- `wmctrl -c`
+#: sends its `_NET_CLOSE_WINDOW` with `destination = root` and
+#: `cm_window = <the window>` [recon/tools.md 4.4, measured field by field], so
+#: the row's target says "root" for a message about a shadow. A CONSUME row
+#: cannot forward and a PASS row is never handed to a handler, so the class
+#: that already carries the three-way answer is the one this uses. It is not a
+#: RandR batch and `conn.batch` is never touched by it; the name is the
+#: mechanism's, and renaming it to `ROUTE` is a change in `Server.handle`,
+#: which this batch does not own (see scratchpad requests-batch-4.md).
+#:
+#: `ChangeWindowAttributes` and `ChangeProperty` are EDIT on the ROOT for the
+#: same reason in reverse: both are PASS there (design section 3.2) and both
+#: still have to be SEEN -- the first records who selected `SubstructureNotify`
+#: on the root so batch 5 knows where to deliver, the second logs a client
+#: writing a name the proxy answers from the compositor. An EDIT handler that
+#: returns None forwards the frame untouched, and neither request has a reply
+#: for an editor to be registered against.
 
 #: The RandR writes design section 7.3 owns. Every one of them is BATCH in all
 #: three places: none of them names a window the registry could have minted, so
@@ -142,6 +164,37 @@ EXT_POLICY = {
     ("RANDR", 30): BATCH_ROW,        # SetOutputPrimary -- PASS *and* recorded
     ("RANDR", 31): PASS_ROW,         # GetOutputPrimary
 }
+
+
+#: The `ClientMessage` types design section 3.4 routes to the backend, split by
+#: whose window the message names. Every name here is interned by `ATOMS` above
+#: and answered for in `SUPPORTED`, and `xw11/ewmh.py` has one handler per name
+#: -- `tests/test_xw11_ewmh.py::EveryRoutedTypeHasAHandler` compares the two
+#: lists, because a name in `SUPPORTED` with no handler is the proxy telling
+#: `wmctrl` it does something it then swallows.
+#:
+#: `WM_PROTOCOLS` is on the window list and in neither `SUPPORTED` nor the
+#: EWMH: it is the `WM_DELETE_WINDOW` message a polite closer sends to the
+#: window itself, which design section 4.4's `WM_PROTOCOLS` property promises
+#: will work.
+ROUTED_WINDOW_TYPES = (
+    "_NET_ACTIVE_WINDOW", "_NET_CLOSE_WINDOW", "_NET_WM_STATE",
+    "_NET_WM_DESKTOP", "_NET_MOVERESIZE_WINDOW", "WM_CHANGE_STATE",
+    "WM_PROTOCOLS",
+)
+
+#: The three that name the root. `_NET_SHOWING_DESKTOP` is routed as far as the
+#: log and no further: no backend in the tree has a "show the desktop" verb, so
+#: `wmctrl -k on` is NOT YET here and the lowest route is the compositor's own
+#: scripting surface (AGENTS.md rung 2) -- sway's `scratchpad`/`layout` verbs,
+#: KWin's `showingDesktop` property, Mutter's overview. The message passes
+#: upstream, where wlroots' xwm ignores it too, and one line says so.
+ROUTED_ROOT_TYPES = (
+    "_NET_CURRENT_DESKTOP", "_NET_NUMBER_OF_DESKTOPS", "_NET_SHOWING_DESKTOP",
+)
+
+#: Both, for the one membership test `xw11/ewmh.py` makes per `SendEvent`.
+ROUTED_TYPES = ROUTED_WINDOW_TYPES + ROUTED_ROOT_TYPES
 
 
 def lookup(opcode: int, ext: str = None, minor: int = 0) -> Row:

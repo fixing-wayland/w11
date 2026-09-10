@@ -52,10 +52,12 @@ from w11common.errors import CmdError
 from wdotool import x11_mini
 from xw11 import client as client_mod
 from xw11 import display as display_mod
+from xw11 import ewmh as ewmh_mod
 from xw11 import policy, wire
 from xw11 import pump as pump_mod
 from xw11 import randr as randr_mod
 from xw11 import req_read
+from xw11 import req_write
 from xw11 import shadow as shadow_mod
 from xw11 import upstream as upstream_mod
 
@@ -77,6 +79,16 @@ _CHECK_SECONDS = 15.0
 #: client's twin is dialled and where the tests read them.
 CONNECT_RETRY_SECONDS = upstream_mod.CONNECT_RETRY_SECONDS
 CONNECT_RETRY_SLEEP = upstream_mod.CONNECT_RETRY_SLEEP
+
+#: The settle poll of design section 5.2: a CONSUMEd write to a shadow arms a
+#: re-list at +50 ms and +250 ms. sway emits a `move` token for a workspace move
+#: and NOTHING for a floating `move position` [recon/seams.md 2.4], so the
+#: `ConfigureNotify` after `xdotool windowmove` comes from the diff of two
+#: listings; the first number is one `list()` (0.08 ms on sway
+#: [recon/seams.md 2.3]) after the compositor should have answered and the
+#: second is the backstop. Batch 5 measures sway's real latency for a floating
+#: move against the two (R5) and pins them.
+SETTLE_DELAYS = (0.050, 0.250)
 
 #: Extensions whose `present` byte is answered 0 on the way down.
 HIDDEN_EXTENSIONS = ("DRI3",)
@@ -203,7 +215,18 @@ class Server:
         #: the loop's, so the work happens off the loop and its CONSEQUENCE
         #: happens on it.
         self.worker_done = collections.deque()
+        #: `(deadline, xid)` for every armed settle poll, sorted. A list and
+        #: not a thread per write: the poll is one `list()` on the loop thread
+        #: and `serve_forever`'s own `select()` timeout is what wakes it, so a
+        #: burst of writes (`wmctrl -a` sends four) costs one re-list per due
+        #: tick rather than four threads.
+        self.settles = []
+        #: patched short by the tests, so what they assert is the ARMING and
+        #: not the wall clock
+        self.settle_delays = SETTLE_DELAYS
         req_read.install(self)
+        req_write.install(self)
+        ewmh_mod.install(self)
         randr_mod.install(self)
         if watch_wayland:
             hit = session.find_wayland_socket()
@@ -433,6 +456,54 @@ class Server:
         into the one line a user reads when something failed."""
         entry = self.majors.get(name)
         return entry[0] if entry else 0
+
+    # -- the settle poll (design section 5.2) ----------------------------------
+
+    def settle(self, xid: int) -> None:
+        """A write on `xid` was CONSUMEd: re-list at each of `settle_delays`.
+
+        Every CONSUMEd write arms one -- `ConfigureWindow`, `MapWindow`,
+        `UnmapWindow`, `SetInputFocus` and the routed `ClientMessage`s -- and
+        the poll only refreshes the registry's snapshot. That is enough for the
+        READ side: two back-to-back invocations (`xdotool windowmove ...;
+        xdotool getwindowgeometry ...`) are two connections and the second one
+        re-lists anyway, but one client that moves a window and reads it back
+        inside the 20 ms TTL would otherwise read the old rect. Batch 5
+        subscribes the diff and turns it into `ConfigureNotify`.
+        """
+        if self.shadows is None:
+            return
+        now = time.monotonic()
+        for delay in self.settle_delays:
+            self.settles.append((now + delay, xid))
+        self.settles.sort()
+
+    def settle_timeout(self, tick: float) -> float:
+        """The loop's `select()` timeout with the armed polls taken into
+        account: the idle cadence is 15 s (`_CHECK_SECONDS`) and a settle is
+        50 ms away, so the timeout is the settle's."""
+        if not self.settles:
+            return tick
+        return max(0.0, min(tick, self.settles[0][0] - time.monotonic()))
+
+    def run_settles(self) -> int:
+        """Every poll that is due, as ONE re-list: a command that sent four
+        writes armed eight polls and they all mean the same thing -- read the
+        compositor again."""
+        if not self.settles:
+            return 0
+        now = time.monotonic()
+        due = [row for row in self.settles if row[0] <= now]
+        if not due:
+            return 0
+        self.settles = [row for row in self.settles if row[0] > now]
+        if self.shadows is None:
+            return 0
+        self.shadows.invalidate()
+        self.shadows.snapshot()
+        self.debug_say("settle: re-listed for %d armed poll(s), the last of "
+                       "them for 0x%x" % (len(due), due[-1][1]))
+        return len(due)
 
     # -- the worker hand-back --------------------------------------------------
 
@@ -858,7 +929,7 @@ class Server:
         tick = self.check or 1.0
         try:
             while not self.stopping:
-                for key, events in self.sel.select(tick):
+                for key, events in self.sel.select(self.settle_timeout(tick)):
                     if key.data == "listen":
                         self.accept(key.fileobj)
                         continue
@@ -878,6 +949,7 @@ class Server:
                         self.service_own(events)
                         continue
                     self.service(conn, which, events)
+                self.run_settles()
                 reason = self.exit_reason()
                 if reason:
                     self.stop(reason)
