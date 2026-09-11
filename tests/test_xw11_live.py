@@ -1715,5 +1715,813 @@ class RandrOff(ProxyLive):
         self.assertFalse((self.output_of("HEADLESS-2") or {}).get("active"))
 
 
+# -- the event rows: the two commands that exit 124 today ----------------------
+#
+# `xdotool behave 6291468 mouse-enter true` and `xprop -spy -root
+# _NET_ACTIVE_WINDOW` are rows 29 and 51 of recon/tools.md 11: 32 and 14
+# requests, then a block on the socket, then RC 124 when the harness's 6 s
+# timeout killed them -- on Xvfb+openbox as well as on Xwayland+sway, because
+# what they wait for is an event about a window neither server was ever told
+# about. These are the rows going green.
+
+
+def _reap(proc):
+    """A command left running by a failed assertion, ended. Nothing in this
+    suite may outlive its test (`tests/support.py`'s rule for daemons, and the
+    same one for the tools)."""
+    if proc.poll() is None:
+        proc.kill()
+        proc.wait(timeout=5)
+    for pipe in (proc.stdout, proc.stderr):
+        try:
+            if pipe is not None:
+                pipe.close()
+        except OSError:                          # pragma: no cover
+            pass
+
+
+class Lines:
+    """A subprocess's stdout, read on a thread.
+
+    `xprop -spy` and `xdotool behave` never exit: a test that read their pipe
+    synchronously would be the 6 s timeout recon measured. The thread turns
+    "print a line when told" into something a deadline can be asserted about.
+    """
+
+    def __init__(self, proc):
+        self.proc = proc
+        self.lines = []
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        for line in self.proc.stdout:
+            self.lines.append(line.rstrip("\n"))
+
+    def wait_for(self, count, timeout=10.0):
+        """`count` lines, or an AssertionError naming what did arrive. Answers
+        the seconds it took, which is what the report's latency is."""
+        started = time.monotonic()
+        deadline = started + timeout
+        while time.monotonic() < deadline:
+            if len(self.lines) >= count:
+                return time.monotonic() - started
+            if self.proc.poll() is not None and len(self.lines) < count:
+                raise AssertionError("the command exited (%s) with %r"
+                                     % (self.proc.returncode, self.lines))
+            time.sleep(0.02)
+        raise AssertionError("only %d line(s) in %gs: %r"
+                             % (len(self.lines), timeout, self.lines))
+
+    def stop(self):
+        if self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:    # pragma: no cover
+                self.proc.kill()
+                self.proc.wait(timeout=5)
+        self.thread.join(timeout=5)
+        for pipe in (self.proc.stdout, self.proc.stderr):
+            try:
+                if pipe is not None:
+                    pipe.close()
+            except OSError:                      # pragma: no cover
+                pass
+
+
+@unittest.skipUnless(HAVE_XDOTOOL and HAVE_XPROP, "needs xdotool and xprop")
+class SpyRows(ProxyLive):
+    """`xprop -spy` on a shadow, on the root, and on the X twin."""
+
+    prefix = "xw11-spy-"
+    want_xterm = True
+
+    #: A second foot, running `cat` on a fifo: whatever is written into the
+    #: fifo is printed on its terminal, so an OSC-2 escape retitles it. sway has
+    #: no rename verb and no backend in the tree has one, so the compositor's
+    #: own title change has to come from the client.
+    SPY_APP_ID = "footspy"
+    SPY_TITLE = "WXL-Spy"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        try:
+            cls.fifo = os.path.join(cls.rig.rtdir, "retitle")
+            os.mkfifo(cls.fifo)
+            cls.swaymsg("exec foot --app-id %s --title %s sh -c "
+                        "'while :; do cat %s; done'"
+                        % (cls.SPY_APP_ID, cls.SPY_TITLE, cls.fifo))
+            if not cls.wait(lambda: cls.node(app_id=cls.SPY_APP_ID) is not None):
+                raise unittest.SkipTest("the second foot never appeared")
+        except BaseException:
+            cls.stop_proxy()
+            cls.rig.stop()
+            raise
+
+    @classmethod
+    def retitle(cls, text):
+        """The escape xterm and foot both answer: `ESC ] 2 ; <text> BEL`."""
+        with open(cls.fifo, "w") as fh:
+            fh.write("\033]2;%s\007" % text)
+            fh.flush()
+
+    def spy_shadow(self):
+        got = self.tool(["xdotool", "search", "--class", self.SPY_APP_ID])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        ids = [int(x) for x in got.stdout.split()]
+        self.assertEqual(len(ids), 1, "search printed %r" % got.stdout)
+        return ids[0]
+
+    def xterm_id(self):
+        node = self.node(name=XTERM_TITLE)
+        self.assertIsNotNone(node, "the xterm is gone")
+        return node["window"]
+
+    def spy(self, argv):
+        proc = subprocess.Popen(argv, env=self.env(), stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, bufsize=1)
+        got = Lines(proc)
+        self.addCleanup(got.stop)
+        return got
+
+    def test_xprop_spy_on_a_shadow_prints_the_new_title(self):
+        """The shadow half of recon/tools.md 6: the mask is
+        `StructureNotify|PropertyChange` on the target, the re-read is a fresh
+        full `GetProperty`, and the compositor's title change is what has to
+        reach it. sway's `title` event arrived +17.5 ms after the window
+        started on this box (2026-09-10), so a second here is a ceiling and
+        not a target."""
+        shadow = self.spy_shadow()
+        spy = self.spy(["xprop", "-spy", "-id", str(shadow), "WM_NAME"])
+        spy.wait_for(1)
+        self.assertIn(self.SPY_TITLE, spy.lines[0])
+        want = "WXL-Renamed-%d" % int(time.monotonic() * 1000 % 100000)
+        self.retitle(want)
+        # The compositor first: a rename that sway never saw is this rig's
+        # fifo and not the proxy's event path, and the two failures read
+        # nothing alike.
+        self.assertTrue(
+            self.wait(lambda: (self.node(app_id=self.SPY_APP_ID)
+                               or {}).get("name") == want, timeout=15),
+            "sway never saw the rename (the rig, not the proxy)")
+        took = spy.wait_for(2, timeout=5.0)
+        self.assertIn(want, spy.lines[1])
+        # One second, not the five the wait allows: sway's own `title` event
+        # arrived +17.5 ms and +19.2 ms after the window started on this box
+        # (two runs, 2026-09-10), and the proxy's re-list is 0.08 ms on top of
+        # it. A bound equal to the wait cannot fail -- `wait_for` raises first.
+        self.assertLess(took, 1.0, "the rename took %gs to reach xprop, "
+                        "against +17.5 ms measured for sway's own event" % took)
+
+    def test_xprop_spy_on_the_root_prints_on_a_focus_change(self):
+        """Row 51, which is RC 124 without this. The root's
+        `_NET_ACTIVE_WINDOW` is synthesized from the compositor and upstream's
+        own copy of the name is dropped on the way down (design section 4.6),
+        so what xprop prints is one line per focus change and not two.
+
+        The window to focus is chosen from what xprop's FIRST line says is
+        active, not from a focus this test set beforehand: sway is free to move
+        the focus for its own reasons between two `swaymsg` calls (measured
+        here 2026-09-11, 4 runs in 5 -- the second foot had it back before
+        xprop had started), and focusing the window that already has it is
+        correctly no event at all.
+        """
+        import re
+
+        ids = {FOOT_APP_ID: self.shadow_id(),
+               self.SPY_APP_ID: self.spy_shadow()}
+        spy = self.spy(["xprop", "-spy", "-root", "_NET_ACTIVE_WINDOW"])
+        spy.wait_for(1)
+        got = re.search(r"0x[0-9a-f]+", spy.lines[0])
+        active = int(got.group(0), 16) if got else 0
+        app_id = [name for name, wid in ids.items() if wid != active][0]
+        self.swaymsg("[app_id=%s] focus" % app_id)
+        took = spy.wait_for(2, timeout=5.0)
+        self.assertIn("0x%x" % ids[app_id], spy.lines[1])
+        self.assertLess(took, 2.0, "the focus took %gs to reach xprop" % took)
+        # One line per change: a proxy that let upstream's root PropertyNotify
+        # through as well would print this twice.
+        time.sleep(0.5)
+        self.assertEqual(len(spy.lines), 2, spy.lines)
+
+    @unittest.skipUnless(HAVE_XTERM, "needs xterm (the X twin)")
+    def test_the_x_twin_is_spied_on_exactly_once_per_rename(self):
+        """A real X window's per-window events are Xwayland's own and pass
+        untouched; the proxy adds none of its own for them (design section
+        5.3). Two renames, two lines -- not four."""
+        xterm = self.xterm_id()
+        spy = self.spy(["xprop", "-spy", "-id", str(xterm), "WM_NAME"])
+        spy.wait_for(1)
+        for name in ("WXL-Twin-1", "WXL-Twin-2"):
+            got = self.tool(["xdotool", "set_window", "--name", name,
+                             str(xterm)])
+            self.assertEqual(got.returncode, 0, got.stderr)
+            spy.wait_for(1 + int(name[-1]), timeout=5.0)
+        time.sleep(0.5)
+        self.assertEqual(len(spy.lines), 3, spy.lines)
+        self.assertIn("WXL-Twin-1", spy.lines[1])
+        self.assertIn("WXL-Twin-2", spy.lines[2])
+
+    def test_search_sync_returns_when_a_new_foot_appears(self):
+        """`search --sync` POLLS [recon/tools.md 4.1] -- it is the read side's
+        row, not the event side's -- and it is here because what it polls is
+        the registry the event pump keeps invalidating."""
+        app_id = "footsync"
+        proc = subprocess.Popen(["xdotool", "search", "--sync", "--class",
+                                 app_id], env=self.env(),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True)
+        self.addCleanup(_reap, proc)
+        time.sleep(0.5)
+        self.assertIsNone(proc.poll(), "search --sync returned before the "
+                                       "window existed")
+        self.swaymsg("exec foot --app-id %s --title WXL-Sync sh -c "
+                     "'sleep 600'" % app_id)
+        out, err = proc.communicate(timeout=30)
+        self.assertEqual(proc.returncode, 0, err)
+        ids = [int(x) for x in out.split()]
+        self.assertEqual(len(ids), 1, out)
+        self.swaymsg("[app_id=%s] kill" % app_id)
+
+    def test_a_python_xlib_watcher_on_the_root_sees_a_window_come_and_go(self):
+        """R14's other half: a window watcher is a client that selects
+        `SubstructureNotify` on the root and is told. Nothing in the four tools
+        does this -- it is what devilspie2, arbtt and every status bar do."""
+        try:
+            import Xlib                                          # noqa: F401
+        except ImportError:
+            self.skipTest("python3-xlib is not installed")
+        script = (
+            "import sys, time\n"
+            "from Xlib import display, X\n"
+            "d = display.Display(sys.argv[1])\n"
+            "r = d.screen().root\n"
+            "r.change_attributes(event_mask=X.SubstructureNotifyMask)\n"
+            "d.sync()\n"
+            "print('ready', flush=True)\n"
+            "end = time.time() + float(sys.argv[2])\n"
+            "while time.time() < end:\n"
+            "    if d.pending_events():\n"
+            "        print(d.next_event().__class__.__name__, flush=True)\n"
+            "    else:\n"
+            "        time.sleep(0.02)\n")
+        proc = subprocess.Popen([sys.executable, "-c", script,
+                                 self.proxy_display, "30"], env=self.env(),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, bufsize=1)
+        watcher = Lines(proc)
+        self.addCleanup(watcher.stop)
+        watcher.wait_for(1)
+        self.assertEqual(watcher.lines[0], "ready")
+        app_id = "footwatch"
+        self.swaymsg("exec foot --app-id %s --title WXL-Watch sh -c "
+                     "'sleep 600'" % app_id)
+        self.assertTrue(self.wait(
+            lambda: "MapNotify" in watcher.lines, timeout=15))
+        self.assertIn("CreateNotify", watcher.lines)
+        self.assertLess(watcher.lines.index("CreateNotify"),
+                        watcher.lines.index("MapNotify"),
+                        "X creates before it maps")
+        self.swaymsg("[app_id=%s] kill" % app_id)
+        self.assertTrue(self.wait(
+            lambda: "DestroyNotify" in watcher.lines, timeout=15))
+        self.assertLess(watcher.lines.index("UnmapNotify"),
+                        watcher.lines.index("DestroyNotify"),
+                        "X unmaps before it destroys")
+
+
+@unittest.skipUnless(HAVE_SWAY and HAVE_FOOT and HAVE_XDOTOOL,
+                     "needs sway, foot and xdotool")
+class PointerRows(unittest.TestCase):
+    """`xdotool behave <w> mouse-enter` -- row 29, RC 124 today.
+
+    The proxy runs IN THIS PROCESS here, which no other live class does, and
+    for one reason: the pointer source design section 5.6 falls back on is the
+    proxy's own last ROUTED position, and until batch 6 lands XTEST there is no
+    way to route one from outside. A test that cannot set it cannot make this
+    row green at all, so the compositor's environment is borrowed for the
+    length of the class -- `backend_detect` caches per process and is reset on
+    the way in and out -- and `server.pointer_model` is written straight.
+
+    sway's IPC carries no cursor [recon/seams.md 2.3], so on sway this IS the
+    source. A physical mouse is not yet seen: the route is AGENTS.md route 4,
+    evdev, at the cost of read access to /dev/input.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from wdotool import backend_detect
+
+        cls.rig = HeadlessSway("xw11-pointer-", need_display=True)
+        cls.saved = {k: os.environ.get(k)
+                     for k in ("XDG_RUNTIME_DIR", "WAYLAND_DISPLAY",
+                               "SWAYSOCK", "DISPLAY")}
+        try:
+            os.environ.update(XDG_RUNTIME_DIR=cls.rig.rtdir,
+                              WAYLAND_DISPLAY=cls.rig.wayland_display(),
+                              SWAYSOCK=cls.rig.sock)
+            backend_detect.reset()
+            cls.swaymsg("exec foot --app-id %s --title %s sh -c 'sleep 600'"
+                        % (FOOT_APP_ID, FOOT_TITLE))
+            if not cls.wait(lambda: cls.node(app_id=FOOT_APP_ID) is not None):
+                raise unittest.SkipTest("foot window never appeared")
+            cls.display = display_mod.allocate()
+            cls.log = open(os.devnull, "w")
+            cls.server = server_mod.Server(
+                cls.display, cls.rig.display, log=cls.log, idle=0.0,
+                check=0.05, watch_wayland=False)
+            cls.thread = threading.Thread(target=cls.server.serve_forever,
+                                          daemon=True)
+            cls.thread.start()
+        except BaseException:
+            cls._restore()
+            cls.rig.stop()
+            raise
+
+    @classmethod
+    def _restore(cls):
+        from wdotool import backend_detect
+
+        for key, value in cls.saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        backend_detect.reset()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.stop("the test is over")
+        cls.thread.join(timeout=10)
+        cls.log.close()
+        cls.display.release()
+        cls._restore()
+        cls.rig.stop()
+
+    @classmethod
+    def swaymsg(cls, cmd):
+        return subprocess.run(["swaymsg", "-s", cls.rig.sock, cmd],
+                              env=cls.rig.env, capture_output=True, text=True,
+                              timeout=20)
+
+    @classmethod
+    def node(cls, **match):
+        tree = json.loads(subprocess.run(
+            ["swaymsg", "-s", cls.rig.sock, "-t", "get_tree"], env=cls.rig.env,
+            capture_output=True, text=True, timeout=20).stdout)
+        for n in _walk(tree):
+            if n.get("pid") and all(n.get(k) == v for k, v in match.items()):
+                return n
+        return None
+
+    @classmethod
+    def wait(cls, ready, timeout=30.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if ready():
+                return True
+            time.sleep(0.2)
+        return False
+
+    def env(self):
+        return dict(self.rig.env, DISPLAY=self.display.name,
+                    W11_PASSTHROUGH="never", LC_ALL="C")
+
+    def shadow_id(self):
+        got = subprocess.run(["xdotool", "search", "--class", FOOT_APP_ID],
+                             env=self.env(), capture_output=True, text=True,
+                             timeout=60)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        ids = [int(x) for x in got.stdout.split()]
+        self.assertEqual(len(ids), 1, "search printed %r" % got.stdout)
+        return ids[0]
+
+    def test_behave_mouse_enter_fires_when_the_pointer_enters_the_rect(self):
+        """Row 29 going green: 32 requests, the last of them
+        `ChangeWindowAttributes(EventMask = EnterWindow)`
+        [M recon/tools.md 4.7], and then a line on stdout instead of a
+        timeout."""
+        shadow = self.shadow_id()
+        rect = self.node(app_id=FOOT_APP_ID)["rect"]
+        self.server.pointer_model = (rect["x"] + rect["width"] + 50,
+                                     rect["y"] + rect["height"] + 50)
+        proc = subprocess.Popen(["xdotool", "behave", str(shadow),
+                                 "mouse-enter", "exec", "echo", "hit"],
+                                env=self.env(), stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, bufsize=1)
+        got = Lines(proc)
+        self.addCleanup(got.stop)
+        # The mask has to be in before the pointer moves: `behave` selects it
+        # with its last request and then blocks.
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not self.server.pointer_wanted():
+            time.sleep(0.05)
+        self.assertTrue(self.server.pointer_wanted(),
+                        "behave never selected EnterWindow")
+        self.server.pointer_model = (rect["x"] + rect["width"] // 2,
+                                     rect["y"] + rect["height"] // 2)
+        took = got.wait_for(1, timeout=10.0)
+        self.assertEqual(got.lines[0], "hit")
+        self.assertLess(took, 3.0, "the crossing took %gs" % took)
+
+    def test_and_not_while_the_pointer_stays_outside(self):
+        """The counter-case: a proxy that fired `EnterNotify` on every sample
+        would make the row above meaningless."""
+        shadow = self.shadow_id()
+        rect = self.node(app_id=FOOT_APP_ID)["rect"]
+        self.server.pointer_model = (rect["x"] + rect["width"] + 400,
+                                     rect["y"] + rect["height"] + 400)
+        proc = subprocess.Popen(["xdotool", "behave", str(shadow),
+                                 "mouse-enter", "exec", "echo", "hit"],
+                                env=self.env(), stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, bufsize=1)
+        got = Lines(proc)
+        self.addCleanup(got.stop)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not self.server.pointer_wanted():
+            time.sleep(0.05)
+        time.sleep(1.0)
+        self.assertEqual(got.lines, [])
+
+
+
+# -- the input path (design section 6) ----------------------------------------
+#
+# `/usr/bin/xdotool` on this box is **3.20160805.1**, the apt one -- the
+# generation Debian and Ubuntu ship, which moves the pointer with core
+# `WarpPointer` and reads it with `QueryPointer` [recon/wire.md 5.3]. The
+# pinned 4.20260303.1 moves it with `FakeInput MotionNotify`. Both are on this
+# box and the rows below run both, because a symlink over /usr/bin/xdotool
+# replaces the 3.x and that is the one most users have.
+
+
+def _pinned_xdotool():
+    """The 4.20260303.1 the tree pins, or None. Same search
+    `tests/test_xw11_parity.py` does."""
+    import glob
+
+    from wdotool import cli as wdo_cli
+    got = os.environ.get("W11_ORACLE_PATH", "")
+    for d in got.split(":") + sorted(
+            glob.glob("/nix/store/*-xdotool-%s/bin" % wdo_cli.XDO_VERSION)):
+        exe = os.path.join(d, "xdotool")
+        if d and os.access(exe, os.X_OK):
+            return exe
+    return None
+
+
+PINNED_XDOTOOL = _pinned_xdotool()
+
+
+def _distro_xdotool_version():
+    """The version of the `xdotool` on `PATH`, or "".
+
+    `xdotool --version` prints `xdotool version 3.20160805.1`. Probed once, at
+    import: which generation the distro ships decides which of the two pointer
+    rows can run, and the two write the pointer differently -- 3.x with core
+    `WarpPointer`, 4.x with `FakeInput MotionNotify` [recon/wire.md 5.3].
+    """
+    if not HAVE_XDOTOOL:
+        return ""
+    try:
+        got = subprocess.run(["xdotool", "--version"], capture_output=True,
+                             text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):       # pragma: no cover
+        return ""
+    parts = got.stdout.split()
+    return parts[-1] if parts else ""
+
+
+DISTRO_XDOTOOL_VERSION = _distro_xdotool_version()
+
+#: recon/env.md 2.3's line, which real xdotool puts into a UTF-8 xterm
+#: byte for byte through Xwayland.
+UNICODE_LINE = "ünï €ur ß λ 日"
+
+
+@unittest.skipUnless(HAVE_XDOTOOL, "needs xdotool")
+class InputLands(ProxyLive):
+    """`type`, `key`, `click`, `mousemove` and `getmouselocation` through the
+    proxy, into a native toplevel and into an X one.
+
+    This is the gap the whole proxy exists to close, measured: with one `foot`
+    focused and no X client anywhere, `xdotool type` writes an EMPTY FILE
+    [recon/env.md 2.7]. Through the proxy the same command writes the text.
+    """
+
+    prefix = "xw11-input-"
+    want_xterm = True
+    CAT_FOOT = "catfoot"
+    CAT_XTERM = "WXL-CatX"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        try:
+            why = cls.why_no_injection()
+            if why:
+                raise unittest.SkipTest("this rig cannot inject input: %s" % why)
+            cls.foot_file = os.path.join(cls.rig.rtdir, "typed-foot.txt")
+            cls.xterm_file = os.path.join(cls.rig.rtdir, "typed-xterm.txt")
+            cls.swaymsg("exec foot --app-id %s --title WXL-Cat sh -c 'cat > %s'"
+                        % (cls.CAT_FOOT, cls.foot_file))
+            if not cls.wait(lambda: cls.node(app_id=cls.CAT_FOOT) is not None):
+                raise unittest.SkipTest("the cat foot never appeared")
+            env8 = dict(cls.rig.env, LC_ALL="C.UTF-8")
+            cls.xterm_proc = subprocess.Popen(
+                ["xterm", "-u8", "-T", cls.CAT_XTERM, "-e", "sh", "-c",
+                 "cat > %s" % cls.xterm_file], env=env8,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if not cls.wait(lambda: cls.node(name=cls.CAT_XTERM) is not None):
+                raise unittest.SkipTest("the cat xterm never appeared")
+        except BaseException:
+            cls.stop_proxy()
+            cls.rig.stop()
+            raise
+
+    @classmethod
+    def tearDownClass(cls):
+        # The daemon the proxy spawned lives in the rig's runtime directory and
+        # outlives the proxy: stop it before the directory goes, the way every
+        # daemon test in this suite does.
+        try:
+            import support
+
+            support.stop_daemons_under(cls.rig.rtdir)
+        except Exception:                    # never lose the rig teardown
+            pass
+        super().tearDownClass()
+
+    @classmethod
+    def why_no_injection(cls):
+        """Why this box cannot inject at all, or None.
+
+        A capability check and never an outcome one: a proxy bug that stopped
+        every keystroke must fail these rows, not skip them. The daemon takes
+        `/dev/uinput` when it can open it and the compositor's
+        `zwp_virtual_keyboard_v1`/`zwlr_virtual_pointer_v1` when it cannot
+        [docs/WDOTOOL.md's table; recon/seams.md 5.3 step 4], so either one is
+        enough.
+        """
+        if os.access("/dev/uinput", os.W_OK):
+            return None
+        path = os.path.join(cls.rig.rtdir, cls.rig.wayland_display())
+        try:
+            from wdotool import vkbd, vptr
+        except ImportError as e:             # pragma: no cover - a broken tree
+            return str(e)
+        for opener in (vkbd.VirtualKeyboard, vptr.VirtualPointer):
+            try:
+                got = opener.open(socket_path=path)
+            except Exception as e:           # VkbdError / VptrError
+                return str(e)
+            got.close()
+        return None
+
+    # -- the windows ----------------------------------------------------------
+
+    def focus(self, **match):
+        """Give one toplevel the compositor's focus and wait for it: a
+        keystroke goes where the focus is, on both halves."""
+        node = self.node(**match)
+        self.assertIsNotNone(node, "no toplevel matching %r" % (match,))
+        self.swaymsg("[con_id=%d] focus" % node["id"])
+        self.assertTrue(self.wait(lambda: (self.node(**match) or {}).get("focused"),
+                                  timeout=10), "the focus never moved")
+        return node
+
+    def lines(self, path, timeout=8.0):
+        """The lines the shell's line discipline has flushed into a file. It
+        flushes one per Return, so the file IS the wire record
+        [recon/env.md 2.3]."""
+        deadline = time.monotonic() + timeout
+        got = []
+        while time.monotonic() < deadline:
+            try:
+                with open(path, "rb") as f:
+                    got = f.read().decode("utf-8", "replace").splitlines()
+            except OSError:
+                got = []
+            if got:
+                return got
+            time.sleep(0.2)
+        return got
+
+    def type_line(self, text, delay=20, utf8=False, xdotool=None):
+        """One `type` and the `Return` that flushes it."""
+        exe = xdotool or "xdotool"
+        kw = {"LC_ALL": "C.UTF-8"} if utf8 else {}
+        got = self.tool([exe, "type", "--delay", str(delay), text], **kw)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        got = self.tool([exe, "key", "Return"], **kw)
+        self.assertEqual(got.returncode, 0, got.stderr)
+
+    def warm_up(self, path, **match):
+        """One line typed and thrown away.
+
+        recon/env.md 2.3 measured the first character of the first `type` after
+        a fresh focus going missing once, unbisected (R6), and did every
+        Unicode measurement after a warm-up line for that reason. Measured here
+        on 2026-09-11: the first-ever type into a freshly created xterm wrote
+        `armup` for `warmup`; ten types after ten fresh focuses wrote all ten
+        byte for byte, into the foot and into the xterm alike. So it is a
+        first-USE race, not a per-focus one, and this is the same warm-up the
+        recon did.
+        """
+        self.focus(**match)
+        n = len(self.lines(path, timeout=0.1))
+        self.type_line("warmup")
+        self.assertTrue(self.wait(lambda: len(self.lines(path, 0.1)) > n,
+                                  timeout=15),
+                        "nothing at all arrived in %s" % path)
+
+    # -- what lands -----------------------------------------------------------
+
+    def test_type_into_the_native_toplevel_lands_in_its_file(self):
+        """The one measurement this whole package exists for: `xdotool type`
+        with a `foot` focused writes an EMPTY FILE today [recon/env.md 2.7]."""
+        self.warm_up(self.foot_file, app_id=self.CAT_FOOT)
+        self.type_line("hello world 123")
+        self.assertTrue(self.wait(
+            lambda: self.lines(self.foot_file, 0.1)[-1:] == ["hello world 123"],
+            timeout=15), self.lines(self.foot_file, 0.1))
+
+    def test_a_ctrl_chord_erases_the_line_it_typed(self):
+        """`xdotool key a b c ctrl+u x y z Return` -> `xyz`: the modifier
+        chords are right, and the modifier is HELD across the key it modifies
+        even though xdotool sends three presses of it [recon/tools.md 4.5,
+        design section 6.3]."""
+        self.warm_up(self.foot_file, app_id=self.CAT_FOOT)
+        before = len(self.lines(self.foot_file, 0.1))
+        got = self.tool(["xdotool", "key", "a", "b", "c", "ctrl+u",
+                         "x", "y", "z", "Return"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(self.wait(
+            lambda: len(self.lines(self.foot_file, 0.1)) > before, timeout=15))
+        self.assertEqual(self.lines(self.foot_file, 0.1)[-1], "xyz")
+
+    def test_type_into_the_xterm_is_byte_perfect_for_the_layouts_own_text(self):
+        """The baseline that must not regress: against an X client the
+        unmodified tools already work on sway [recon/env.md 2.3]."""
+        self.warm_up(self.xterm_file, name=self.CAT_XTERM)
+        self.type_line("hello world 123", utf8=True)
+        self.assertTrue(self.wait(
+            lambda: self.lines(self.xterm_file, 0.1)[-1:] == ["hello world 123"],
+            timeout=15), self.lines(self.xterm_file, 0.1))
+
+    def test_the_unicode_line_goes_through_xwaylands_own_remap(self):
+        """`ünï €ur ß λ 日` into a UTF-8 xterm.
+
+        A keystroke for an X window is forwarded to Xwayland untouched (design
+        section 6.1 as measured, `xtest.Engine.x_owns_the_keyboard`), so what
+        types these characters is xdotool's own spare-keycode remap of
+        Xwayland's map -- the route recon/env.md 2.3 measured byte-perfect and
+        the input daemon cannot take, because the compositor's layout is US and
+        none of these is on it.
+
+        The assertion is a SUBSEQUENCE and not the whole line, because the
+        remap path itself is racy on this rig and is racy WITHOUT the proxy
+        too: measured 2026-09-11, six direct runs at `--delay 60` interleaved
+        with six proxied ones wrote the line whole 3/6 times direct and 2/6
+        times proxied, losing one character each other time -- the xterm's own
+        keymap cache against the `MappingNotify` pair xdotool sends around
+        every character. A row in the docs, not a claim hidden here.
+        """
+        self.warm_up(self.xterm_file, name=self.CAT_XTERM)
+        before = len(self.lines(self.xterm_file, 0.1))
+        self.type_line(UNICODE_LINE, delay=60, utf8=True)
+        self.assertTrue(self.wait(
+            lambda: len(self.lines(self.xterm_file, 0.1)) > before, timeout=20))
+        got = self.lines(self.xterm_file, 0.1)[-1]
+        # Every character that arrived is one of the line's, in its order: the
+        # race loses characters, it never invents or reorders them.
+        rest = iter(UNICODE_LINE)
+        self.assertTrue(all(ch in rest for ch in got),
+                        "%r is not a subsequence of %r" % (got, UNICODE_LINE))
+        wanted = [c for c in UNICODE_LINE if ord(c) > 127]
+        arrived = [c for c in got if ord(c) > 127]
+        # The floor is the WORST loss ever measured on this rig and not a
+        # guess. Two measurements, both on 2026-09-11: six direct runs at
+        # `--delay 60` interleaved with six proxied ones lost at most ONE of
+        # the six non-ASCII characters; a whole-file run of this suite, with
+        # the rig under the load of every other class in it, lost TWO --
+        # `ünï €ur ß  ` for `ünï €ur ß λ 日`, the trailing pair gone and the
+        # rest byte for byte. Tightening this to one turned the row amber in
+        # one whole-file run out of four, which is asserting the race.
+        self.assertGreaterEqual(
+            len(arrived), len(wanted) - 2,
+            "%d of %d non-ASCII characters arrived (%r): the measured envelope "
+            "is 4..6 of 6 and this is below it -- a new fact, not the known "
+            "race [M 2026-09-11, both runs above]"
+            % (len(arrived), len(wanted), got))
+
+    def test_r6_ten_types_after_ten_fresh_focuses_into_the_native_toplevel(self):
+        """R6. recon/env.md 2.3 saw the first character of the first `type`
+        after a fresh focus go missing, once, unbisected, and recon/env.md 11.5
+        says so in as many words. Ten runs here, each after focusing the other
+        window and back; every byte is recorded and a loss FAILS this rather
+        than being explained away.
+
+        Measured 2026-09-11 through this proxy on headless sway: 10/10 byte
+        for byte into the foot, twice over.
+        """
+        self.warm_up(self.foot_file, app_id=self.CAT_FOOT)
+        got, want = [], []
+        for i in range(10):
+            self.focus(name=self.CAT_XTERM)
+            self.focus(app_id=self.CAT_FOOT)
+            line = "ABCDEFG%d" % i
+            want.append(line)
+            before = len(self.lines(self.foot_file, 0.1))
+            self.type_line(line)
+            self.assertTrue(self.wait(
+                lambda n=before: len(self.lines(self.foot_file, 0.1)) > n,
+                timeout=15), "run %d wrote nothing at all" % i)
+            got.append(self.lines(self.foot_file, 0.1)[-1])
+        self.assertEqual(got, want)
+
+    def test_r6_ten_types_after_ten_fresh_focuses_into_the_xterm(self):
+        """R6's other half, on the X plane. Measured 2026-09-11: 10/10 byte
+        for byte."""
+        self.warm_up(self.xterm_file, name=self.CAT_XTERM)
+        got, want = [], []
+        for i in range(10):
+            self.focus(app_id=self.CAT_FOOT)
+            self.focus(name=self.CAT_XTERM)
+            line = "abcdefg%d" % i
+            want.append(line)
+            before = len(self.lines(self.xterm_file, 0.1))
+            self.type_line(line, utf8=True)
+            self.assertTrue(self.wait(
+                lambda n=before: len(self.lines(self.xterm_file, 0.1)) > n,
+                timeout=15), "run %d wrote nothing at all" % i)
+            got.append(self.lines(self.xterm_file, 0.1)[-1])
+        self.assertEqual(got, want)
+
+    # -- the pointer ----------------------------------------------------------
+
+    def location(self, exe="xdotool"):
+        got = self.tool([exe, "getmouselocation"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        return dict(part.split(":", 1) for part in got.stdout.split())
+
+    @unittest.skipUnless(DISTRO_XDOTOOL_VERSION.startswith("3."),
+                         "the distro xdotool is not the 3.x generation")
+    def test_the_apt_three_x_moves_the_pointer_and_reads_it_back(self):
+        """`xdotool` on `PATH` is 3.20160805.1 here: it moves with core
+        `WarpPointer` and reads with `QueryPointer` [recon/wire.md 5.3]. The
+        proxy owns both, so this row is the 3.x generation end to end. A box
+        whose distro package is 4.x skips it rather than failing it -- the 4.x
+        generation has a row of its own below."""
+        got = self.tool(["xdotool", "mousemove", "10", "10"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertEqual(self.location()["x"], "10")
+        self.assertEqual(self.location()["y"], "10")
+
+    @unittest.skipUnless(PINNED_XDOTOOL, "needs the pinned xdotool 4.x")
+    def test_the_pinned_four_x_moves_the_pointer_and_reads_it_back(self):
+        """The same command on the generation that moves with
+        `FakeInput MotionNotify` instead."""
+        got = self.tool([PINNED_XDOTOOL, "mousemove", "21", "22"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        where = self.location(PINNED_XDOTOOL)
+        self.assertEqual((where["x"], where["y"]), ("21", "22"))
+
+    def test_getmouselocation_names_the_shadow_under_the_pointer(self):
+        """`window:` is the compositor's toplevel, by the id the proxy minted
+        -- which is the whole point: without one it names an X window or
+        nothing at all."""
+        node = self.node(app_id=self.CAT_FOOT)
+        x = node["rect"]["x"] + 20
+        y = node["rect"]["y"] + 20
+        self.tool(["xdotool", "mousemove", str(x), str(y)])
+        where = self.location()
+        self.assertEqual((where["x"], where["y"]), (str(x), str(y)))
+        ids = self.tool(["xdotool", "search", "--class",
+                         self.CAT_FOOT]).stdout.split()
+        self.assertEqual(len(ids), 1, "search printed %r" % ids)
+        self.assertEqual(where["window"], ids[0])
+
+    def test_click_moves_the_compositors_focus_to_the_window_under_it(self):
+        """A click has to move the SEAT's pointer and press the SEAT's button:
+        that is what raises and focuses a window. Xwayland's own warp moves
+        only Xwayland's pointer -- measured 2026-09-11, a raw `WarpPointer` to
+        (321, 123) straight at Xwayland moved its own `QueryPointer` there and
+        the compositor's cursor not at all."""
+        self.focus(name=self.CAT_XTERM)
+        node = self.node(app_id=self.CAT_FOOT)
+        self.tool(["xdotool", "mousemove", str(node["rect"]["x"] + 20),
+                   str(node["rect"]["y"] + 20)])
+        got = self.tool(["xdotool", "click", "1"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertTrue(
+            self.wait(lambda: (self.node(app_id=self.CAT_FOOT) or {}).get("focused"),
+                      timeout=10),
+            "the click did not reach the compositor")
+
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -339,6 +339,32 @@ class ClientConn:
             return ROOT
         return OTHER
 
+    # -- the event masks (design section 5.4) ----------------------------------
+
+    def selects(self, xid: int, bit: int) -> bool:
+        """Whether this client asked for that class of event on that window.
+
+        The whole of the proxy's delivery test. A shadow has no `CreateWindow`
+        to have carried an initial mask, so its first one arrives on the first
+        `ChangeWindowAttributes` -- the same request `xprop -spy` and
+        `xdotool behave` end their prologue with and then block on
+        [M recon/tools.md 6, 4.7]. `FocusChange` needs nothing here beyond the
+        bit: X delivers `FocusIn`/`FocusOut` to whoever selected it ON THE
+        WINDOW, never a per-client memory of who was told what, so the only
+        state a focus move needs is the registry's own idea of which entry has
+        it (`xw11/shadow.py`'s `focused` diff).
+        """
+        return bool(self.masks.get(xid, 0) & bit)
+
+    def drop_mask(self, xid: int) -> int:
+        """Forget this client's mask on a window. 1 when there was one.
+
+        Called when a shadow dies (`events.drop_masks`). Masks also die with the
+        client, and that needs no code: the dict is this connection's own and
+        goes with it in `Server.close_conn`.
+        """
+        return 1 if self.masks.pop(xid, None) is not None else 0
+
     # -- the two substitutes (design section 3.1) ------------------------------
 
     def consume(self) -> None:

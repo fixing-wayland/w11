@@ -13,7 +13,16 @@ byte** to a pipe the loop is selecting on.
 Two backends have no `events()` at all -- wlr and COSMIC reach
 `WindowBackend.NOT_YET_EVENTS` -- and are polled with `list()` every
 `POLL = 0.25` s, which is Cinnamon's own rate for the same job
-(backend_cinnamon.py:62) [recon/seams.md 2.3].
+(backend_cinnamon.py:62) [recon/seams.md 2.3]. That poll is INSIDE the thread,
+so it runs exactly as long as the pump does and not a tick longer.
+
+**Nothing here starts itself.** `Server.arm_pump` calls `start()` when the
+first client puts a non-zero mask on the root or a shadow and `stop()` when the
+last such mask goes -- with the client, with a shadow that died, or with a
+`ChangeWindowAttributes(0)` (design section 5.2's decision A). A proxy nobody
+watches through therefore costs the compositor no sway subscription, no
+Hyprland socket2 connection and no loaded KWin script, and the read side stays
+fresh on the registry's own 20 ms TTL instead.
 
 **The token is a hint; the diff is the truth.** What a client is told changed is
 what two snapshots of `xw11/shadow.py` differ by, because a `move` token is a
@@ -59,7 +68,7 @@ class Pump:
     """`backend.events()` on a thread, tokens on a deque, one byte per token."""
 
     def __init__(self, backend, wake_w, log=None, block=None, poll=POLL,
-                 restart=RESTART_SECONDS, on_backend=None):
+                 restart=RESTART_SECONDS, on_backend=None, debug=None):
         self.backend = backend
         #: Told, under the lock, when a restart detected a new backend. There is
         #: ONE backend in this process -- the loop reads through it too (design
@@ -71,6 +80,11 @@ class Pump:
         self.poll = poll
         self.restart = restart
         self._log = log
+        #: The line nobody needs unless they are debugging this file: the stop
+        #: path's "the generator was inside the compositor's read" is ONE line
+        #: per client disconnect on a busy session, and it says nothing a user
+        #: can act on.
+        self._debug = debug
         self._block = block
         self._lock = threading.Lock()
         self._tokens = collections.deque()
@@ -83,6 +97,10 @@ class Pump:
     def say(self, text: str) -> None:
         if self._log is not None:
             self._log(text)
+
+    def debug_say(self, text: str) -> None:
+        if self._debug is not None:
+            self._debug(text)
 
     # -- the deque ------------------------------------------------------------
 
@@ -117,9 +135,15 @@ class Pump:
         self._thread.start()
 
     def stop(self, timeout: float = 5.0) -> None:
-        """The generator closed, the thread joined. A stopped pump costs the
-        compositor nothing: no sway subscription, no loaded KWin script (design
-        section 5.2's decision).
+        """The stream let go and, where the caller waits, the thread joined. A
+        stopped pump costs the compositor nothing: no sway subscription, no
+        loaded KWin script (design section 5.2's decision).
+
+        `timeout=0` does not wait for the thread at all, which is what the
+        LOOP thread passes (`Server.arm_pump`, `Server.shutdown`): a client
+        that disconnects must not freeze every other client for the length of a
+        join, and the caller drops its reference so that the next arming builds
+        a fresh pump rather than reviving this one's thread.
 
         A generator that is *inside* a blocking read cannot be closed from
         another thread -- CPython answers `ValueError: generator already
@@ -137,15 +161,30 @@ class Pump:
             return
         self.started = False
         self._stop.set()
+        # The pipe is the server's and the server may close it (or the number
+        # may be handed out again) while a thread that could not be closed is
+        # still parked in the compositor's blocking read. -1 is what keeps that
+        # thread's next `put()` out of somebody else's descriptor: the write
+        # raises and is swallowed there.
+        self.wake_w = -1
         gen, self._gen = self._gen, None
         if gen is not None:
             try:
                 gen.close()
+            except ValueError:
+                # "generator already executing": the thread is parked in the
+                # compositor's blocking read, which is where it is for all but
+                # microseconds of its life. Expected, not a failure, and one
+                # line per client disconnect if it were said out loud -- the
+                # stream ends at the compositor's next event or with the
+                # process, as the docstring above says.
+                self.debug_say("the event stream was inside the compositor's "
+                               "read: it ends at the next event")
             except Exception as e:                      # noqa: BLE001
                 self.say("closing the event stream raised %s" % e)
-        if self._thread is not None:
+        if self._thread is not None and timeout:
             self._thread.join(timeout=timeout)
-            self._thread = None
+        self._thread = None
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -222,7 +261,12 @@ class Pump:
         """wlr and COSMIC: `list()` every `POLL` seconds, and a token only when
         the answer changed. The pump is the only thing calling the compositor on
         this path, so a poll that finds nothing costs one `list()` -- 0.08 ms on
-        sway [recon/seams.md 2.3] -- and wakes nobody."""
+        sway [recon/seams.md 2.3] -- and wakes nobody.
+
+        `previous` is the whole bookkeeping: the reduced listing of the last
+        poll, compared field by field. The FIRST poll only records it -- there
+        is nothing to have changed against -- so arming the pump never fires a
+        burst of events for windows that were already there."""
         previous = None
         while not self._stop.is_set():
             now = self._poll_list()

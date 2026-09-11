@@ -45,7 +45,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ["W11_PASSTHROUGH"] = "never"
 
 import support                                                     # noqa: E402
-from support import FakeBackend, fake_view, fake_window            # noqa: E402
+from support import (FakeBackend, fake_view, fake_window,           # noqa: E402
+                     stop_daemons_under)
+from wdotool import daemon as daemon_mod                           # noqa: E402
 from wdotool import x11_mini                                       # noqa: E402
 from xw11 import policy, req_read, shadow as shadow_mod, wire      # noqa: E402
 
@@ -114,7 +116,21 @@ class _Upstream(support.FakeUpstream):
             self._names[fixed] = name
         return super().intern(name)
 
+    #: What `QueryPointer` answers when the proxy forwards one: the numbers
+    #: real xdotool reads off Xwayland on the headless rig, at the middle of a
+    #: 1280x720 screen [recon/env.md 2.2]. `FakeXServer` answers `BadRequest`
+    #: for an opcode nobody wrote a branch for, and a real server answers this.
+    POINTER = (0x99, 640, 360, 600, 300, 0x0004)
+
     def _dispatch(self, conn, opcode, dbyte, payload, seq):
+        if opcode == wire.OP_QUERY_POINTER:
+            (win,) = struct.unpack_from("<I", payload, 0)
+            self.log.append(("QueryPointer", win))
+            child, rx, ry, wx, wy, mask = self.POINTER
+            conn.sendall(struct.pack("<BBHIIIhhhhH6x", 1, 1, seq, 0,
+                                     self.ROOTS[0], child, rx, ry, wx, wy,
+                                     mask))
+            return
         if opcode == 21:                        # ListProperties
             (win,) = struct.unpack_from("<I", payload, 0)
             self.log.append(("ListProperties", win))
@@ -1270,6 +1286,277 @@ class TheRegistryIsReadThroughTheTtl(ReadCase):
             self.send(wire.OP_GET_GEOMETRY, 0,
                       struct.pack("<I", self.shadow_of(11)))
         self.assertEqual(self.backend.counts["views"] - before, 0)
+
+
+
+class QueryPointerSources(ReadCase):
+    """Where `root_x/root_y` come from, in design section 6.6's order.
+
+    `getmouselocation` is one `QueryPointer(root)` [recon/tools.md 4.2] and
+    that is the only request behind it, so this handler is the whole of the
+    read half of the pointer -- for the 3.x generation, which warps, and for
+    the 4.x, which fakes a motion [recon/wire.md 5.3], alike.
+    """
+
+    num, upstream_num = 690, 691
+
+    def query(self, win):
+        """`(child, root_x, root_y, win_x, win_y, mask)` of one reply."""
+        pkt, _body = self.send(wire.OP_QUERY_POINTER, 0, struct.pack("<I", win))
+        return struct.unpack_from("<IhhhhH", pkt, 12)
+
+    def test_upstreams_answer_stands_when_nothing_else_knows(self):
+        """sway's IPC carries no cursor and the daemon refuses to guess
+        [recon/seams.md 2.3], so with nothing routed yet the reply is
+        Xwayland's own -- which is `x:640 y:360` on the headless rig today
+        [recon/env.md 2.2] -- and the request really went upstream."""
+        self.assertIsNone(self.rig.server.pointer_model)
+        got = self.query(self.root)
+        self.assertEqual(got[1:3], (640, 360))
+        self.assertEqual(got[5], 0x0004, "mask is upstream's, untouched")
+        self.assertIn(("QueryPointer", self.root), self.rig.upstream.log)
+
+    def test_the_backends_own_pointer_wins(self):
+        """GNOME's Meta pointer and Wayfire's `stipc/get-cursor` are the two
+        that answer [recon/seams.md 2.3]."""
+        self.backend.pointer_ = (12, 34)
+        got = self.query(self.root)
+        self.assertEqual(got[1:3], (12, 34))
+
+    def test_the_routed_position_is_used_when_the_backend_has_none(self):
+        """The proxy's own last routed position: what makes `getmouselocation`
+        after `mousemove` answer the number the move asked for, on a
+        compositor whose IPC has no cursor at all."""
+        self.assertIsNone(self.backend.pointer_)
+        self.rig.server.pointer_model = (7, 9)
+        self.assertEqual(self.query(self.root)[1:3], (7, 9))
+
+    def test_win_x_and_win_y_move_by_the_same_delta(self):
+        """Upstream answered `root 640,360 / win 600,300`, so the window's
+        origin is 40,60 whatever window it was: the recomputed pair keeps that
+        origin rather than inventing one."""
+        self.rig.server.pointer_model = (100, 200)
+        got = self.query(self.root)
+        self.assertEqual((got[1], got[2], got[3], got[4]), (100, 200, 60, 140))
+
+    def test_the_child_becomes_the_shadow_under_the_position(self):
+        """The foot is at (10, 20) 300x200, so (100, 100) is inside it."""
+        self.rig.server.pointer_model = (100, 100)
+        self.assertEqual(self.query(self.root)[0], self.shadow())
+
+    def test_upstreams_child_stands_where_no_native_window_is(self):
+        """`hit_test` naming nothing leaves the X window upstream named: an X
+        client under the pointer is upstream's own truth."""
+        self.rig.server.pointer_model = (1000, 700)
+        self.assertEqual(self.query(self.root)[0], 0x99)
+
+
+class QueryPointerOnShadowAnswers(ReadCase):
+    """A shadow id may never be forwarded (design section 3.2)."""
+
+    num, upstream_num = 692, 693
+
+    def make_backend(self):
+        """Two native toplevels. The second one is what `child` is measured
+        against: a sibling under the pointer is not a child of the window the
+        request asked about."""
+        first = foot_window(11)
+        second = foot_window(12, title="WXL-Foot-2", focused=False,
+                             x=500, y=400, w=300, h=200)
+        return FakeBackend(windows=[first, second],
+                           views=[fake_view(first, xid=0, app_id="foot",
+                                            instance="foot", cls="foot"),
+                                  fake_view(second, xid=0, app_id="foot",
+                                            instance="foot", cls="foot")])
+
+    def shadow(self, handle=11):
+        return self.shadows.entries[handle].shadow
+
+    def test_the_shadow_id_never_reaches_the_server(self):
+        self.rig.server.pointer_model = (100, 100)
+        pkt, _body = self.send(wire.OP_QUERY_POINTER, 0,
+                               struct.pack("<I", self.shadow()))
+        self.assertEqual(pkt[1], 1, "same_screen")
+        self.assertNotIn(("QueryPointer", self.shadow()),
+                         self.rig.upstream.log)
+        self.assertIn(("GetInputFocus",), [(row[0],) for row
+                                           in self.rig.upstream.log],
+                      "the ANSWER substitute went in its place")
+
+    def test_win_x_and_win_y_are_relative_to_the_shadows_own_rect(self):
+        """The foot is at (10, 20); the pointer at (100, 100) is 90, 80 into
+        it."""
+        self.rig.server.pointer_model = (100, 100)
+        pkt, _body = self.send(wire.OP_QUERY_POINTER, 0,
+                               struct.pack("<I", self.shadow()))
+        child, rx, ry, wx, wy = struct.unpack_from("<Ihhhh", pkt, 12)
+        self.assertEqual((rx, ry, wx, wy), (100, 100, 90, 80))
+        self.assertEqual(child, 0, "the window asked about is not its own child")
+
+    def test_the_mask_carries_what_this_proxy_holds(self):
+        """Physical modifiers the user is holding are NOT in it: they reach
+        Xwayland's XKB state and there is no upstream answer to take them from
+        on a shadow. Not yet, and the route is evdev -- /dev/input/event*,
+        which the daemon already opens on the uinput path (AGENTS.md rung 4)."""
+        engine = self.rig.server.xtest
+        engine.keymap.rows[37] = (0xFFE3,)          # Control_L
+        conn = self.rig.server.conns[0]
+        conn.held.add(37)
+        conn.buttons.add(1)
+        self.addCleanup(conn.held.clear)
+        self.addCleanup(conn.buttons.clear)
+        self.rig.server.pointer_model = (100, 100)
+        pkt, _body = self.send(wire.OP_QUERY_POINTER, 0,
+                               struct.pack("<I", self.shadow()))
+        (mask,) = struct.unpack_from("<H", pkt, 24)
+        self.assertEqual(mask, 0x04 | 0x0100, "ControlMask | Button1Mask")
+
+    def test_a_sibling_under_the_pointer_is_not_this_windows_child(self):
+        """X's `child` is the child of the window ASKED ABOUT that contains the
+        pointer. A shadow has no children at all -- `QueryTree` on one answers
+        none (design section 4.1) -- so the answer is 0 whatever toplevel the
+        pointer is over, and the second foot is there to prove the 0 is a
+        decision rather than an empty hit test: the same position on the ROOT,
+        where `child` IS a child of the window asked about, names it."""
+        self.rig.server.pointer_model = (600, 500)      # inside the second foot
+        pkt, _body = self.send(wire.OP_QUERY_POINTER, 0,
+                               struct.pack("<I", self.shadow(11)))
+        child, rx, ry = struct.unpack_from("<Ihh", pkt, 12)
+        self.assertEqual((rx, ry), (600, 500))
+        self.assertEqual(child, 0, "a sibling toplevel is not a child")
+        pkt, _body = self.send(wire.OP_QUERY_POINTER, 0,
+                               struct.pack("<I", self.root))
+        (on_root,) = struct.unpack_from("<I", pkt, 12)
+        self.assertEqual(on_root, self.shadow(12),
+                         "the hit test does find the second foot there")
+
+    def test_upstreams_own_answer_is_the_third_source_on_a_shadow(self):
+        """Design section 6.6's third source, on the one path that cannot
+        forward: the proxy asks its OWN connection `QueryPointer(root)` rather
+        than inventing a number. Upstream answers (640, 360) here, which is
+        what real xdotool reads off Xwayland on the headless rig
+        [recon/env.md 2.2]."""
+        self.assertIsNone(self.rig.server.pointer_model)
+        self.assertIsNone(self.backend.pointer_)
+        mark = len(self.rig.upstream.log)
+        pkt, _body = self.send(wire.OP_QUERY_POINTER, 0,
+                               struct.pack("<I", self.shadow(11)))
+        child, rx, ry, wx, wy = struct.unpack_from("<Ihhhh", pkt, 12)
+        self.assertEqual((rx, ry), (640, 360))
+        self.assertEqual((wx, wy), (630, 340), "relative to the foot at 10,20")
+        self.assertEqual(child, 0)
+        asked = [win for (name, win) in
+                 [(row[0], row[-1]) for row in self.rig.upstream.log[mark:]]
+                 if name == "QueryPointer"]
+        self.assertEqual(asked, [self.rig.upstream.ROOTS[0]],
+                         "one question, about the ROOT, and never about the "
+                         "shadow")
+
+    def test_with_no_source_at_all_the_origin_is_answered_and_said_once(self):
+        """Upstream gone too: the answer is the window's own origin, and the
+        line that says the number is not a measurement is said ONCE -- a poller
+        of a shadow would otherwise be the only thing in the log."""
+        # Put it back for the teardown: the rig closes the connection it owns,
+        # and a test that dropped the reference leaked the socket.
+        self.addCleanup(setattr, self.rig.server, "own", self.rig.server.own)
+        self.rig.server.own = None
+        log = []
+        self.rig.server.say = log.append
+        for _ in range(3):
+            pkt, _body = self.send(wire.OP_QUERY_POINTER, 0,
+                                   struct.pack("<I", self.shadow(11)))
+        child, rx, ry, wx, wy = struct.unpack_from("<Ihhhh", pkt, 12)
+        self.assertEqual((rx, ry, wx, wy), (10, 20, 0, 0))
+        self.assertEqual(child, 0)
+        self.assertEqual(len(log), 1, log)
+        self.assertIn("not yet", log[0])
+        self.assertIn("rung", log[0])
+
+    def test_a_dead_shadow_id_passes_and_upstream_answers(self):
+        """An id the registry does not know is not the proxy's business
+        (design section 3.1)."""
+        self.send(wire.OP_QUERY_POINTER, 0, struct.pack("<I", 0x6DEAD0))
+        self.assertIn(("QueryPointer", 0x6DEAD0), self.rig.upstream.log)
+
+
+class QueryPointerChildWithNoSource(ReadCase):
+    """`child` is edited even when no proxy-side source knows the position.
+
+    The third source of design section 6.6 is upstream's own answer, and the
+    shadow under THAT is what `getmouselocation` has to print: without this the
+    `window:` field named an X window (or 0) with a `foot` sitting under
+    Xwayland's own (640, 360) [recon/env.md 2.2] until something moved the
+    pointer.
+    """
+
+    num, upstream_num = 696, 697
+
+    def make_backend(self):
+        return foot_backend(foot_window(11, x=600, y=300, w=200, h=200))
+
+    def query(self, win):
+        pkt, _body = self.send(wire.OP_QUERY_POINTER, 0, struct.pack("<I", win))
+        return struct.unpack_from("<IhhhhH", pkt, 12)
+
+    def test_the_child_is_the_shadow_under_upstreams_own_position(self):
+        self.assertIsNone(self.rig.server.pointer_model)
+        self.assertIsNone(self.backend.pointer_)
+        got = self.query(self.root)
+        self.assertEqual(got[0], self.shadow())
+        self.assertEqual(got[1:3], (640, 360), "upstream's own number stands")
+        self.assertEqual(got[3:5], (600, 300), "win_x/win_y untouched too")
+        self.assertEqual(got[5], 0x0004, "and the mask")
+
+    def test_upstreams_child_still_stands_where_the_foot_is_not(self):
+        """The negative twin: the edit replaces `child` only where the hit test
+        names a native toplevel."""
+        self.backend.windows[0].x = 5
+        self.backend.windows[0].y = 5
+        self.shadows.invalidate()
+        self.assertEqual(self.query(self.root)[0], 0x99)
+
+
+class QueryPointerSeedsDaemon(ReadCase):
+    """Every position a source other than the daemon knows is seeded into it,
+    so a relative move starts from truth (design section 6.6)."""
+
+    num, upstream_num = 694, 695
+
+    def setUp(self):
+        self.tmp = support.tempfile.mkdtemp(prefix="xw11-seed-")
+        self.addCleanup(support.shutil.rmtree, self.tmp, True)
+        self.addCleanup(stop_daemons_under, self.tmp)
+        self.env = support.env(XDG_RUNTIME_DIR=self.tmp)
+        self.env.__enter__()
+        self.addCleanup(self.env.__exit__, None, None, None)
+        real_spawn = daemon_mod.DaemonClient._spawn
+        daemon_mod.DaemonClient._spawn = staticmethod(lambda: None)
+        self.addCleanup(setattr, daemon_mod.DaemonClient, "_spawn", real_spawn)
+        self.daemon = support.FakeDaemon(self.tmp)
+        self.addCleanup(self.daemon.stop)
+        super().setUp()
+        self.rig.server.xtest.route()
+        del self.daemon.ops[:]
+
+    def test_the_backends_position_is_sent_to_the_daemon_once(self):
+        self.backend.pointer_ = (12, 34)
+        self.send(wire.OP_QUERY_POINTER, 0, struct.pack("<I", self.root))
+        self.send(wire.OP_QUERY_POINTER, 0, struct.pack("<I", self.root))
+        self.assertEqual([(r["x"], r["y"]) for r in self.daemon.of("seed_pointer")],
+                         [(12, 34)],
+                         "xdotool mousemove sends two QueryPointers "
+                         "[recon/tools.md 4.5]; the daemon's model does not "
+                         "move between them")
+
+    def test_a_position_only_this_proxy_routed_costs_no_round_trip(self):
+        """The daemon put that number there itself."""
+        self.rig.server.xtest.moved(50, 60)
+        self.send(wire.OP_QUERY_POINTER, 0, struct.pack("<I", self.root))
+        self.assertEqual(self.daemon.of("seed_pointer"), [])
+
+    def test_nothing_is_seeded_when_nothing_knows(self):
+        self.send(wire.OP_QUERY_POINTER, 0, struct.pack("<I", self.root))
+        self.assertEqual(self.daemon.of("seed_pointer"), [])
 
 
 class RootEventsInvalidateTheRegistry(unittest.TestCase):

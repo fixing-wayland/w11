@@ -1,0 +1,6 @@
+# xdotool 4.20260303.1 (the tree's pin) `mousemove 150 250`:
+# one XTEST FakeInput, type 6 MotionNotify, detail 0 (absolute),
+# root 0x22b, rootX 150, rootY 250 [recon/wire.md 5.3;
+# recon/wire/trace_x4.log line 278, the `C bytes:` under the decoded
+# `C req seq=34` of line 277, byte for byte].
+8402090006000000000000002b02000005000500870104009600fa000000000007000700  # 278 FakeInput

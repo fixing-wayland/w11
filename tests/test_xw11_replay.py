@@ -36,6 +36,7 @@ import select
 import shutil
 import struct
 import sys
+import tempfile
 import time
 import unittest
 
@@ -49,7 +50,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ["W11_PASSTHROUGH"] = "never"
 
 import support                                                     # noqa: E402
-from support import FakeBackend, fake_view, fake_window            # noqa: E402
+from support import (FakeBackend, fake_view, fake_window,           # noqa: E402
+                     stop_daemons_under)
+from wdotool import daemon as daemon_mod                           # noqa: E402
 from xw11 import policy, wire                                      # noqa: E402
 
 CAPS = os.path.join(ROOT, "tests", "fixtures", "xw11", "caps")
@@ -109,13 +112,14 @@ STREAMS = (
 class Capture:
     """One fixture: the header's tokens and the frames under it."""
 
-    def __init__(self, name):
+    def __init__(self, name, where=None):
         self.name = name
         self.root = 0
         self.windows = []
         self.atoms = {}
         self.frames = []
-        with open(os.path.join(CAPS, name + ".hex"), encoding="utf-8") as fh:
+        with open(os.path.join(where or CAPS, name + ".hex"),
+                  encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
@@ -200,11 +204,30 @@ class _Upstream(support.FakeUpstream):
     #: [recon/wire.md 4.2], and `FakeXServer` answers `BadRequest` for an
     #: opcode nobody wrote a branch for. Every write stream below carries at
     #: least one, and a stream replayed against a window this rig does not
-    #: shadow forwards it.
-    VOID = (4, 8, 10, 12, 25, 42, 113)
+    #: shadow forwards it. 41 is `WarpPointer`, which is likewise void
+    #: [recon/wire.md 5.3], and 100 is `ChangeKeyboardMapping`.
+    VOID = (4, 8, 10, 12, 25, 41, 42, 100, 113)
+
+    #: What `QueryPointer` answers: the middle of a 1280x720 screen, which is
+    #: what real xdotool reads off Xwayland on the headless rig
+    #: [recon/env.md 2.2].
+    POINTER = (0, 640, 360, 640, 360, 0)
 
     def _dispatch(self, conn, opcode, dbyte, payload, seq):
         self.ops.append(opcode)
+        xtest_major = self.extensions.get("XTEST", (0, 0, 0))[0]
+        if opcode == xtest_major:
+            # XTEST: `GetVersion` answers 2.2 [recon/wire.md 5.3] and the other
+            # three answer nothing at all. Every one of them that gets this far
+            # is a request the proxy chose to forward.
+            if dbyte == 0:
+                conn.sendall(struct.pack("<BBHIH22x", 1, 2, seq, 0, 2))
+            return
+        if opcode == wire.OP_QUERY_POINTER:
+            child, rx, ry, wx, wy, mask = self.POINTER
+            conn.sendall(struct.pack("<BBHIIIhhhhH6x", 1, 1, seq, 0,
+                                     self.ROOTS[0], child, rx, ry, wx, wy, mask))
+            return
         if opcode in self.VOID:
             return
         if opcode == 21:                        # ListProperties
@@ -250,14 +273,27 @@ class Replay(unittest.TestCase):
     num = 680
     upstream_num = 681
 
+    def capture(self, name):
+        return Capture(name)
+
+    def prepare_upstream(self, upstream):
+        """Whatever has to be true of the server BEFORE the proxy's own
+        connection opens, which is at the first accept (design section 2.6)."""
+
     def replay(self, name):
-        cap = Capture(name)
+        cap = self.capture(name)
         backend = foot_backend()
-        rig = _Rig(atoms=cap.atoms, num=self.num, upstream_num=self.upstream_num,
-                   passthrough=False, backend=backend)
-        self.addCleanup(rig.stop)
+        # ONE counter for every class in this file, on the base: a subclass
+        # that inherits the generated stream tests runs them again, and two
+        # rigs on the same display number would collide.
+        num, upstream_num = Replay.num, Replay.upstream_num
         Replay.num += 2
         Replay.upstream_num += 2
+        rig = _Rig(atoms=cap.atoms, num=num, upstream_num=upstream_num,
+                   passthrough=False, backend=backend)
+        self.addCleanup(rig.stop)
+        self.rig = rig
+        self.prepare_upstream(rig.upstream)
         warm = rig.conn()                       # forces the own connection open
         rig.wait_own()
         rig.server.shadows.refresh()
@@ -360,8 +396,18 @@ def _make_stream_test(name, count):
     return test
 
 
+class Streams(Replay):
+    """The read- and write-side streams, one generated test each.
+
+    Attached HERE and not to `Replay` itself: `Replay` is the machinery and
+    three classes derive from it -- a generated test on the base runs once per
+    subclass, and the input streams below read their fixtures from another
+    directory entirely.
+    """
+
+
 for _name, _count in STREAMS:
-    setattr(Replay, "test_" + _name.replace("-", "_"),
+    setattr(Streams, "test_" + _name.replace("-", "_"),
             _make_stream_test(_name, _count))
 
 
@@ -665,6 +711,171 @@ def _make_xrandr_test(name, tables, rig_key, applies, names):
 for _n, _t, _k, _a, _names in XRANDR_STREAMS:
     setattr(XrandrReplay, "test_" + _n.replace("-", "_"),
             _make_xrandr_test(_n, _t, _k, _a, _names))
+
+
+
+#: The input streams, with the request count recon/tools.md 4.5 measured for
+#: each -- and the two the recon counted only in prose. `warp-3x` is the apt
+#: 3.20160805.1 generation, which moves the pointer with core `WarpPointer`;
+#: every other stream here is the 4.20260303.1 the tree pins, which moves it
+#: with `FakeInput MotionNotify` [recon/wire.md 5.3]. Both have to work.
+INPUT_STREAMS = (
+    ("key-ctrl-a", 64),
+    ("type-hi", 57),
+    ("mousemove-4x", 36),
+    ("click-1", 35),
+    ("warp-3x", 24),
+    ("clearmods", 72),
+)
+
+
+class InputReplay(Replay):
+    """The six input streams, with a fake input daemon behind the proxy.
+
+    Same two claims as the read and write streams -- nothing hangs, nothing
+    misframes, and the substitution is where the policy says -- over the
+    requests that carry the input path: `XTEST.FakeInput`, `WarpPointer`,
+    `QueryPointer`, `ChangeKeyboardMapping` and the XKB dance xdotool wraps
+    every keystroke in [recon/tools.md 4.5, 4.8].
+    """
+
+    #: The `us` rows the input streams name, in the map the fake answers
+    #: `GetKeyboardMapping` with: 37 Control_L, 38 `a`, 43 `h`, 31 `i`, which
+    #: is what those keycodes are on a US map and what the capture's own
+    #: xdotool resolved them to [recon/tools.md 4.5].
+    US_KEYSYMS = {37: [0xFFE3], 38: [0x0061], 43: [0x0068], 31: [0x0069]}
+
+    def prepare_upstream(self, upstream):
+        upstream.keysyms_per_keycode = 1
+        upstream.keysyms = dict(self.US_KEYSYMS)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="xw11-replay-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.addCleanup(stop_daemons_under, self.tmp)
+        self.envctx = support.env(XDG_RUNTIME_DIR=self.tmp)
+        self.envctx.__enter__()
+        self.addCleanup(self.envctx.__exit__, None, None, None)
+        real_spawn = daemon_mod.DaemonClient._spawn
+        daemon_mod.DaemonClient._spawn = staticmethod(lambda: None)
+        self.addCleanup(setattr, daemon_mod.DaemonClient, "_spawn", real_spawn)
+        self.daemon = support.FakeDaemon(self.tmp)
+        self.addCleanup(self.daemon.stop)
+
+    def capture(self, name):
+        return Capture(name, where=os.path.join(ROOT, "tests", "fixtures",
+                                                "xw11"))
+
+
+def _make_input_test(name, count):
+    def test(self):
+        cap, frames, got, ups, _root, _shadow = self.replay(name)
+        self.assertEqual(len(frames), count,
+                         "%s.hex holds %d requests" % (name, count))
+        seqs = [struct.unpack_from("<H", p, 2)[0] for p in got]
+        self.assertEqual(seqs, sorted(seqs), "the replies came back out of order")
+        self.assertEqual(seqs[-1], len(frames),
+                         "the last reply's sequence is not the last request's")
+        want = cap.opcodes()
+        self.assertEqual(len(ups), len(want))
+        for i, (mine, theirs) in enumerate(zip(ups, want)):
+            if mine == theirs:
+                continue
+            self.assertIn(mine, (wire.OP_GET_INPUT_FOCUS,
+                                 wire.OP_NO_OPERATION),
+                          "request %d (op %d) went upstream as op %d"
+                          % (i + 1, theirs, mine))
+        # Every input request the proxy owns was CONSUMEd: a `NoOperation`
+        # stands where it was, and not one of them reached the server.
+        xtest_major = support.FAKE_EXTENSIONS["XTEST"][0]
+        owned = [i for i, op in enumerate(want)
+                 if op == wire.OP_WARP_POINTER
+                 or (op == xtest_major and frames[i][1] == 2)]
+        self.assertTrue(owned, "%s carries no input request at all" % name)
+        for i in owned:
+            self.assertEqual(ups[i], wire.OP_NO_OPERATION,
+                             "request %d was not consumed" % (i + 1))
+    test.__name__ = "test_" + name.replace("-", "_")
+    test.__doc__ = ("`%s` replayed: %d requests, every one answered in order, "
+                    "and every FakeInput and WarpPointer consumed."
+                    % (name, count))
+    return test
+
+
+class InputStreams(InputReplay):
+    """The six input streams, one generated test each -- attached here for the
+    reason `Streams` is: a generated test on the machinery runs once per
+    subclass of it."""
+
+
+for _name, _count in INPUT_STREAMS:
+    setattr(InputStreams, "test_" + _name.replace("-", "_"),
+            _make_input_test(_name, _count))
+
+
+class WhatTheInputCommandsDid(InputReplay):
+    """The replays above pin the framing; these pin what reached the daemon."""
+
+    num = 880
+    upstream_num = 881
+
+    def ops(self, name):
+        return self.daemon.of(name)
+
+    def test_key_ctrl_a_is_four_operations(self):
+        """Seven FakeInputs, four operations: X drops a repeated press of a
+        non-repeating key and the compositor refcounts them per seat
+        (design section 6.3)."""
+        self.replay("key-ctrl-a")
+        self.assertEqual([(r["spec"], r["direction"]) for r in self.ops("key")],
+                         [("Control_L", "down"), ("a", "down"),
+                          ("Control_L", "up"), ("a", "up")])
+
+    def test_type_hi_is_two_keys_pressed_and_released(self):
+        """`xdotool type hi` is `KP 43, KR 43, KP 31, KR 31`, each preceded by
+        its own `GetKeyboardMapping` [recon/tools.md 4.5]: 43 and 31 are `h`
+        and `i` on the `us` map the fake answers with."""
+        self.replay("type-hi")
+        directions = [r["direction"] for r in self.ops("key")]
+        self.assertEqual(directions, ["down", "up", "down", "up"])
+        self.assertEqual(len(self.ops("type")), 0,
+                         "every character was on the layout")
+
+    def test_click_1_is_a_press_and_a_release_of_x_button_1(self):
+        self.replay("click-1")
+        self.assertEqual([(r["btn"], r["down"]) for r in self.ops("button")],
+                         [(1, True), (1, False)])
+
+    def test_mousemove_4x_moves_through_the_daemon(self):
+        self.replay("mousemove-4x")
+        self.assertEqual([(r["x"], r["y"]) for r in self.ops("mousemove_abs")],
+                         [(10, 10)])
+
+    def test_the_apt_three_x_warp_moves_the_same_way(self):
+        """The generation Ubuntu ships reaches the same daemon operation by a
+        different request: `WarpPointer(dst = root, 100, 200)` and then two
+        button FakeInputs [recon/wire.md 5.3]."""
+        self.replay("warp-3x")
+        self.assertEqual([(r["x"], r["y"]) for r in self.ops("mousemove_abs")],
+                         [(100, 200)])
+        self.assertEqual([(r["btn"], r["down"]) for r in self.ops("button")],
+                         [(1, True), (1, False)])
+
+    def test_clearmodifiers_reaches_the_daemon_as_the_same_four_keys(self):
+        """`--clearmodifiers` adds `GetModifierMapping`, `QueryKeymap` and two
+        `QueryPointer`s around the sequence [recon/tools.md 4.8] and changes
+        nothing about the keys themselves: the clearing xdotool does is its own
+        `LatchLockState`, which lands on Xwayland's XKB state (design section
+        6.5), and the daemon holds no latch of its own."""
+        self.replay("clearmods")
+        self.assertEqual([(r["spec"], r["direction"]) for r in self.ops("key")],
+                         [("Control_L", "down"), ("a", "down"),
+                          ("Control_L", "up"), ("a", "up")])
+        self.assertEqual([r["clearmods"] for r in self.ops("key")],
+                         [False] * 4,
+                         "the daemon's own --clearmodifiers is not what "
+                         "xdotool asked for: it asked X to clear its latches")
+
 
 
 if __name__ == "__main__":

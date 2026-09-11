@@ -27,9 +27,12 @@ Three rules the handlers share:
   as lost.
 * **a CONSUMEd write arms a settle poll.** `Server.settle(xid)` re-lists at
   +50 ms and +250 ms, because sway emits `move` for a workspace move and
-  nothing at all for a floating `move position` [recon/seams.md 2.4]: the
-  `ConfigureNotify` after `xdotool windowmove` comes from the diff of two
-  listings and not from a compositor event (design section 5.2).
+  nothing at all for a floating `move position` [recon/seams.md 2.4, measured
+  again 2026-09-10: ten floating moves through `swaymsg`, zero tokens on a
+  subscribed `events()`, and the new rect in `get_tree` 0.9-3.6 ms after the
+  IPC returned]: the `ConfigureNotify` after `xdotool windowmove` comes from
+  the diff of two listings and not from a compositor event (design section
+  5.2), and `Server.run_settles` is what hands that diff to `xw11/events.py`.
 * **the value lists are walked in BIT ORDER.** `ConfigureWindow` and
   `ChangeWindowAttributes` both carry one CARD32 per set bit of their mask, in
   ascending bit order and nothing else [recon/wire.md 4.2], so the slot a value
@@ -380,7 +383,160 @@ def change_window_attributes(server, conn, req):
         conn.masks[req.xid] = got[wire.CW_EVENT_MASK]
         server.debug_say("client mask 0x%x on 0x%x"
                          % (got[wire.CW_EVENT_MASK], req.xid))
+        # The first non-zero mask on the root or a shadow starts the
+        # compositor's event stream and the last one to go stops it (design
+        # section 5.2): a proxy nobody watches through costs no sway
+        # subscription and no loaded KWin script. This is the ARM half; the
+        # disarm halves are `Server.close_conn` and a shadow that died.
+        server.arm_pump()
     return None
+
+
+
+# -- WarpPointer (design section 6.6) -----------------------------------------
+#
+# xdotool 3.20160805.1 -- what Debian and Ubuntu ship, and what a symlink over
+# /usr/bin/xdotool replaces -- moves the pointer with core `WarpPointer` and
+# reads it with `QueryPointer`; the 4.x the tree pins moves with
+# `FakeInput MotionNotify` [recon/wire.md 5.3]. Both generations have to work,
+# so this file owns one half of the input path and xw11/xtest.py the other.
+
+
+def warp_pointer(server, conn, req):
+    """`WarpPointer`, which is how xdotool 3.x -- Debian's and Ubuntu's -- moves
+    the pointer [recon/wire.md 5.3]. Design section 6.6's five cases.
+
+    BATCH for the same reason `FakeInput` is: with no daemon route the frame
+    goes to Xwayland, whose warp moves Xwayland's own pointer.
+    """
+    if len(req.frame) < 24:
+        return policy.FORWARD
+    src, dst = struct.unpack_from("<II", req.frame, 4)
+    src_x, src_y, src_w, src_h, dst_x, dst_y = struct.unpack_from(
+        "<hhHHhh", req.frame, 12)
+    engine = server.xtest
+    client = engine.route()
+    if client is None:
+        return policy.FORWARD
+    if src and not _in_src(server, conn, src, src_x, src_y, src_w, src_h):
+        return None
+    if not dst:
+        engine.run(conn, lambda: client.mousemove_rel(dst_x, dst_y))
+        return None
+    ox, oy = _origin(server, conn, dst)
+    if ox is None:
+        return policy.FORWARD
+    engine.run(conn, lambda: engine.move_abs(ox + dst_x, oy + dst_y))
+    return None
+
+
+def _origin(server, conn, xid):
+    """A destination window's root origin: (0, 0) for the root, the
+    compositor's rect for a shadow, and the own connection's
+    `TranslateCoordinates` for a real X window. `(None, None)` when the last is
+    asked for and cannot be answered, which forwards the frame."""
+    roots = conn.setup.roots if conn.setup is not None else ()
+    if xid in roots:
+        return (0, 0)
+    entry = _entry(server, xid)
+    if entry is not None:
+        return (int(entry.window.x), int(entry.window.y))
+    got = real_geometry(server, xid)
+    if got is None:
+        return (None, None)
+    return (got[0], got[1])
+
+
+def _in_src(server, conn, src, src_x, src_y, src_w, src_h):
+    """X's own `src` check: the warp happens only if the pointer is inside the
+    source rectangle, and is skipped when nobody knows where the pointer is --
+    which is a real answer here and not an evasion, because sway's IPC carries
+    no cursor at all [recon/seams.md 2.3]."""
+    where = server.xtest.position()
+    if where is None:
+        server.debug_say("xtest: WarpPointer names a source window and nothing "
+                         "knows where the pointer is: the warp is skipped, "
+                         "which is what X does with a pointer outside src")
+        return False
+    x, y = where
+    ox, oy = _origin(server, conn, src)
+    if ox is None:
+        return False
+    w, h = src_w, src_h
+    if not w or not h:
+        # Zero means "to the far edge of src" [/usr/share/xcb/xproto.xml].
+        rect = _rect_of(server, conn, src)
+        if rect is not None:
+            w = w or max(rect[0] - src_x, 0)
+            h = h or max(rect[1] - src_y, 0)
+    return (ox + src_x) <= x < (ox + src_x + w) and \
+           (oy + src_y) <= y < (oy + src_y + h)
+
+
+def _rect_of(server, conn, xid):
+    """(width, height) of a window, for the `src_width = 0` rule."""
+    roots = conn.setup.roots if conn.setup is not None else ()
+    if xid in roots:
+        got = _display_size(server)
+        return got
+    entry = _entry(server, xid)
+    if entry is not None:
+        return (int(entry.window.w), int(entry.window.h))
+    got = real_geometry(server, xid)
+    return None if got is None else (got[2], got[3])
+
+
+def _display_size(server):
+    if server.shadows is None:
+        return None
+    try:
+        return server.shadows.display_size()
+    except CmdError:
+        return None
+
+
+def real_geometry(server, xid):
+    """`(root_x, root_y, width, height)` of a real X window, from the proxy's
+    own connection: `TranslateCoordinates(win -> root, 0, 0)` for the origin and
+    `GetGeometry` for the size, pipelined into one round trip of ~70 us
+    [recon/env.md 5.3].
+
+    Synchronous, on the loop thread, the way `OwnConn.atom_name()` already is
+    [xw11/upstream.py:396] -- `OwnConn` has no public synchronous read of its
+    own yet, and promoting this one into that class is a request filed against
+    the batch that owns the file (scratchpad requests-batch-6.md). Nothing
+    measured warps to a real window: xdotool's destination is always the root
+    [recon/wire.md 5.3].
+    """
+    own = server.own
+    if own is None or not own.open:
+        return None
+    root = getattr(own, "root", 0)
+    box = {}
+
+    def took_translate(pkt):
+        # dst_x/dst_y are at 12 and 14: the reply is child(8), dst_x(12),
+        # dst_y(14) [recon/wire.md 4.1], which is the layout req_read's own
+        # TranslateCoordinates answer packs.
+        box["t"] = struct.unpack_from("<hh", pkt, 12) if pkt[0] == 1 else None
+
+    def took_geometry(pkt):
+        box["g"] = struct.unpack_from("<HH", pkt, 16) if pkt[0] == 1 else None
+    try:
+        own.send(wire.OP_TRANSLATE_COORDINATES, 0,
+                 struct.pack("<IIhh", xid, root, 0, 0), on_reply=took_translate)
+        own.send(wire.OP_GET_GEOMETRY, 0, struct.pack("<I", xid),
+                 on_reply=took_geometry)
+        own._drain_until(lambda: "t" in box and "g" in box)
+    except Exception as e:                        # UpstreamGone, and no more
+        server.say("xtest: asking the upstream for window 0x%x's origin failed "
+                   "(%s); the request is forwarded instead" % (xid, e))
+        return None
+    if box.get("t") is None or box.get("g") is None:
+        return None
+    return (box["t"][0], box["t"][1], box["g"][0], box["g"][1])
+
+
 
 
 HANDLERS = {
@@ -393,6 +549,7 @@ HANDLERS = {
     wire.OP_DELETE_PROPERTY: delete_property,
     wire.OP_SET_INPUT_FOCUS: set_input_focus,
     wire.OP_KILL_CLIENT: kill_client,
+    wire.OP_WARP_POINTER: warp_pointer,
 }
 
 

@@ -3114,3 +3114,127 @@ def install_fake_randr(server, backend, statedir):
     server.randr.state = core.State("fake-randr",
                                     path=os.path.join(statedir, "state.json"))
     return backend
+
+
+# -- the input daemon double ---------------------------------------------------
+#
+# `wdotool/daemon.py`'s wire is one JSON object per line over an AF_UNIX
+# SOCK_STREAM socket: `{"ok": true, ...}` or `{"ok": false, "error": ...}`, with
+# `"warnings": [...]` alongside either [recon/seams.md 5.1]. This answers that
+# protocol on a socket of its own, records every operation in order, and can be
+# told to answer a `key` with the daemon's own "not reachable" warning -- the
+# one the proxy's typed fallback turns on (design section 6.2).
+#
+# It is the socket and not the class that is faked, so the code under test is
+# the real `DaemonClient.connect_or_spawn` (the `SO_PEERCRED` check included,
+# which refuses a socket owned by another uid [wdotool/daemon.py:2072]) and the
+# real `ProxyDaemon._rpc`.
+
+class FakeDaemon(threading.Thread):
+    """The input daemon's line protocol, on a temp socket, with a log.
+
+    `refuse=True` binds nothing at all: `connect_or_spawn` then finds no socket,
+    double-forks (seam that off in the test) and raises `CmdError`, which is
+    design section 6.7's no-route case.
+    """
+
+    def __init__(self, sockdir, name="wdotool.sock", refuse=False,
+                 pointer=(0, 0, False)):
+        super().__init__(daemon=True)
+        self.socket_path = os.path.join(sockdir, name)
+        self.refuse = bool(refuse)
+        #: every request that arrived, in order, as the dicts they were
+        self.ops = []
+        #: what `pointer` answers: (x, y, known)
+        self.pointer = pointer
+        #: spec -> the warning a `key` for it comes back with
+        self.warnings = {}
+        #: op name -> the error string it refuses with
+        self.errors = {}
+        self._stopped = False
+        self._ls = None
+        if not self.refuse:
+            self._ls = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self._ls.bind(self.socket_path)
+            self._ls.listen(4)
+            self._ls.settimeout(0.2)
+            self.start()
+
+    # -- the levers -----------------------------------------------------------
+
+    def warn_for(self, spec, text=None):
+        """Make `key` for this spec answer the daemon's own sentence for a key
+        the active layout cannot reach [wdotool/keymap.py:333]. That warning is
+        not an error: the daemon warns, skips the key and answers ok, which is
+        xdotool's behaviour and what the proxy reads to decide to type
+        instead."""
+        self.warnings[spec] = text or (
+            "key '%s' is not reachable on the US layout. Ignoring it." % spec)
+
+    def refuse_op(self, op, error="cannot create uinput devices: [Errno 13]"):
+        """The next `op` answers `{"ok": false}` with this sentence."""
+        self.errors[op] = error
+
+    def of(self, op):
+        """Every recorded request for one operation, in order."""
+        return [r for r in self.ops if r.get("op") == op]
+
+    def stop(self):
+        self._stopped = True
+        if self._ls is not None:
+            self._ls.close()
+            self.join(timeout=5)
+
+    # -- the wire -------------------------------------------------------------
+
+    def run(self):
+        while not self._stopped:
+            try:
+                conn, _ = self._ls.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            threading.Thread(target=self._serve, args=(conn,),
+                             daemon=True).start()
+
+    def _serve(self, conn):
+        try:
+            rfile = conn.makefile("r", encoding="utf-8")
+            for line in rfile:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    req = json.loads(line)
+                except ValueError:
+                    conn.sendall(b'{"ok": false, "error": "bad json"}\n')
+                    continue
+                conn.sendall((json.dumps(self.answer(req)) + "\n").encode())
+        except (OSError, ValueError):
+            pass
+        finally:
+            conn.close()
+
+    def answer(self, req):
+        """One response, in the daemon's own shape."""
+        self.ops.append(req)
+        op = req.get("op")
+        error = self.errors.pop(op, None)
+        if error is not None:
+            return {"ok": False, "error": error}
+        out = {"ok": True}
+        if op == "key":
+            warning = self.warnings.get(req.get("spec"))
+            if warning:
+                out["warnings"] = [warning]
+        elif op == "pointer":
+            x, y, known = self.pointer
+            out.update(x=x, y=y, known=known)
+        elif op == "ping":
+            out["pid"] = os.getpid()
+        elif op == "geometry":
+            out.update(x=0, y=0, w=1280, h=720, fallback=True)
+        elif op == "clear_modifiers":
+            out["held"] = []
+        return out

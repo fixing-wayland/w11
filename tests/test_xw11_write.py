@@ -30,8 +30,10 @@ What the file is defending, in one sentence per group:
 """
 
 import os
+import shutil
 import struct
 import sys
+import tempfile
 import time
 import unittest
 
@@ -47,6 +49,8 @@ os.environ["W11_PASSTHROUGH"] = "never"
 import support                                                     # noqa: E402
 from support import FakeBackend, fake_view, fake_window            # noqa: E402
 from w11common.errors import CmdError                              # noqa: E402
+from support import stop_daemons_under                             # noqa: E402
+from wdotool import daemon as daemon_mod                           # noqa: E402
 from wdotool.x11_mini import X11Error                              # noqa: E402
 from xw11 import policy, req_write, server as server_mod           # noqa: E402
 from xw11 import shadow as shadow_mod, wire                        # noqa: E402
@@ -185,8 +189,9 @@ class _Upstream(support.FakeUpstream):
     #: [recon/wire.md 4.2], and `FakeXServer` answers `BadRequest` for an
     #: opcode nobody wrote a branch for. Batch 1's file should take these up;
     #: until it does they are a per-file subclass (scratchpad
-    #: requests-batch-4.md).
-    VOID = (4, 8, 10, 12, 25, 42, 113)
+    #: requests-batch-4.md). 41 is `WarpPointer`, which is likewise void
+    #: [recon/wire.md 5.3].
+    VOID = (4, 8, 10, 12, 25, 41, 42, 113)
 
     def _dispatch(self, conn, opcode, dbyte, payload, seq):
         self.ops.append(opcode)
@@ -849,6 +854,201 @@ class SettleArmed(WriteCase):
         self.assertEqual(server_mod.Server.run_settles(server), 4)
         self.assertEqual(self.backend.counts["views"], before + 1)
         self.assertEqual(server.settles, [])
+
+
+
+class WarpCase(WriteCase):
+    """A `WriteCase` with a fake input daemon behind it.
+
+    `WarpPointer` is how xdotool 3.20160805.1 -- Ubuntu's and Debian's, and
+    what a symlink over /usr/bin/xdotool replaces -- moves the pointer
+    [recon/wire.md 5.3]. The other end is `tests/support.py:FakeDaemon`, the
+    daemon's real line protocol on a real socket, so the code under test is
+    the real `connect_or_spawn` (the `SO_PEERCRED` check included).
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="xw11-warp-")
+        # Before anything is spawned and before the directory goes: cleanups
+        # run last-in-first-out.
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.addCleanup(stop_daemons_under, self.tmp)
+        self.envctx = support.env(XDG_RUNTIME_DIR=self.tmp)
+        self.envctx.__enter__()
+        self.addCleanup(self.envctx.__exit__, None, None, None)
+        # Nothing here may fork a real daemon: the fake IS the daemon.
+        real_spawn = daemon_mod.DaemonClient._spawn
+        daemon_mod.DaemonClient._spawn = staticmethod(lambda: None)
+        self.addCleanup(setattr, daemon_mod.DaemonClient, "_spawn", real_spawn)
+        self.daemon = support.FakeDaemon(self.tmp, refuse=self.refuse_daemon)
+        self.addCleanup(self.daemon.stop)
+        super().setUp()
+        del self.daemon.ops[:]
+
+    refuse_daemon = False
+
+    def warp(self, src=0, dst=0, src_x=0, src_y=0, src_w=0, src_h=0,
+             dst_x=0, dst_y=0):
+        """`WarpPointer` at recon/wire.md 5.3's offsets: src_window,
+        dst_window, src_x, src_y, src_width, src_height, dst_x, dst_y."""
+        return self.send(wire.OP_WARP_POINTER, 0,
+                         struct.pack("<IIhhHHhh", src, dst, src_x, src_y,
+                                     src_w, src_h, dst_x, dst_y))
+
+    def moves(self):
+        return [(r["x"], r["y"]) for r in self.daemon.of("mousemove_abs")]
+
+
+class WarpToRoot(WarpCase):
+    """`dst = root` is an absolute move, which is what every measured warp
+    is."""
+
+    num, upstream_num = 780, 781
+
+    def test_the_captured_three_x_warp_moves_to_its_own_dst(self):
+        """The apt 3.x `mousemove 100 200 click 1` sends
+        `29000600 00000000 2b020000 00000000 00000000 6400 c800` -- src None,
+        dst root, dst_x 100, dst_y 200 [M recon/wire.md 5.3, and
+        tests/fixtures/xw11/warp-3x.hex line for line]."""
+        frames = [f for f in warp_frames() if f[0] == wire.OP_WARP_POINTER]
+        self.assertEqual(len(frames), 1)
+        body = bytearray(frames[0][4:])
+        struct.pack_into("<I", body, 4, self.root)     # the capture's root
+        self.send(wire.OP_WARP_POINTER, 0, bytes(body))
+        self.assertEqual(self.moves(), [(100, 200)])
+
+    def test_the_model_follows_the_warp(self):
+        self.warp(dst=self.root, dst_x=11, dst_y=22)
+        self.assertEqual(self.rig.server.pointer_model, (11, 22))
+
+    def test_the_request_is_eaten_and_costs_upstream_one_noop(self):
+        self.warp(dst=self.root, dst_x=1, dst_y=2)
+        self.assertEqual(self.rig.upstream.ops[:2],
+                         [wire.OP_NO_OPERATION, wire.OP_GET_INPUT_FOCUS])
+
+
+class WarpToShadow(WarpCase):
+    """`dst = shadow` adds the compositor's own rect."""
+
+    num, upstream_num = 782, 783
+
+    def test_the_shadows_origin_is_added(self):
+        """The foot is at (10, 20), so (5, 5) inside it is (15, 25) on the
+        root."""
+        self.warp(dst=self.shadow(), dst_x=5, dst_y=5)
+        self.assertEqual(self.moves(), [(15, 25)])
+        self.assertNotIn(wire.OP_WARP_POINTER, self.rig.upstream.ops)
+
+
+class WarpToRealAddsOrigin(WarpCase):
+    """`dst = <a real X window>` asks the server where that window is."""
+
+    num, upstream_num = 784, 785
+    REAL = 0x40000C                      # the xterm of recon/seams.md 3
+
+    def prepare_upstream(self, upstream):
+        upstream.translate[self.REAL] = (300, 400)
+        upstream.geometry[self.REAL] = (0, 0, 640, 480)
+
+    def test_the_windows_root_origin_is_added(self):
+        """`TranslateCoordinates(win -> root, 0, 0)` on the proxy's own
+        connection: Xwayland's own warp would move Xwayland's pointer and not
+        the seat's, so the destination is resolved here and the move goes to
+        the daemon (design section 6.6)."""
+        self.warp(dst=self.REAL, dst_x=7, dst_y=8)
+        self.assertEqual(self.moves(), [(307, 408)])
+
+    def test_a_window_the_server_will_not_answer_for_forwards_the_frame(self):
+        """`BadWindow` from the own connection means the proxy cannot compute
+        the destination: the frame goes upstream, which answers the client's
+        own `BadWindow` with the serial the tools print [recon/tools.md 9]."""
+        self.rig.upstream.error_windows.add(0x40BEEF)
+        self.warp(dst=0x40BEEF, dst_x=1, dst_y=1)
+        self.assertEqual(self.moves(), [])
+        self.assertIn(wire.OP_WARP_POINTER, self.rig.upstream.ops)
+
+
+class WarpRelative(WarpCase):
+    """`dst = None` is a relative move and establishes no origin."""
+
+    num, upstream_num = 786, 787
+
+    def test_dst_none_is_mousemove_rel(self):
+        self.warp(dst=0, dst_x=-4, dst_y=6)
+        self.assertEqual([(r["dx"], r["dy"])
+                          for r in self.daemon.of("mousemove_rel")], [(-4, 6)])
+        self.assertIsNone(self.rig.server.pointer_model,
+                          "a relative move needs no origin and states none")
+
+
+class WarpSrcRect(WarpCase):
+    """`src` narrows the warp to "only if the pointer is in this rect"."""
+
+    num, upstream_num = 788, 789
+
+    def test_a_pointer_inside_src_warps(self):
+        self.rig.server.pointer_model = (100, 100)
+        self.warp(src=self.root, src_x=0, src_y=0, src_w=200, src_h=200,
+                  dst=self.root, dst_x=5, dst_y=5)
+        self.assertEqual(self.moves(), [(5, 5)])
+
+    def test_a_pointer_outside_src_does_not(self):
+        self.rig.server.pointer_model = (500, 500)
+        self.warp(src=self.root, src_x=0, src_y=0, src_w=200, src_h=200,
+                  dst=self.root, dst_x=5, dst_y=5)
+        self.assertEqual(self.moves(), [])
+
+    def test_a_zero_width_means_the_far_edge_of_src(self):
+        """X's own rule: `src_width = 0` is "to the right edge of src". The
+        rig's display is 1280x720, so (500, 500) is inside it."""
+        self.rig.server.pointer_model = (500, 500)
+        self.warp(src=self.root, src_x=0, src_y=0, src_w=0, src_h=0,
+                  dst=self.root, dst_x=5, dst_y=5)
+        self.assertEqual(self.moves(), [(5, 5)])
+
+    def test_an_unknown_pointer_skips_the_warp(self):
+        """Nothing knows where the pointer is, so the "is it in src" question
+        has no answer: X's own check fails closed, and one line says so.
+        Reading sway's cursor is not yet here (its IPC has none); the route is
+        the compositor's own query where it has one, AGENTS.md rung 2."""
+        self.assertIsNone(self.rig.server.pointer_model)
+        self.warp(src=self.root, src_x=0, src_y=0, src_w=200, src_h=200,
+                  dst=self.root, dst_x=5, dst_y=5)
+        self.assertEqual(self.moves(), [])
+        self.assertNotIn(wire.OP_WARP_POINTER, self.rig.upstream.ops)
+
+
+class WarpNoRoutePasses(WarpCase):
+    """No daemon at all: the frame goes to Xwayland (design section 6.7)."""
+
+    num, upstream_num = 790, 791
+    refuse_daemon = True
+
+    def test_the_frame_reaches_the_server_untouched(self):
+        """Refusing instead would take away the half that works: Xwayland's own
+        warp moves Xwayland's pointer, which is what `xdotool mousemove` does
+        on this display today."""
+        self.warp(dst=self.root, dst_x=1, dst_y=2)
+        self.assertIn(wire.OP_WARP_POINTER, self.rig.upstream.ops)
+        self.assertEqual(self.daemon.ops, [])
+        said = self.log.carrying("the input daemon has no route")
+        self.assertEqual(len(said), 1, self.log.lines)
+        self.assertIn("not yet", said[0])
+        self.assertIn("rung 4", said[0])
+
+
+def warp_frames():
+    """`tests/fixtures/xw11/warp-3x.hex`, the apt 3.x `mousemove 100 200
+    click 1` connection, byte for byte."""
+    out = []
+    path = os.path.join(ROOT, "tests", "fixtures", "xw11", "warp-3x.hex")
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                out.append(bytes.fromhex(line.split("#")[0].strip()))
+    return out
+
 
 
 if __name__ == "__main__":

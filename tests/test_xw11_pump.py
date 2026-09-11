@@ -27,6 +27,11 @@ import threading
 import time
 import unittest
 
+# The suite never hands a tool over to the real X11 one: see tests/conftest.py
+# and tests/test_passthrough.py; this line covers `python3 tests/<file>.py`, and
+# it is set BEFORE the imports because a tool module reads it at import time.
+os.environ["W11_PASSTHROUGH"] = "never"
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 # `import support` resolves only with the tests directory itself on sys.path.
@@ -38,9 +43,6 @@ from wdotool import backend_detect                                  # noqa: E402
 from wxprop.core import _events_hook                                # noqa: E402
 from xw11 import pump as pump_mod                                   # noqa: E402
 
-# The suite never hands a tool over to the real X11 one: see tests/conftest.py
-# and tests/test_passthrough.py; this line covers `python3 tests/<file>.py`.
-os.environ["W11_PASSTHROUGH"] = "never"
 
 
 class RecordingLock:
@@ -123,13 +125,19 @@ class Coalesce(unittest.TestCase):
 
     def test_three_tokens_cost_one_list_and_not_three(self):
         """`new`, `title` and `focus` for one `exec foot` arrive together
-        [recon/seams.md 2.3]; one re-list answers all three.
+        [recon/seams.md 2.3, +17.5 ms on this box 2026-09-10]; ONE re-list
+        answers all three.
 
         The TTL is pushed out to ten seconds first, so the clock cannot explain
         a `list()` and every one of them is somebody's decision to re-list. With
         the shipped 20 ms a re-list per token would hide behind the next expiry,
         which is exactly how the first version of this test survived a
-        `for _t in tokens: self.shadows.refresh()` mutation in `drain_pump`."""
+        `for _t in tokens: self.shadows.refresh()` mutation in `drain_pump`.
+
+        Batch 5 moved the re-list itself INTO the drain (design section 5.2:
+        the wake drains the deque, takes one snapshot and hands the diff to
+        `xw11/events.py`), so what this pins is the count and no longer the
+        laziness: three tokens, one `list()`."""
         backend = FakeBackend(windows=[fake_window(1, "foot")])
         rig = self.rig(backend)
         client = rig.conn()
@@ -142,15 +150,26 @@ class Coalesce(unittest.TestCase):
         pump = rig.server.ensure_pump()
         self.assertIsNotNone(pump)
         listed = backend.counts["list"]
-        for token in ((1, "new"), (1, "title"), (1, "focus")):
-            pump.put(token)
-        rig.wait(shadows.stale, what="the invalidation")
+        for _i in range(20):
+            for token in ((1, "new"), (1, "title"), (1, "focus")):
+                pump.put(token)
+        rig.wait(lambda: backend.counts["list"] > listed, what="the re-list")
         rig.wait(lambda: pump.drain() == [], what="the deque emptied")
-        # The loop invalidated and listed nothing: the next READ is what pays,
-        # once, for all three tokens.
-        self.assertEqual(backend.counts["list"], listed)
+        # One re-list per WAKE, never one per token. The loop can wake more
+        # than once during a burst -- the pump writes a byte per token and the
+        # selector is free to return between two of them -- so what is pinned
+        # is the ratio: 60 tokens, single figures of `list()`. A `for token in
+        # tokens: refresh()` inside `drain_pump` makes this 60.
+        # `test_one_drain_is_one_relist` in tests/test_xw11_events.py pins the
+        # exact 1 on the deterministic seam.
+        self.assertLessEqual(backend.counts["list"] - listed, 8)
+        self.assertGreaterEqual(backend.counts["list"] - listed, 1)
+        # And the reader after the last drain pays nothing: its snapshot is
+        # fresh, because the drain took it.
+        self.assertFalse(shadows.stale())
+        after = backend.counts["list"]
         shadows.snapshot()
-        self.assertEqual(backend.counts["list"] - listed, 1)
+        self.assertEqual(backend.counts["list"], after)
 
 
 class DequeShape(PumpCase):
@@ -333,11 +352,54 @@ class CinnamonLocked(PumpCase):
             self.assertEqual(len(self.bytes_ready(1)), 1)
 
 
+class StopWhileReading(PumpCase):
+    """What `stop()` says when the generator is where it always is.
+
+    A generator parked in `next()` cannot be closed from another thread --
+    CPython answers `ValueError: generator already executing` -- and every
+    `events()` in this tree blocks on a socket or a bus [recon/seams.md 0.3].
+    That is the normal path, taken once per client disconnect that drops the
+    last mask, so it belongs in the debug log and not in the one a user reads.
+    """
+
+    def test_the_expected_close_failure_is_a_debug_line_and_not_a_log_line(self):
+        debug = []
+        backend = FakeBackendEvents()
+        got = self.pump(backend, debug=debug.append)
+        got.start()
+        backend.feed((11, "title"))
+        self.wait(lambda: self.bytes_ready(1, timeout=1.0), what="a token")
+        got.stop(timeout=0)
+        self.assertEqual(self.lines, [], "nothing at say level: %r" % self.lines)
+        self.assertEqual(len(debug), 1, "one debug line: %r" % debug)
+        self.assertIn("the next event", debug[0])
+
+    def test_a_generator_nobody_is_inside_closes_with_no_line_at_all(self):
+        """The other half, so the test above is pinning the ValueError branch
+        and not "stop() is quiet": a stream that already returned closes
+        cleanly and says nothing anywhere."""
+        debug = []
+        backend = FakeBackendEvents()
+        got = self.pump(backend, debug=debug.append)
+        got.start()
+        backend.feed(None)                      # the generator returns
+        self.wait(lambda: got.restarts or got._gen is None
+                  or self.lines, what="the stream ending")
+        got.stop(timeout=2.0)
+        # The restart line belongs to `_run` and is a stream that ended; what
+        # must not be here is the close path saying anything at either level.
+        self.assertEqual(debug, [])
+        self.assertEqual([ln for ln in self.lines if "clos" in ln
+                          or "inside the compositor" in ln], [])
+
+
 class Wiring(unittest.TestCase):
     def test_the_server_drains_the_deque_into_one_invalidation(self):
         """What the loop does with the byte: the pump's tokens are drained in
-        one go and the registry is told once that it is out of date -- TOLD,
-        not re-listed."""
+        one go and the registry re-reads the compositor ONCE for the lot
+        (design section 5.2). Batch 2 pinned the invalidation alone here,
+        because nothing yet consumed the diff; batch 5's `Server.on_changes`
+        is what consumes it, so the count of `list()` calls is the claim."""
         backend = FakeBackend(windows=[fake_window(1)])
         rig = support.ProxyRig(num=56, upstream_num=57, passthrough=False,
                                backend=backend)
@@ -353,12 +415,116 @@ class Wiring(unittest.TestCase):
         self.assertIsNotNone(pump)
         for token in ((1, "new"), (1, "title")):
             pump.put(token)
-        rig.wait(lambda: shadows.stale(), what="the invalidation")
+        rig.wait(lambda: backend.counts["list"] > listed, what="the re-list")
         rig.wait(lambda: pump.drain() == [], what="the deque emptied")
-        # Told once, and not re-listed: the re-list is the next reader's, which
-        # is what makes a burst on an idle proxy cost the compositor nothing.
-        self.assertEqual(backend.counts["list"], listed)
+        # At most one per wake, and the snapshot the diff came out of is the
+        # one the next reader gets.
+        self.assertLessEqual(backend.counts["list"] - listed, 2)
+        self.assertFalse(shadows.stale())
         client.close()
+
+
+class Armed(unittest.TestCase):
+    """The pump's lifetime: the first non-zero mask on the root or a shadow
+    starts it and the last one to go stops it (design section 5.2's decision
+    A).
+
+    What it buys is measured on the other side: sway's `events()` opens a
+    SECOND IPC socket and subscribes inside the generator, KWin's loads a JS
+    script that stays loaded for the whole iteration [recon/seams.md 2.3]. A
+    proxy that ran one for a client which only ever reads would pay that for
+    nothing, and the 20 ms registry TTL is what keeps reads fresh instead.
+    """
+
+    def rig(self, backend, **kw):
+        kw.setdefault("num", 66)
+        kw.setdefault("upstream_num", 67)
+        got = support.ProxyRig(passthrough=False, backend=backend, **kw)
+        self.addCleanup(got.stop)
+        return got
+
+    def armed(self, rig):
+        return rig.server.events_pump is not None \
+            and rig.server.events_pump.started
+
+    def client(self, rig):
+        conn = rig.conn()
+        self.addCleanup(conn.close)
+        rig.wait_own()
+        return conn
+
+    def sync(self, conn):
+        return conn._wait_reply(conn._send(43, 0))      # GetInputFocus
+
+    def shadow(self, rig):
+        rig.server.shadows.refresh()
+        got = [e for e in rig.server.shadows.snapshot() if e.shadow]
+        self.assertTrue(got, "no shadow to select on")
+        return got[0].shadow
+
+    def test_no_event_stream_runs_until_a_client_selects_one(self):
+        backend = FakeBackend(windows=[fake_window(1, "foot")])
+        rig = self.rig(backend, num=68, upstream_num=69)
+        conn = self.client(rig)
+        self.sync(conn)
+        self.assertFalse(self.armed(rig))
+        self.assertEqual(backend.counts["events"], 0)
+        conn.select_input(self.shadow(rig), 0x420000)
+        self.sync(conn)
+        rig.wait(lambda: self.armed(rig), what="the pump")
+        rig.wait(lambda: backend.counts["events"] == 1,
+                 what="the compositor's stream")
+
+    def test_a_zero_mask_does_not_arm_it(self):
+        """`ChangeWindowAttributes` with `CWEventMask = 0` is how a client
+        stops watching; it must not be what starts the stream."""
+        backend = FakeBackend(windows=[fake_window(1, "foot")])
+        rig = self.rig(backend, num=70, upstream_num=71)
+        conn = self.client(rig)
+        conn.select_input(self.shadow(rig), 0)
+        self.sync(conn)
+        time.sleep(0.2)
+        self.assertFalse(self.armed(rig))
+        self.assertEqual(backend.counts["events"], 0)
+
+    def test_the_last_mask_to_go_stops_it(self):
+        backend = FakeBackend(windows=[fake_window(1, "foot")])
+        rig = self.rig(backend, num=72, upstream_num=73)
+        conn = self.client(rig)
+        shadow = self.shadow(rig)
+        conn.select_input(shadow, 0x420000)
+        self.sync(conn)
+        rig.wait(lambda: self.armed(rig), what="the pump")
+        conn.select_input(shadow, 0)
+        self.sync(conn)
+        rig.wait(lambda: rig.server.events_pump is None,
+                 what="the pump stopping")
+        # And the compositor is not read again for a change nobody wants: a
+        # token now reaches a deque nobody drains.
+        listed = backend.counts["list"]
+        backend.feed((1, "title"))
+        time.sleep(0.2)
+        self.assertEqual(backend.counts["list"], listed)
+
+    def test_a_backend_with_no_events_is_polled_only_while_armed(self):
+        """wlr and COSMIC reach `WindowBackend.NOT_YET_EVENTS`
+        [recon/seams.md 2.3] and are polled instead -- and the poll is inside
+        the pump's thread, so an unarmed proxy makes no call at all."""
+        backend = FakeBackend(windows=[fake_window(1, "foot")],
+                              has_events=False)
+        rig = self.rig(backend, num=74, upstream_num=75)
+        conn = self.client(rig)
+        self.sync(conn)
+        self.assertIsNone(_events_hook(backend))
+        idle = backend.counts["list"]
+        time.sleep(0.3)
+        self.assertEqual(backend.counts["list"], idle)
+        conn.select_input(self.shadow(rig), 0x420000)
+        self.sync(conn)
+        rig.wait(lambda: self.armed(rig), what="the pump")
+        rig.server.events_pump.poll = 0.02
+        rig.wait(lambda: backend.counts["list"] > idle + 1,
+                 what="the poll")
 
 
 if __name__ == "__main__":

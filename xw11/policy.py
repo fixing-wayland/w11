@@ -80,12 +80,14 @@ POLICY = {
     25: Row(BATCH, BATCH, BATCH),   # SendEvent -- section 3.4, and see below
     36: Row(BATCH, BATCH, BATCH),   # GrabServer -- opens a RandR batch (7.4)
     37: Row(BATCH, BATCH, BATCH),   # UngrabServer -- commits it
-    38: PASS_ROW,    # QueryPointer
+    38: Row(shadow=ANSWER, root=EDIT, other=EDIT),  # QueryPointer (6.6)
     40: Row(ANSWER, ANSWER, ANSWER),  # TranslateCoordinates (section 4.5)
-    41: PASS_ROW,    # WarpPointer
+    41: Row(BATCH, BATCH, BATCH),   # WarpPointer -- section 6.6, and see below
     42: Row(shadow=CONSUME),        # SetInputFocus -> backend.focus
     43: Row(EDIT, EDIT, EDIT),      # GetInputFocus -- it names no window
     98: PASS_ROW,    # QueryExtension -- watched, and DRI3's reply edited
+    100: Row(EDIT, EDIT, EDIT),     # ChangeKeyboardMapping -- seen, then passed
+    101: Row(EDIT, EDIT, EDIT),     # GetKeyboardMapping -- the reply feeds the table
     113: Row(shadow=CONSUME),       # KillClient -> backend.kill
     127: PASS_ROW,   # NoOperation
 }
@@ -130,6 +132,35 @@ POLICY = {
 #: returns None forwards the frame untouched, and neither request has a reply
 #: for an editor to be registered against.
 
+#: `XTEST.FakeInput` and `WarpPointer` are BATCH for the reason `SendEvent`
+#: is: the class has to be able to answer "consumed" AND "forwarded" per
+#: request. With no route to the input daemon -- no /dev/uinput, no
+#: virtual-keyboard protocol, a socket owned by another uid
+#: [recon/seams.md 5.1] -- both go to Xwayland untouched, whose XTEST types
+#: byte-perfectly into an X window and does nothing at all into a native one
+#: [recon/env.md 2.3, 2.7]; a CONSUME row could not forward and would have
+#: taken the working half away (design section 6.7). The handler answers
+#: `FORWARD` for that case and None for the routed one.
+#:
+#: `ChangeKeyboardMapping` and `GetKeyboardMapping` are EDIT for the reason
+#: `ChangeWindowAttributes` on the root is: both are PASS in design section 3.2
+#: and both have to be SEEN. The first plants a keysym into a spare keycode one
+#: request before the `FakeInput` that fires it [recon/tools.md 4.6], so the
+#: table is fed from the frame BEFORE it is forwarded; the second's reply is
+#: the cheapest feed there is, because xdotool sends one before every keystroke
+#: of a `type` [recon/tools.md 4.5]. An EDIT handler that returns None forwards
+#: the frame untouched.
+#:
+#: XKEYBOARD and XINERAMA are listed and PASS. Both would pass by construction
+#: -- a request in neither table is PASS -- and they are written down because
+#: design section 6.5 decided them: xdotool brackets every fake key with
+#: `XkbGetState`/`XkbLatchLockState` [recon/tools.md 4.5] and those latches land
+#: on Xwayland's XKB state, which the compositor never sees; the practical
+#: effect is none, because xdotool sends them to CLEAR latches and the daemon
+#: holds none. `getdisplaygeometry` is Xinerama only and never touches RandR
+#: [recon/tools.md 4.2], and Xwayland's Xinerama is already the compositor's
+#: output list.
+
 #: The RandR writes design section 7.3 owns. Every one of them is BATCH in all
 #: three places: none of them names a window the registry could have minted, so
 #: the row's three fields can never disagree.
@@ -140,8 +171,18 @@ BATCH_ROW = Row(BATCH, BATCH, BATCH)
 EXT_POLICY = {
     ("XTEST", 0): PASS_ROW,          # GetVersion
     ("XTEST", 1): PASS_ROW,          # CompareCursor
-    ("XTEST", 2): PASS_ROW,          # FakeInput
-    ("XTEST", 3): PASS_ROW,          # GrabControl
+    ("XTEST", 2): BATCH_ROW,         # FakeInput -- section 6, and see below
+    ("XTEST", 3): Row(CONSUME, CONSUME, CONSUME),   # GrabControl -- recorded, ignored
+    ("XKEYBOARD", 0): PASS_ROW,      # UseExtension
+    ("XKEYBOARD", 1): PASS_ROW,      # SelectEvents
+    ("XKEYBOARD", 4): PASS_ROW,      # GetState -- around every keystroke (6.5)
+    ("XKEYBOARD", 5): PASS_ROW,      # LatchLockState -- likewise
+    ("XKEYBOARD", 8): PASS_ROW,      # GetMap
+    ("XKEYBOARD", 17): PASS_ROW,     # GetNames
+    ("XINERAMA", 0): PASS_ROW,       # QueryVersion
+    ("XINERAMA", 1): PASS_ROW,       # GetState
+    ("XINERAMA", 4): PASS_ROW,       # IsActive -- getdisplaygeometry (4.2)
+    ("XINERAMA", 5): PASS_ROW,       # QueryScreens -- and nothing else
     ("BIG-REQUESTS", 0): PASS_ROW,   # Enable -- always PASS, and always watched
     ("RANDR", 0): PASS_ROW,          # QueryVersion
     ("RANDR", 2): BATCH_ROW,         # SetScreenConfig -- a batch of one (7.6)

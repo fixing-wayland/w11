@@ -37,6 +37,7 @@ import struct
 from wdotool import backend as backend_mod
 from xw11 import policy, wire
 from xw11 import shadow as shadow_mod
+from xw11 import xtest as xtest_mod
 
 #: `GetWindowAttributes`' fixed fields that are neither the visual nor the
 #: colormap nor `map_state` (design section 4.5). `backing_planes` is all-ones:
@@ -57,6 +58,10 @@ _BACKING_PLANES = 0xFFFFFFFF
 #: clone and the proxy agree about the same window.
 MAP_UNMAPPED = 0
 MAP_VIEWABLE = 2
+
+#: `Request.target` for an id the registry minted, the name `xw11/client.py`
+#: gives it and `xw11/policy.py` keys a row on.
+SHADOW = "shadow"
 
 
 def _root_of(conn) -> int:
@@ -447,6 +452,144 @@ def list_properties(server, conn, req):
     return edit
 
 
+
+# -- QueryPointer (design section 6.6) ----------------------------------------
+
+
+def query_pointer(server, conn, req):
+    """Where the pointer is, from the first source that knows.
+
+    `getmouselocation` is one `QueryPointer(root)` and `xdotool mousemove`
+    sends two before it moves anything [recon/tools.md 4.2, 4.5], on both
+    generations of the tool -- so this one handler is what makes the read half
+    of the pointer work whether the write half was a `WarpPointer` or a
+    `FakeInput MotionNotify` [recon/wire.md 5.3].
+
+    On the ROOT and on a real X window it is **EDIT**: the request goes
+    upstream, so `mask` and an X-window `child` are Xwayland's own -- its XKB
+    modifier state is fed by the compositor's seat -- and the reply's
+    `root_x/root_y` are overwritten from `backend.pointer()`, else from the
+    last position this proxy routed, else left exactly as upstream answered
+    (real xdotool reads `x:640 y:360` off Xwayland on the headless rig today
+    [recon/env.md 2.2]). `child` becomes the shadow under that point when the
+    hit test names a native toplevel, and `win_x/win_y` move by the same delta
+    as `root_x/root_y`, which is right for any window whose origin did not move
+    under us and needs no second request to know.
+
+    On a SHADOW it is **ANSWER**: forwarding a shadow id would draw
+    `BadWindow` from a server that never minted it (design section 3.2), so the
+    reply is built here with the same three sources -- the third one asked for
+    off the proxy's own connection, since this path has no forwarded reply to
+    read it from -- `same_screen = 1`, `child = 0` and a `mask` of what this
+    proxy is holding.
+
+    `child` is 0 and never a shadow. X's `child` is the child of the window
+    ASKED ABOUT that contains the pointer, and a shadow has no children at all:
+    `QueryTree` on one answers none (design section 4.1). A sibling toplevel
+    under the pointer is not a child of this one, and naming it would describe
+    a tree that does not exist.
+    """
+    where = xtest_mod.pointer_for(server, conn)
+    if req.target != SHADOW:
+        return _pointer_edit(server, conn, where)
+    entry = _entry(server, req.xid)
+    if entry is None:
+        return None
+    root = _root_of(conn)
+    if where is None:
+        where = _upstream_pointer(server)
+    if where is None:
+        # Not one of the three knows, and a shadow cannot be forwarded: the
+        # answer is the window's own origin with the pointer at it, said once.
+        # NOT YET: the route is the compositor's own cursor query (AGENTS.md
+        # rung 1/2; GNOME and Wayfire have one, sway does not
+        # [recon/seams.md 2.3]).
+        server.say_once("shadow-pointer",
+                        "QueryPointer on a shadow with no pointer source at "
+                        "all -- not the compositor, not this proxy, not the "
+                        "upstream: answered at the window's origin. Reading "
+                        "sway's cursor is not yet done -- its IPC carries none "
+                        "-- and the route is the compositor's own query where "
+                        "it has one (AGENTS.md rung 2), or the daemon's model "
+                        "once it has injected a motion")
+        x, y = int(entry.window.x), int(entry.window.y)
+    else:
+        x, y = where
+    win_x = x - int(entry.window.x)
+    win_y = y - int(entry.window.y)
+    return wire.reply(req.seq, 1,
+                      struct.pack("<IIhhhhH6x", root, 0,
+                                  _clamp16(x), _clamp16(y),
+                                  _clamp16(win_x), _clamp16(win_y),
+                                  server.xtest.modifier_mask()))
+
+
+def _upstream_pointer(server):
+    """Design section 6.6's third source, on the one path that cannot forward:
+    `QueryPointer(root)` off the proxy's own connection, `(root_x, root_y)` at
+    offsets 16 and 18 [recon/wire.md 4.1].
+
+    Synchronous, on the loop thread, the same shape and the same round trip of
+    ~70 us as `req_write.real_geometry` and `OwnConn.atom_name()`
+    [xw11/upstream.py:396, recon/env.md 5.3]. It is paid only for a
+    `QueryPointer` aimed AT A SHADOW with no other source: `getmouselocation`
+    asks the root [recon/tools.md 4.2], which is the EDIT path and costs
+    nothing extra. `mask` is deliberately not taken from this reply: nothing
+    measured whether Xwayland's XKB state still follows the seat while a native
+    toplevel holds the focus, and an unmeasured modifier is worse than none.
+
+    Nor is the position seeded into the input daemon, which the first two
+    sources are (design section 6.6): Xwayland's pointer is not the seat's.
+    Measured 2026-09-11 -- a raw `WarpPointer` to (321, 123) straight at
+    Xwayland moved its own `QueryPointer` there and the compositor's cursor not
+    at all -- so seeding the daemon with this number would tell it the seat is
+    somewhere it has never been, and the next relative move would start from a
+    fiction.
+    """
+    own = server.own
+    if own is None or not own.open:
+        return None
+    root = getattr(own, "root", 0)
+    box = {}
+
+    def took(pkt):
+        box["p"] = struct.unpack_from("<hh", pkt, 16) if pkt[0] == 1 else None
+    try:
+        own.send(wire.OP_QUERY_POINTER, 0, struct.pack("<I", root),
+                 on_reply=took)
+        own._drain_until(lambda: "p" in box)
+    except Exception as e:                        # UpstreamGone, and no more
+        server.say("QueryPointer: asking the upstream where the pointer is "
+                   "failed (%s)" % (e,))
+        return None
+    return box.get("p")
+
+
+def _pointer_edit(server, conn, where):
+    """The editor for a `QueryPointer` that went upstream.
+
+    Registered even when no proxy-side source knows where the pointer is,
+    because `child` still has to be answered: the third source of design
+    section 6.6 is upstream's own reply, and the shadow under THAT position is
+    what `getmouselocation` has to print. Without this, `window:` on the
+    headless rig named an X window (or 0) with a `foot` sitting under Xwayland's
+    own (640, 360) [recon/env.md 2.2] until something moved the pointer.
+    """
+    def edit(pkt):
+        if len(pkt) < 32 or pkt[0] != 1:
+            return pkt
+        old_x, old_y, win_x, win_y = struct.unpack_from("<hhhh", pkt, 16)
+        x, y = (old_x, old_y) if where is None else where
+        child = xtest_mod.child_under(server, x, y)
+        if not child:
+            (child,) = struct.unpack_from("<I", pkt, 12)
+        return (pkt[:12] + struct.pack("<Ihhhh", child, _clamp16(x), _clamp16(y),
+                                       _clamp16(win_x + x - old_x),
+                                       _clamp16(win_y + y - old_y))
+                + pkt[24:])
+    return edit
+
+
 # -- GetInputFocus ------------------------------------------------------------
 
 
@@ -490,6 +633,7 @@ HANDLERS = {
     wire.OP_GET_PROPERTY: get_property,
     wire.OP_LIST_PROPERTIES: list_properties,
     wire.OP_GET_INPUT_FOCUS: get_input_focus,
+    wire.OP_QUERY_POINTER: query_pointer,
 }
 
 

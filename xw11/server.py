@@ -57,9 +57,11 @@ from xw11 import policy, wire
 from xw11 import pump as pump_mod
 from xw11 import randr as randr_mod
 from xw11 import req_read
+from xw11 import events as events_mod
 from xw11 import req_write
 from xw11 import shadow as shadow_mod
 from xw11 import upstream as upstream_mod
+from xw11 import xtest as xtest_mod
 
 HIGH_WATER = 4 << 20
 LOW_WATER = 1 << 20
@@ -82,12 +84,21 @@ CONNECT_RETRY_SLEEP = upstream_mod.CONNECT_RETRY_SLEEP
 
 #: The settle poll of design section 5.2: a CONSUMEd write to a shadow arms a
 #: re-list at +50 ms and +250 ms. sway emits a `move` token for a workspace move
-#: and NOTHING for a floating `move position` [recon/seams.md 2.4], so the
-#: `ConfigureNotify` after `xdotool windowmove` comes from the diff of two
-#: listings; the first number is one `list()` (0.08 ms on sway
-#: [recon/seams.md 2.3]) after the compositor should have answered and the
-#: second is the backstop. Batch 5 measures sway's real latency for a floating
-#: move against the two (R5) and pins them.
+#: and NOTHING AT ALL for a floating `move position` [recon/seams.md 2.4,
+#: confirmed on this box 2026-09-10: a subscribed `events()` produced zero
+#: tokens for ten floating moves], so the `ConfigureNotify` after
+#: `xdotool windowmove` comes from the diff of two listings.
+#:
+#: R5, measured 2026-09-10 on headless sway 1.11 on this box (ten runs,
+#: `swaymsg '[title=WXL-Foot] move position X Y'` then `get_tree` polled every
+#: 5 ms): the new rect was in the tree on the FIRST poll of every run --
+#: 0.9 to 3.6 ms after the IPC call returned, 1.6 to 6.1 ms end to end. So the
+#: first poll at 50 ms is already 14x the measured worst case and the second at
+#: 250 ms is a backstop for a compositor that answers an order of magnitude
+#: slower (KWin loads a JS engine per operation [recon/seams.md 2.3], where
+#: nothing is measured yet -- R9). Both numbers stand as design section 5.2
+#: chose them; the measurement is what says the SECOND one is past the maximum,
+#: which is what the poll pair is for.
 SETTLE_DELAYS = (0.050, 0.250)
 
 #: Extensions whose `present` byte is answered 0 on the way down.
@@ -224,10 +235,31 @@ class Server:
         #: patched short by the tests, so what they assert is the ARMING and
         #: not the wall clock
         self.settle_delays = SETTLE_DELAYS
+        #: design section 5.6's second pointer source: the last position the
+        #: proxy itself ROUTED -- every XTEST `FakeInput` motion and every
+        #: `WarpPointer` it sent to the daemon (batch 6 writes it). None until
+        #: something has been routed, and `backend.pointer()` is tried first:
+        #: only GNOME (Meta's own pointer) and Wayfire (`stipc/get-cursor`)
+        #: answer that, and sway's IPC carries no cursor at all
+        #: [recon/seams.md 2.3].
+        self.pointer_model = None
+        self.pointer_poll = events_mod.POINTER_POLL
+        #: `(shadow, x, y)` of the last sample, or None while nothing selects
+        #: crossing events. Cleared when the last such mask goes, so a client
+        #: that comes back gets an `EnterNotify` rather than silence.
+        self._pointer_state = None
+        self._pointer_due = 0.0
+        self._said = set()
         req_read.install(self)
         req_write.install(self)
         ewmh_mod.install(self)
         randr_mod.install(self)
+        #: the XTEST engine: the keycode table, the daemon route and the held
+        #: keys (design section 6). It is built here and dials nothing: the
+        #: connection to the input daemon is opened at the FIRST `FakeInput`
+        #: and dropped `DAEMON_LINGER` seconds after the last one, so a proxy
+        #: nobody types through keeps no daemon alive.
+        xtest_mod.install(self)
         if watch_wayland:
             hit = session.find_wayland_socket()
             self.wayland_socket = hit[2] if hit else None
@@ -259,6 +291,15 @@ class Server:
     def debug_say(self, text: str) -> None:
         if self.debug:
             self.say(text)
+
+    def say_once(self, key: str, text: str) -> None:
+        """One line per reason for the life of the proxy. A pointer sampler
+        that has no source runs twenty times a second (design section 5.6) and
+        a log that said so every time would be the only thing in it."""
+        if key in self._said:
+            return
+        self._said.add(key)
+        self.say(text)
 
     def log_request(self, conn, opcode, byte1, nbytes) -> None:
         """One line per request under `XW11_DEBUG=1`: the opcode's name, the
@@ -358,10 +399,50 @@ class Server:
             self.shadows = shadow_mod.Shadows(self.own, self.backend,
                                               log=self.say, block=self.block,
                                               on_backend=self.adopt_backend)
+            # design section 5.3's last row: a client's own `ChangeProperty` or
+            # `DeleteProperty` on a shadow publishes its `PropertyNotify` AT
+            # ONCE, the way the server does -- not at the next re-list, which
+            # would never come, because nothing about the compositor changed.
+            # An instance attribute shadows the no-op method
+            # (`Shadows.on_property`), which is how `OwnConn.on_event` is wired
+            # above and which is why nothing in xw11/shadow.py changes here.
+            self.shadows.on_property = self.property_written
+            self.watch_registry()
         else:
             self.shadows.own = self.own
             self.shadows.rebase()
         return self.shadows
+
+    def watch_registry(self) -> None:
+        """Every re-list's diff becomes events, wherever the re-list came from.
+
+        `Shadows.refresh()` is called from three places -- the pump's drain
+        (design section 5.2), the settle poll, and `snapshot()` whenever a READ
+        finds the 20 ms TTL expired (design section 4.8) -- and the diff is its
+        RETURN VALUE, so whoever re-lists first consumes it. Measured on the
+        rig 2026-09-11: with the emission wired to the drain alone,
+        `xprop -spy -root _NET_ACTIVE_WINDOW` missed a `swaymsg focus`
+        whenever any read landed in the 20 ms between sway's event and the
+        drain -- and a client that is spying is a client that re-reads, so this
+        is the common case and not the corner.
+
+        Wrapping the bound method rather than editing `xw11/shadow.py`: the
+        registry has one hook of this shape already (`on_property`, an instance
+        attribute that shadows a no-op method), and turning this into the same
+        thing is one line in a file this batch does not own -- filed as a
+        request. Every caller is the LOOP thread (the pump's own thread reads
+        the backend directly and never the registry), so the delivery this
+        starts writes to the out-buffers from the thread that owns them.
+        """
+        inner = self.shadows.refresh
+
+        def refresh():
+            changes = inner()
+            if changes:
+                self.on_changes(changes)
+            return changes
+
+        self.shadows.refresh = refresh
 
     def adopt_backend(self, backend) -> None:
         """A re-detect replaced the backend: one for the whole proxy, so the
@@ -401,6 +482,14 @@ class Server:
         registry's idea of who is an Xwayland window may be out of date, so the
         cheapest correct thing is to drop the cache: the next read re-lists and
         the diff decides (design section 2.4 step 1)."""
+        if (pkt[0] & 0x7F) == xtest_mod.EV_MAPPING_NOTIFY \
+                and len(pkt) > 4 and pkt[4] == xtest_mod.MAPPING_KEYBOARD:
+            # A client that is NOT going through this proxy rewrote the
+            # keyboard map (design section 6.2 feed three). The re-read is one
+            # asynchronous request on this same connection; a client's own
+            # `ChangeKeyboardMapping` never gets here, because that one is
+            # applied before its frame is forwarded.
+            self.xtest.reread_keymap()
         if self.shadows is not None:
             self.shadows.invalidate()
 
@@ -413,21 +502,156 @@ class Server:
         if self._wake_w is None:
             return None
         self.events_pump = pump_mod.Pump(self.backend, self._wake_w,
-                                         log=self.say, block=self.block,
+                                         log=self.say, debug=self.debug_say,
+                                         block=self.block,
                                          on_backend=self.adopt_backend)
         return self.events_pump
 
     def drain_pump(self) -> int:
-        """Every token since the last wake, in one go, and ONE invalidation for
-        the lot: a `new`, a `title` and a `focus` for the same `exec foot`
-        arrived within 75 ms of each other on sway [recon/seams.md 2.3], and one
-        re-list answers all three (design section 5.2)."""
+        """Every token since the last wake, in one go, and ONE re-list for the
+        lot: a `new`, a `title` and a `focus` for the same `exec foot` arrived
+        within 75 ms of each other on sway [recon/seams.md 2.3] (+17.5 and
+        +19.2 ms on this box, 2026-09-10, two runs, timed from the foot process
+        starting), and one re-list answers all three (design section 5.2).
+
+        The token is a hint and the DIFF is the truth: what the clients are
+        told is what two snapshots differ by, which is why the tokens are
+        counted and then dropped."""
         if self.events_pump is None:
             return 0
         tokens = self.events_pump.drain()
         if tokens and self.shadows is not None:
             self.shadows.invalidate()
+            # `watch_registry` turns the diff into events; this only says WHEN.
+            self.shadows.refresh()
         return len(tokens)
+
+    def on_changes(self, changes) -> int:
+        """One re-list's diff, as the events X would have sent, to whoever
+        selected them (design section 5.3). The number of packets written."""
+        if not changes:
+            return 0
+        sent = events_mod.emit(self, changes)
+        # A window that died took its masks with it, which can be the last one
+        # anybody held.
+        self.arm_pump()
+        if sent:
+            self.debug_say("%d change(s) -> %d event packet(s)"
+                           % (len(changes), sent))
+        return sent
+
+    def property_written(self, entry, atom, state) -> None:
+        """A client wrote or deleted a property of a shadow: its
+        `PropertyNotify` goes out inside the handler, before the request is
+        consumed, because that is where a real server writes it."""
+        window = entry.id
+        events_mod.deliver(self, [events_mod.Event(
+            window, events_mod.PROPERTY_CHANGE,
+            events_mod.property_notify(window, atom, state),
+            "PropertyNotify atom %d state %d on 0x%x" % (atom, state, window))])
+
+    # -- arming the pump (design section 5.2) ----------------------------------
+
+    def events_wanted(self) -> bool:
+        """Whether any client holds a non-zero mask on the root or a shadow.
+
+        The pump's whole lifetime rule: a proxy nobody watches through costs the
+        compositor no sway subscription and no loaded KWin script, and the 20 ms
+        registry TTL is what keeps the READ side fresh without one
+        (design section 5.2's decision A)."""
+        for conn in self.conns:
+            roots = conn.setup.roots if conn.setup is not None else ()
+            for xid, mask in conn.masks.items():
+                if mask and (xid in roots or self.is_shadow(xid)):
+                    return True
+        return False
+
+    def arm_pump(self) -> bool:
+        """Start the pump on the first such mask, stop it on the last. True
+        when this call changed which."""
+        want = self.events_wanted()
+        pump = self.events_pump
+        if want and (pump is None or not pump.started):
+            pump = self.ensure_pump()
+            if pump is None:
+                return False
+            pump.start()
+            self.say("a client selected events: the compositor's event stream "
+                     "is running")
+            return True
+        if not want and pump is not None and pump.started:
+            # Without waiting for the thread: this runs on the LOOP, and a
+            # generator parked in a blocking read cannot be closed from another
+            # thread (`Pump.stop`'s own note), so a join here would stall every
+            # other client for its length. The reference goes with it, so the
+            # next arming builds a fresh pump instead of reviving this one.
+            pump.stop(timeout=0.0)
+            self.events_pump = None
+            self.say("the last event mask went: the compositor's event stream "
+                     "is stopped")
+            return True
+        return False
+
+    # -- the pointer sampler (design section 5.6) ------------------------------
+
+    def pointer_wanted(self) -> bool:
+        """Whether any client selected `EnterWindow`, `LeaveWindow` or
+        `PointerMotion` on a shadow. `xdotool behave <w> mouse-enter` sends
+        exactly `EnterWindow` (0x10) and blocks [M recon/tools.md 4.7]."""
+        for conn in self.conns:
+            for xid, mask in conn.masks.items():
+                if mask & events_mod.POINTER_MASK and self.is_shadow(xid):
+                    return True
+        return False
+
+    def pointer_position(self):
+        """The first source that knows, in design section 5.6's order:
+        `backend.pointer()` -- which only GNOME and Wayfire implement
+        [recon/seams.md 2.3] -- and then the proxy's own last routed position,
+        so `behave mouse-enter` fires on an `xdotool mousemove` through this
+        proxy even on sway, whose IPC carries no cursor at all."""
+        if self.backend is not None:
+            try:
+                with self.block:
+                    got = self.backend.pointer()
+            except Exception as e:                      # noqa: BLE001
+                self.say_once("pointer-raise",
+                              "reading the compositor's pointer raised %s: "
+                              "falling back to the proxy's own last routed "
+                              "position" % e)
+                got = None
+            if got:
+                return (int(got[0]), int(got[1]))
+        if self.pointer_model is not None:
+            return (int(self.pointer_model[0]), int(self.pointer_model[1]))
+        return None
+
+    def pointer_timeout(self, tick: float) -> float:
+        """`tick`, or what is left of the 50 ms sample while the sampler is
+        armed."""
+        if not self.pointer_wanted():
+            return tick
+        return max(0.0, min(tick, self._pointer_due - time.monotonic()))
+
+    def run_pointer(self) -> int:
+        """One sample, at most every `pointer_poll` seconds. The packets
+        written."""
+        if not self.pointer_wanted():
+            self._pointer_state = None
+            return 0
+        now = time.monotonic()
+        if now < self._pointer_due:
+            return 0
+        self._pointer_due = now + self.pointer_poll
+        where = self.pointer_position()
+        if where is None:
+            self.say_once("no-pointer", events_mod.NO_POINTER)
+            return 0
+        entries = self.shadows.snapshot() if self.shadows is not None else []
+        evs, state = events_mod.pointer_events(self, entries, where,
+                                               self._pointer_state)
+        self._pointer_state = state
+        return events_mod.deliver(self, evs)
 
     # -- what the policy asks ---------------------------------------------------
 
@@ -486,6 +710,45 @@ class Server:
             return tick
         return max(0.0, min(tick, self.settles[0][0] - time.monotonic()))
 
+    def input_timeout(self, tick: float) -> float:
+        """`tick`, or the sooner of the next deferred XTEST operation and the
+        daemon's linger deadline (design section 6.4).
+
+        `FakeInput`'s `time` is a delay in milliseconds; xdotool always sends 0
+        [recon/tools.md 4.5] and a client that sends one must not make the loop
+        sleep, so the operation is queued with a deadline and this is how the
+        loop learns about it."""
+        for conn in self.conns:
+            if conn.deferred:
+                tick = min(tick, max(0.0, conn.deferred[0][0] - time.monotonic()))
+        due = self.xtest.next_deadline()
+        if due is not None:
+            tick = min(tick, max(0.0, due - time.monotonic()))
+        return tick
+
+    def run_deferred(self) -> int:
+        """Every deferred XTEST operation that is due, IN THE ORDER ITS CLIENT
+        SENT IT: a delay may move an operation later and may never move it past
+        one the same client sent after it, so the queue is a deque per
+        connection and a head that is not due holds the rest back."""
+        n = 0
+        now = time.monotonic()
+        for conn in list(self.conns):
+            while conn.deferred and conn.deferred[0][0] <= now:
+                _due, fn = conn.deferred.popleft()
+                n += 1
+                try:
+                    fn()
+                except Exception as e:              # never lose the queue
+                    self.say("xw11: a deferred input operation raised %r" % (e,))
+        return n
+
+    def loop_timeout(self, tick: float) -> float:
+        """What the loop actually waits: the sooner of the idle cadence, the
+        next settle poll, the next pointer sample and the next deferred input
+        operation."""
+        return self.input_timeout(self.pointer_timeout(self.settle_timeout(tick)))
+
     def run_settles(self) -> int:
         """Every poll that is due, as ONE re-list: a command that sent four
         writes armed eight polls and they all mean the same thing -- read the
@@ -500,7 +763,12 @@ class Server:
         if self.shadows is None:
             return 0
         self.shadows.invalidate()
-        self.shadows.snapshot()
+        # The diff, not just the freshness: `xdotool windowmove` on sway
+        # produces no compositor event at all [recon/seams.md 2.4, measured
+        # again here 2026-09-10 -- ten floating moves, zero tokens], so the
+        # `ConfigureNotify` a window watcher is owed exists only because this
+        # poll compares two listings (design section 5.2).
+        self.shadows.refresh()
         self.debug_say("settle: re-listed for %d armed poll(s), the last of "
                        "them for 0x%x" % (len(due), due[-1][1]))
         return len(due)
@@ -670,6 +938,11 @@ class Server:
     def close_conn(self, conn) -> None:
         if conn not in self.conns:
             return
+        # Every key and button this client is holding is released BEFORE the
+        # connection goes (design section 6.3): a killed `xdotool keydown ctrl`
+        # must not leave the seat with Control down, and the compositor
+        # refcounts presses per seat, so nothing else would ever let go.
+        self.xtest.on_close(conn)
         randr_mod.dropped(self, conn)
         self.conns.remove(conn)
         for sock in (conn.down, conn.up):
@@ -685,6 +958,10 @@ class Server:
             except OSError:
                 pass
         conn.state = client_mod.CLOSED
+        # Masks die with the client -- the dict went with the connection -- and
+        # the one that just went may have been the last anybody held (design
+        # section 5.4).
+        self.arm_pump()
         self.live -= 1
         if self.live <= 0:
             self.live = 0
@@ -929,7 +1206,7 @@ class Server:
         tick = self.check or 1.0
         try:
             while not self.stopping:
-                for key, events in self.sel.select(self.settle_timeout(tick)):
+                for key, events in self.sel.select(self.loop_timeout(tick)):
                     if key.data == "listen":
                         self.accept(key.fileobj)
                         continue
@@ -950,6 +1227,9 @@ class Server:
                         continue
                     self.service(conn, which, events)
                 self.run_settles()
+                self.run_pointer()
+                self.run_deferred()
+                self.xtest.tick()
                 reason = self.exit_reason()
                 if reason:
                     self.stop(reason)
@@ -960,11 +1240,16 @@ class Server:
     def shutdown(self) -> None:
         self.randr.close()
         if self.events_pump is not None:
-            self.events_pump.stop()
+            self.events_pump.stop(timeout=0.0)
             self.events_pump = None
         self.close_own("the proxy is exiting")
         for conn in list(self.conns):
             self.close_conn(conn)
+        # AFTER the clients, never before: `close_conn` releases the keys they
+        # are holding on the daemon (design section 6.3) and dials it again if
+        # the route was dropped, so a drop first both lost the `up`s and left
+        # the connection that sent them open.
+        self.xtest.drop("the proxy is exiting")
         for sock in self.display.sockets():
             try:
                 self.sel.unregister(sock)

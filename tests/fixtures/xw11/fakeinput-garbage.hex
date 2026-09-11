@@ -1,0 +1,24 @@
+# The FakeInput frames whose pads are garbage, byte for byte.
+#
+# libXtst clears none of the 36 bytes it sends, so 6..7, 16..23 and
+# 28..34 carry whatever the previous request left in Xlib's output
+# buffer, and rootX/rootY carry it too on everything but a motion
+# [recon/wire.md 5.2, recon/tools.md 4.5]. A proxy that validated a
+# pad, or read rootX on a key event, would reject real traffic.
+#
+# First two lines: `xdotool key a` press and release
+# (recon/wire/trace2.log, connection 1), which is the frame
+# recon/wire.md 5.2 prints field by field: rootX 0xf708, rootY 0x05f5.
+# Then the seven of `xdotool key ctrl+a`, in order
+# (recon/tools/caps/raw.jsonl MARK 1): KP 37, KP 37, KP 37, KP 38,
+# KR 37, KR 37, KR 38 -- 37 is Control_L and 38 is `a`. Six of them
+# carry rootX 3 rootY 2 and the last carries rootX 256 rootY 0.
+84020900022604000000000000000000070007006500020008f7f5050000000000000000  # trace2.log 68 key a
+84020900032604000000000000000000070007006500020008f7f5050000000000000000  # trace2.log 86 key a
+840209000225000000000000000000007700010087010400030002000000000007000700  # raw.jsonl 71 ctrl+a type=2 detail=37 rootxy=(3,2)
+840209000225000000000000000000007700010087010400030002000000000007000700  # raw.jsonl 74 ctrl+a type=2 detail=37 rootxy=(3,2)
+840209000225000000000000000000007700010087010400030002000000000007000700  # raw.jsonl 83 ctrl+a type=2 detail=37 rootxy=(3,2)
+840209000226000000000000000000007700010087010400030002000000000007000700  # raw.jsonl 86 ctrl+a type=2 detail=38 rootxy=(3,2)
+840209000325000000000000000000007700010087010400030002000000000007000700  # raw.jsonl 97 ctrl+a type=3 detail=37 rootxy=(3,2)
+840209000325000000000000000000007700010087010400030002000000000007000700  # raw.jsonl 100 ctrl+a type=3 detail=37 rootxy=(3,2)
+840209000326040000000000000000000700070087050400000100000100000000000000  # raw.jsonl 107 ctrl+a type=3 detail=38 rootxy=(256,0)
