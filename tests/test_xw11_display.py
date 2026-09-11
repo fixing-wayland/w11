@@ -511,9 +511,10 @@ class _StubServer:
 
     instances = []
 
-    def __init__(self, display, upstream, **_kw):
+    def __init__(self, display, upstream, **kw):
         self.display = display
         self.upstream = upstream
+        self.kw = dict(kw)
         self.said = []
         _StubServer.instances.append(self)
 
@@ -538,6 +539,12 @@ class ServeStartup(RuntimeDirCase):
         self._real_server = cli_mod.Server
         cli_mod.Server = _StubServer
         self.addCleanup(self._restore_server)
+        # A listener at the upstream `:7`. Since batch 8 the proxy refuses to
+        # start in front of a display nothing answers when no Xwayland is
+        # running either (design section 8.2: it never starts an X server), and
+        # on this box neither is true -- so the upstream these tests name has to
+        # exist for them to be about the display file at all.
+        self.hold(os.path.join(self.dir, "X7"))
         self._senv = support.env(DISPLAY=None, XAUTHORITY=None, XW11_DISPLAY=None)
         self._senv.__enter__()
         self.addCleanup(self._senv.__exit__, None, None, None)
@@ -560,6 +567,33 @@ class ServeStartup(RuntimeDirCase):
         with open(path, encoding="utf-8") as f:
             self.assertEqual(f.read(),
                              "%s %d :7\n" % (stub.display.name, os.getpid()))
+
+    def test_the_file_is_written_after_the_bind_and_reads_back_verified(self):
+        """Order, not content: the display file is what every wrapper dials
+        (`xw11/wrap.py:ensure_proxy`), and a file written before the sockets
+        were bound would send the first `xdotool` of the session to a display
+        nothing answers -- which `read_display()` reports as "no proxy", so the
+        wrapper would spawn a second one on top of the first.
+
+        `read_display()` is the assertion and not `read_display_file()`: it
+        dials the abstract name the file gives and refuses anything that is not
+        the pid the file claims, running as us.  Here that pid is this test
+        process, which is also what bound the socket."""
+        rc, stub = self.run_serve("--upstream", ":7", "--foreground")
+        self.assertEqual(rc, 0)
+        self.assertEqual(display_mod.read_display(), stub.display.name)
+
+    def test_passthrough_reaches_the_server_and_is_off_by_default(self):
+        """`--passthrough` was accepted and ignored while the proxy was only a
+        forwarder (batch 1); it is `Server(passthrough=True)` now, and in that
+        mode the policy table is not consulted at all (requests-batch-2.md item
+        15).  `scripts/parity-oracle.sh` runs the oracle through a proxy started
+        with it, so an option that stopped arriving would turn the parity gate
+        into a test of the substitution it exists to hold constant."""
+        _rc, stub = self.run_serve("--upstream", ":7", "--foreground", "--passthrough")
+        self.assertEqual(stub.kw.get("passthrough"), True)
+        _rc, plain = self.run_serve("--upstream", ":7", "--foreground")
+        self.assertEqual(plain.kw.get("passthrough"), False)
 
     def test_a_second_proxy_leaves_a_live_ones_file_alone(self):
         """Design section 2.1 is one proxy per session, and the session's file

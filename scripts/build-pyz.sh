@@ -61,3 +61,11 @@ build warandr warandr.cli w11common wxrandr warandr
 # own wlr client, and the detached supervisor is this same zipapp re-entered
 # by fork, so it needs nothing else in the bundle.
 build wmirror wmirror.cli w11common wxrandr wmirror
+# xw11 is the widest bundle and the only one that needs to be: the proxy
+# answers for windows with wdotool's backends (xw11/shadow.py), for properties
+# with wxprop's synthesis (xw11/pump.py imports wxprop.core._events_hook), for
+# RandR with wxrandr's model and appliers (xw11/randr.py, all of it inside
+# functions -- `import xw11` still pulls none of it) and for input with
+# wdotool's daemon client.  wwmctl and warandr are NOT in it: nothing under
+# xw11/ imports either.
+build xw11 xw11.cli w11common wdotool wxprop wxrandr xw11

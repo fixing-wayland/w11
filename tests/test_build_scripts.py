@@ -54,8 +54,8 @@ sys.path.insert(0, ROOT)
 from w11common import VERSION, passthrough                          # noqa: E402
 
 PACKAGES = ("w11common", "wdotool", "wwmctl", "wxprop", "wxrandr", "warandr",
-            "wmirror")
-TOOLS = ("wdotool", "wwmctl", "wxprop", "wxrandr", "warandr", "wmirror")
+            "wmirror", "xw11")
+TOOLS = ("wdotool", "wwmctl", "wxprop", "wxrandr", "warandr", "wmirror", "xw11")
 
 #: What each zipapp is supposed to contain, out of build-pyz.sh's own `build`
 #: lines and the comments above them.  `w11common` is in all six (session
@@ -69,6 +69,12 @@ BUNDLES = {
     "wxrandr": {"w11common", "wxrandr"},
     "warandr": {"w11common", "wxrandr", "warandr"},
     "wmirror": {"w11common", "wxrandr", "wmirror"},
+    # the widest, and the only one that has to be: the proxy answers window
+    # questions with wdotool's backends, property questions with wxprop's
+    # synthesis and RandR with wxrandr's model.  `wwmctl` and `warandr` are
+    # NOT in it -- nothing under xw11/ imports either, and a bundle is what
+    # its build line says or the line is wrong.
+    "xw11": {"w11common", "wdotool", "wxprop", "wxrandr", "xw11"},
 }
 
 
@@ -111,7 +117,7 @@ class TheZipapps(unittest.TestCase):
         with zipfile.ZipFile(self.pyz(name)) as z:
             return {n.split("/")[0] for n in z.namelist() if "/" in n}
 
-    def test_all_six_are_built(self):
+    def test_all_seven_are_built(self):
         for name in TOOLS:
             with self.subTest(name):
                 self.assertTrue(os.path.exists(self.pyz(name)), name)
@@ -125,7 +131,7 @@ class TheZipapps(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(self.top_level(name), want)
 
-    def test_w11common_is_in_all_six(self):
+    def test_w11common_is_in_all_seven(self):
         """Every tool here finds its session, hands over to the original on an
         X11 one, raises the same exception when it fails and flushes through
         the same stdout on the way out -- all of which is w11common."""
@@ -160,16 +166,19 @@ class TheZipapps(unittest.TestCase):
             with self.subTest(name):
                 self.assertTrue(passthrough.is_us(self.pyz(name)), name)
 
-    def test_three_of_them_run_and_print_their_version(self):
+    def test_four_of_them_run_and_print_their_version(self):
         """`wmirror` and `wxprop` need no session at all; `wxrandr` prints its
         program version and then, with no display, xrandr's own `Can't open
         display` and exit 1 -- which is the original's behaviour verbatim, so
-        the assertion is on the line it did print."""
+        the assertion is on the line it did print.  `xw11 --help` is the fourth:
+        the proxy's bundle is the one with four packages in it, so a missing
+        import in any of them is a zipapp that cannot even print its usage."""
         env = dict(os.environ, W11_PASSTHROUGH="never",
                    WWMCTL_WMCTRL_GENERATION="1.07", LC_ALL="C")
         env.pop("PYTHONPATH", None)
         for argv, first in (("wmirror --version", "wmirror "),
                             ("wxprop -version", "xprop 1.2.8"),
+                            ("xw11 --help", "usage: xw11 "),
                             ("wxrandr --version", "xrandr program version")):
             name, flag = argv.split()
             with self.subTest(argv):

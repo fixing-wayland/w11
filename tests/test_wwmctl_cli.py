@@ -1216,7 +1216,7 @@ class BuildScriptTest(unittest.TestCase):
     def test_build_emits_both_zipapps(self):
         with tempfile.TemporaryDirectory(prefix="wwmctl-build-") as tmp:
             for d in ("w11common", "wdotool", "wwmctl", "wxprop", "wxrandr",
-                      "warandr", "wmirror", "scripts"):
+                      "warandr", "wmirror", "xw11", "scripts"):
                 shutil.copytree(os.path.join(ROOT, d), os.path.join(tmp, d),
                                 ignore=shutil.ignore_patterns("__pycache__"))
             p = subprocess.run(["sh", os.path.join(tmp, "scripts",

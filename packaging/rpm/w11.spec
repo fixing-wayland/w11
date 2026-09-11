@@ -52,7 +52,7 @@ BuildRequires:  python3-devel
 # %%{_udevrulesdir} and %%{_modulesloaddir}
 BuildRequires:  systemd-rpm-macros
 
-# warandr is one tool of six and the only importer of gi.  Weak deps are on by
+# warandr is one tool of seven and the only importer of gi.  Weak deps are on by
 # default in dnf, so the GUI still arrives for everyone who has not turned them
 # off, and `dnf install w11` on a sway box drags in no toolkit.  This is
 # the deb's documented gap -- tests/test_release_deb.py TheGtkDependency, an
@@ -61,18 +61,21 @@ BuildRequires:  systemd-rpm-macros
 Recommends:     python3-gobject
 Recommends:     gtk3
 Suggests:       wl-mirror
-# What the X11 handover execve()s.  Fedora ships one binary per package
-# (measured: /usr/bin/xprop -> xprop, /usr/bin/xrandr -> xrandr), where Debian
-# has x11-utils and x11-xserver-utils, so the hint names four packages and not
-# two.  w11common/distro.py's fedora row is these same names, and
+# What the handover execve()s -- on an X11 session directly, and on a Wayland
+# one through xw11's display, which is why these four are Recommends and not
+# Suggests: with them installed the tools the user already knows are what runs,
+# and W11_PROXY=never asks for the clones instead.  Fedora ships one binary per
+# package (measured: /usr/bin/xprop -> xprop, /usr/bin/xrandr -> xrandr), where
+# Debian has x11-utils and x11-xserver-utils, so this names four packages and
+# not two.  w11common/distro.py's fedora row is these same names, and
 # tests/test_packaging_names.py is what keeps the two tables one table.
-Suggests:       xdotool
-Suggests:       wmctrl
-Suggests:       xprop
-Suggests:       xrandr
+Recommends:     xdotool
+Recommends:     wmctrl
+Recommends:     xprop
+Recommends:     xrandr
 
 %description
-Six commands that behave like the X11 tools they clone -- same commands, same
+Seven commands that behave like the X11 tools they clone -- same commands, same
 flags, same output bytes -- on a Wayland session:
 
   * wdotool  - xdotool: key/type/click/mousemove and the window commands
@@ -81,10 +84,15 @@ flags, same output bytes -- on a Wayland session:
   * wxrandr  - xrandr: query and reshape the monitor layout
   * warandr  - arandr: the drag-your-monitors GUI, on Wayland and on X11
   * wmirror  - mirror a region or an odd-shaped output on wlroots (wl-mirror)
+  * xw11     - an X11 display in front of the session's X server, so that the
+               ORIGINAL xdotool, wmctrl, xprop, xrandr and every other X client
+               answer about the whole desktop
 
 On an X11 session the first four hand over to the real xdotool, wmctrl, xprop
 and xrandr with execve, argv untouched, so one script runs on both session
-types.  The originals are never replaced.
+types.  On a Wayland session with those four installed they hand over as well,
+to the original running against xw11's display.  The originals are never
+replaced.
 
 Also installed: a udev rule that lets the user at the active seat open
 /dev/uinput without root, and the warandr application-menu entry.  The GNOME
@@ -136,7 +144,7 @@ table has not measured.
 
 %install
 %pyproject_install
-%pyproject_save_files w11common wdotool wwmctl wxprop wxrandr warandr wmirror
+%pyproject_save_files w11common wdotool wwmctl wxprop wxrandr warandr wmirror xw11
 
 install -Dpm 0644 gnome/60-w11-uinput.rules \
     %{buildroot}%{_udevrulesdir}/60-w11-uinput.rules
@@ -260,7 +268,7 @@ exit 0
 # that ships one.
 %license LICENSE
 %doc README.md CHANGELOG.md docs/ packaging/rpm/README.Fedora
-# The six console scripts, listed by hand beside `%%files -f %%{pyproject_files}`
+# The seven console scripts, listed by hand beside `%%files -f %%{pyproject_files}`
 # -- which is what the Fedora Packaging Guidelines' own Python example does,
 # because %%pyproject_save_files claims what lands under %%{python3_sitelib} and
 # not what lands in %%{_bindir}.  This is the one line in the file nobody could
@@ -268,8 +276,8 @@ exit 0
 # dies at "%%pyproject_buildrequires: not found"), so the CI `rpm` job in
 # fedora:44 is what settles it -- and it settles it safely either way, because
 # Fedora sets %%_duplicate_files_terminate_build, so a name claimed twice fails
-# the build rather than shipping something wrong.  Without these six lines the
-# package would have no commands in it and nothing would say so.
+# the build rather than shipping something wrong.  Without these seven lines
+# the package would have no commands in it and nothing would say so.
 # tests/test_rpm_spec.py pins the list against pyproject.toml [project.scripts].
 %{_bindir}/wdotool
 %{_bindir}/wwmctl
@@ -277,6 +285,7 @@ exit 0
 %{_bindir}/wxrandr
 %{_bindir}/warandr
 %{_bindir}/wmirror
+%{_bindir}/xw11
 %{_udevrulesdir}/60-w11-uinput.rules
 %{_modulesloaddir}/w11-uinput.conf
 %{_datadir}/applications/warandr.desktop

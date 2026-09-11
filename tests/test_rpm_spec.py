@@ -446,21 +446,27 @@ class TheDependencies(unittest.TestCase):
     """What dnf pulls in, and what it merely mentions."""
 
     def test_the_gtk_pair_is_recommended_and_not_required(self):
-        """warandr is one tool of six and the only importer of gi.  Weak deps
+        """warandr is one tool of seven and the only importer of gi.  Weak deps
         are on by default in dnf, so the GUI still arrives for everyone who has
         not turned them off.  This is the deb's deferred fix 57 -- which
         tests/test_release_deb.py carries as an expectedFailure -- taken the
         other way, and the divergence is deliberate (design decision 5)."""
-        self.assertEqual(tag_values("Recommends"), ["python3-gobject", "gtk3"])
+        self.assertEqual(tag_values("Recommends")[:2], ["python3-gobject", "gtk3"])
         self.assertEqual([v for v in tag_values("Requires") if "python3-gobject" in v], [])
 
-    def test_the_handover_tools_are_suggested_by_fedoras_names(self):
-        """Fedora ships one binary per package, where Debian has x11-utils and
-        x11-xserver-utils, so the hint names four packages and not two
-        (measured from Fedora's own metadata: /usr/bin/xprop -> xprop,
-        /usr/bin/xrandr -> xrandr).  wl-mirror makes five."""
-        self.assertEqual(tag_values("Suggests"),
-                         ["wl-mirror", "xdotool", "wmctrl", "xprop", "xrandr"])
+    def test_the_handover_tools_are_recommended_by_fedoras_names(self):
+        """Recommends and not Suggests since the X11 proxy: on a Wayland session
+        the four clones hand over to the ORIGINAL running against xw11's display
+        (design section 8.1), so the original is what a default install should
+        have, and dnf installs weak dependencies unless they are turned off.
+        Fedora ships one binary per package, where Debian has x11-utils and
+        x11-xserver-utils, so this names four packages and not two (measured
+        from Fedora's own metadata: /usr/bin/xprop -> xprop, /usr/bin/xrandr ->
+        xrandr).  wl-mirror is the one weak dependency that stays a Suggests --
+        nothing hands over to it, it is one tool's helper."""
+        self.assertEqual(tag_values("Recommends")[2:],
+                         ["xdotool", "wmctrl", "xprop", "xrandr"])
+        self.assertEqual(tag_values("Suggests"), ["wl-mirror"])
 
     def test_it_does_not_require_acl(self):
         """Fedora's cloud image has no getfacl and no setfacl (measured), so

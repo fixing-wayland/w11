@@ -55,10 +55,12 @@ PACKAGE = os.path.join(NIX, "package.nix")
 PACKAGES = ("w11", "warandr", "gnome-bridge", "gnome-overlap",
             "udev-rules", "x11-shadows")
 
-#: The six console scripts of pyproject.toml [project.scripts].
-TOOLS = ("wdotool", "wwmctl", "wxprop", "wxrandr", "warandr", "wmirror")
+#: The seven console scripts of pyproject.toml [project.scripts].  `xw11` is
+#: the X11 proxy: not a clone of anything, and the program the other four run
+#: the ORIGINAL xdotool/wmctrl/xprop/xrandr against on a Wayland session.
+TOOLS = ("wdotool", "wwmctl", "wxprop", "wxrandr", "warandr", "wmirror", "xw11")
 
-#: What packages.w11 ships of them: five.  `warandr` is removed in its
+#: What packages.w11 ships of them: six.  `warandr` is removed in its
 #: postInstall, because packages.warandr installs a bin/warandr of its own and
 #: two packages with the same name in bin/ collide -- silently in
 #: environment.systemPackages (buildEnv, ignoreCollisions = true, first one
@@ -218,18 +220,50 @@ class Outputs(unittest.TestCase):
                 self.assertTrue(os.path.exists(os.path.join(NIX, "checks", name + ".nix")))
 
     def test_every_option_the_module_promises_is_declared(self):
-        """Nine options, and each one is a thing the .deb does: the tools,
-        the GUI, the udev rule, the bridge, the overlap extension, the X11
-        originals the handover needs, the shadow names, wl-mirror.  A
-        misspelt option name is not an error in nix -- it is an option
-        nobody sets."""
+        """Ten options, and each one is a thing the .deb does or the proxy
+        needs: the tools, the GUI, the udev rule, the bridge, the overlap
+        extension, the X11 originals the handover needs, the shadow names,
+        wl-mirror, and the proxy as a user service.  A misspelt option name is
+        not an error in nix -- it is an option nobody sets."""
         module = read(MODULE)
         for name in ("enable", "package", "warandr.enable", "uinput.enable",
                      "gnomeBridge.enable", "gnomeOverlap.enable", "x11Tools.enable",
-                     "shadowOriginals", "wlMirror.enable"):
+                     "shadowOriginals", "wlMirror.enable", "proxy.enable"):
             with self.subTest(name):
                 self.assertRegex(module, r"(?m)^    %s = lib\.mk" % re.escape(name))
         self.assertRegex(module, r"(?m)^\s*\+\+ lib\.optional cfg\.warandr\.enable w11pkgs\.warandr")
+
+    def test_the_proxy_option_is_off_and_runs_the_packages_own_xw11(self):
+        """`programs.w11.proxy.enable` is the one route to shadow ids that
+        outlive the proxy's fifteen-minute idle exit (design section 2.6): a
+        user service that never idles.  Off by default -- the wrapper spawns
+        one on demand and nothing is owed to a session that never runs an X
+        tool -- and `--foreground`, because systemd owns the lifetime here and
+        the on-demand double fork would leave it nothing to supervise."""
+        module = read(MODULE)
+        self.assertRegex(module, r"(?m)^    proxy\.enable = lib\.mkOption \{")
+        body = module.split("proxy.enable = lib.mkOption {", 1)[1].split("};", 1)[0]
+        self.assertIn("default = false;", body)
+        self.assertRegex(module, r'ExecStart = "\$\{cfg\.package\}/bin/xw11 --foreground";')
+        self.assertIn("systemd.user.services.xw11", module)
+        self.assertIn('wantedBy = [ "graphical-session.target" ]', module)
+
+    def test_the_service_waits_for_xwayland_instead_of_failing_five_times(self):
+        """The unit's restart numbers, which are not decoration: `serve()` exits
+        1 when nothing answers $DISPLAY and no Xwayland is running
+        (xw11/cli.py:_refusal), and on GNOME and KWin -- both start Xwayland on
+        demand -- that is the ordinary state at graphical-session.target.  With
+        systemd's default rate limit (5 starts in 10 s) the unit would be
+        `failed` before the session's first X tool ran, and the option's whole
+        promise (ids that last the session) would be quietly unmet.  Five
+        seconds apart and no limit on the number is what makes it a wait."""
+        module = read(MODULE)
+        body = module.split("systemd.user.services.xw11", 1)[1]
+        self.assertIn('Restart = "on-failure";', body)
+        self.assertRegex(body, r"(?m)^\s*RestartSec = 5;")
+        # Unit-level: systemd took the start-limit settings out of [Service] in
+        # v229, and NixOS spells the unit's own as startLimitIntervalSec.
+        self.assertRegex(body, r"(?m)^\s*startLimitIntervalSec = 0;")
 
     def test_main_program_is_declared_so_nix_run_works(self):
         """Without it `nix run .` looked for $out/bin/w11, which is
@@ -413,10 +447,11 @@ class Live(unittest.TestCase):
         cls.out = dict(zip(PACKAGES, paths))
 
     def test_the_cli_package_carries_the_five_stdlib_tools_and_nothing_else(self):
-        """The old single derivation had eleven names in bin/: the six plus
+        """The old single derivation had eleven names in bin/: the tools plus
         the five shadows, which is what collided in environment.systemPackages
-        [recon2/nixos].  Five now, not six: bin/warandr belongs to
-        packages.warandr alone, and the two packages are installed together.
+        [recon2/nixos].  Every console script except `warandr`: that one
+        belongs to packages.warandr alone, and the two packages are installed
+        together.
 
         Beside each script is buildPythonApplication's `.NAME-wrapped`, and
         that is not noise -- it is the reason vm/vmctl's pg() matches

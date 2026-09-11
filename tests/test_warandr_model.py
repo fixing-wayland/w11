@@ -1427,7 +1427,7 @@ class BuildScript(unittest.TestCase):
         import shutil
         with tempfile.TemporaryDirectory(prefix="warandr-build-") as tmp:
             for d in ("w11common", "wdotool", "wwmctl", "wxprop", "wxrandr",
-                      "warandr", "wmirror", "scripts"):
+                      "warandr", "wmirror", "xw11", "scripts"):
                 shutil.copytree(os.path.join(ROOT, d), os.path.join(tmp, d),
                                 ignore=shutil.ignore_patterns("__pycache__"))
             p = subprocess.run(["sh", os.path.join(tmp, "scripts",
@@ -1455,9 +1455,12 @@ class BuildScript(unittest.TestCase):
             # The socket has to exist -- passthrough.session_kind() does not
             # believe a WAYLAND_DISPLAY with nothing behind it.
             open(os.path.join(tmp, "wayland-nope"), "w").close()
+            # W11_PROXY=never: this is the CLONE's path, and on a box with a stray X server
+            # (this one's Xvnc) the wrapper would otherwise start the proxy against it and
+            # run the real xrandr, which is the other path and has its own tests
             env = {"PATH": os.environ.get("PATH", ""), "HOME": tmp,
                    "WAYLAND_DISPLAY": "wayland-nope",
-                   "XDG_RUNTIME_DIR": tmp}
+                   "XDG_RUNTIME_DIR": tmp, "W11_PROXY": "never"}
             p = subprocess.run([sys.executable, pyz, "--command"], env=env,
                                capture_output=True, text=True, timeout=60)
             self.assertEqual(p.returncode, 1)

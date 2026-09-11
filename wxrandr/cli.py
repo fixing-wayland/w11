@@ -1831,6 +1831,22 @@ def main(argv=None) -> int:
             entry=entry, force=forced == "x11")
         if rc is not None:
             return rc
+        # Wayland with the original installed: the original ITSELF, against the
+        # xw11 display (design section 8.1).  The FULL args and not `stripped`:
+        # the hook's fourth rule is "an option of ours means our code", and
+        # `--persistent` -- which `stripped` has already removed -- is exactly
+        # such an option, so a stripped argv here would send a persistent apply
+        # to the original with the persistence silently gone.  Imported inside
+        # main(): on an X11 session the handover above has already replaced this
+        # process, and the wxrandr zipapp carries no xw11/.
+        try:
+            from xw11.wrap import maybe_exec_through_proxy
+        except ImportError:             # pragma: no cover - a bundle without xw11/
+            maybe_exec_through_proxy = None
+        if maybe_exec_through_proxy is not None:
+            rc = maybe_exec_through_proxy("xrandr", args, entry=entry)
+            if rc is not None:
+                return rc
     if argv is None:
         argv = sys.argv[1:]
     quiet = False

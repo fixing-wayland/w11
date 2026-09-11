@@ -187,16 +187,19 @@ class TheFifthColumn(unittest.TestCase):
 class EachPackagingNamesItsOwn(unittest.TestCase):
     """The four packaging files against their own column."""
 
-    def test_debian_control_suggests_the_three_it_can(self):
-        """xprop and xrandr are not in Suggests and never were: on Debian they
-        come with x11-utils and x11-xserver-utils, which any desktop already
-        has, and Suggests is for what a desktop may not.  The install hint
-        still names them, which is why the table has a debian cell for both."""
-        self.assertEqual(sorted(control_field("Suggests")),
-                         ["wl-mirror", "wmctrl", "xdotool"])
-        for what in ("xdotool", "wmctrl", "wl-mirror"):
-            with self.subTest(what):
-                self.assertIn(TABLE[what]["debian"], control_field("Suggests"))
+    def test_debian_control_recommends_the_four_originals_and_suggests_wl_mirror(self):
+        """The four moved from Suggests to Recommends with the X11 proxy: on a
+        Wayland session the clones now hand over to the ORIGINAL running against
+        xw11's display, so the original is what a default install should have --
+        apt honours Recommends unless the admin turned it off, and W11_PROXY=never
+        is how a user asks for the clones instead.  xprop and xrandr arrive as
+        x11-utils and x11-xserver-utils, which is why the table has a debian cell
+        for both although neither is a package name.  wl-mirror stays a Suggests:
+        it is one tool's helper and nothing hands over to it."""
+        self.assertEqual(sorted(control_field("Suggests")), ["wl-mirror"])
+        self.assertEqual(sorted(control_field("Recommends")),
+                         sorted(TABLE[w]["debian"] for w in
+                                ("xdotool", "wmctrl", "xprop", "xrandr")))
 
     def test_debian_control_depends_on_the_gtk_pair_by_its_debian_names(self):
         """The one place a packaging differs from the others on purpose: the
@@ -209,14 +212,15 @@ class EachPackagingNamesItsOwn(unittest.TestCase):
             with self.subTest(name):
                 self.assertIn(name, depends)
 
-    def test_the_spec_suggests_fedoras_five(self):
-        self.assertEqual(spec_tags("Suggests"),
-                         [TABLE[w]["fedora"] for w in
-                          ("wl-mirror", "xdotool", "wmctrl", "xprop", "xrandr")])
-
-    def test_the_spec_recommends_fedoras_gtk_pair(self):
+    def test_the_spec_suggests_wl_mirror_and_recommends_the_four(self):
+        """The same move the .deb made, in Fedora's names: dnf honours weak
+        dependencies by default, so `dnf install w11` on a Wayland box arrives
+        with the originals the clones hand over to."""
+        self.assertEqual(spec_tags("Suggests"), [TABLE["wl-mirror"]["fedora"]])
         self.assertEqual(spec_tags("Recommends"),
-                         TABLE["gtk3-python"]["fedora"].split())
+                         TABLE["gtk3-python"]["fedora"].split()
+                         + [TABLE[w]["fedora"] for w in
+                            ("xdotool", "wmctrl", "xprop", "xrandr")])
 
     def test_the_pkgbuild_optdepends_are_archs(self):
         """gnome-shell is the sixth: it is not in the table because there is

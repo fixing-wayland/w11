@@ -434,6 +434,20 @@ def main(argv=None) -> int:
         fallback_native=True)
     if rc is not None:
         return rc
+    # Wayland with the original installed: the original ITSELF, run against
+    # the xw11 display, which answers for the whole desktop (design section
+    # 8.1).  Imported here and not at the top of the file: on an X11 session
+    # main() has already left above, so `xw11.wrap` is never imported there --
+    # and the wxprop zipapp carries no xw11/ (scripts/build-pyz.sh).
+    try:
+        from xw11.wrap import maybe_exec_through_proxy
+    except ImportError:                 # pragma: no cover - a bundle without xw11/
+        maybe_exec_through_proxy = None
+    if maybe_exec_through_proxy is not None:
+        rc = maybe_exec_through_proxy(
+            "xprop", sys.argv[1:] if argv is None else argv, entry=argv is None)
+        if rc is not None:
+            return rc
     quiet = False
     try:
         code = _main(prog, list(sys.argv[1:] if argv is None else argv))

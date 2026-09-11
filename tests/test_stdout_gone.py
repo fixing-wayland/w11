@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bug 3: what the six tools do when their standard output is not there.
+"""Bug 3: what the seven tools do when their standard output is not there.
 
 Every one of them printed something no original ever prints:
 
@@ -58,6 +58,9 @@ TOOLS = [
     ("wxrandr", ["--help"], "xrandr"),
     ("warandr", ["--version"], "warandr"),
     ("wmirror", ["--help"], "wmirror"),
+    # the seventh: not a clone, and the one whose --help is the only thing it
+    # prints without touching a session at all
+    ("xw11", ["--help"], "xw11"),
 ]
 
 
@@ -219,7 +222,7 @@ class ClosedStderr(NoTracebackEver):
 
     def test_a_tool_that_prints_still_prints(self):
         """The other way a crash on the way to stderr would hide: fd 2 is
-        gone, fd 1 is a pipe, and the six TOOLS commands each print to it.
+        gone, fd 1 is a pipe, and every TOOLS command prints to it.
         A tool that died on `sys.stderr is None` before reaching its own
         output would still exit 0 here with nothing on stdout, so the bytes
         are the assertion -- byte-for-byte what the same command prints on a
@@ -238,7 +241,7 @@ class ClosedStderr(NoTracebackEver):
 
     def test_both_descriptors_closed_still_exits_0(self):
         """`tool >&- 2>&-`: nothing can be said and nothing needed saying, so
-        the six commands in TOOLS -- each of which succeeds on a healthy
+        the commands in TOOLS -- each of which succeeds on a healthy
         terminal -- succeed here too."""
         for mod, argv, _prog in TOOLS:
             with self.subTest(tool=mod):

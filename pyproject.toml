@@ -16,10 +16,11 @@ wxprop = "wxprop.cli:main"
 wxrandr = "wxrandr.cli:main"
 warandr = "warandr.cli:main"
 wmirror = "wmirror.cli:main"
+xw11 = "xw11.cli:main"
 
 [tool.setuptools]
 packages = ["w11common", "wdotool", "wwmctl", "wxprop", "wxrandr",
-            "warandr", "wmirror"]
+            "warandr", "wmirror", "xw11"]
 
 # Lint only: no `ruff format` and no other formatter. Measured at 120 columns,
 # `ruff format` rewrites 45 of 59 files, makes the tree 520 lines LONGER and

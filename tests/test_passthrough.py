@@ -342,6 +342,133 @@ class Detection(Base):
                          "x11")
 
 
+class TheProxyVariable(Base):
+    """`W11_PROXY`, the second question about the same handover.
+
+    `W11_PASSTHROUGH` says whether our own code may be replaced at all;
+    `W11_PROXY` says whether a Wayland session replaces it with the ORIGINAL
+    running on the xw11 display (design section 8.3).  Two variables and not
+    one because the two answers are independent: a box that wants the clone on
+    Wayland still wants the original on X11, and `never` in the first has to
+    keep meaning "our own code, no handover to anything" -- it is this suite's
+    escape hatch, and every test file in it relies on that one line.
+
+    Nothing in `passthrough.py` ACTS on `W11_PROXY`: the handover it describes
+    is `xw11/wrap.py`'s.  The reader lives here because the spellings, the
+    per-tool table and `real_name()` do."""
+
+    def test_the_three_answers_and_both_spellings_of_each(self):
+        for value in passthrough._NEVER:
+            self.assertEqual(passthrough.proxy_mode(env={"W11_PROXY": value}),
+                             "never", value)
+        for value in passthrough._ALWAYS:
+            self.assertEqual(passthrough.proxy_mode(env={"W11_PROXY": value}),
+                             "always", value)
+        for value in ("", "auto", "  ", "sometimes"):
+            self.assertEqual(passthrough.proxy_mode(env={"W11_PROXY": value}),
+                             "auto", repr(value))
+        self.assertEqual(passthrough.proxy_mode(env={}), "auto")
+
+    def test_case_and_whitespace_are_the_passthrough_variables_own(self):
+        self.assertEqual(passthrough.proxy_mode(env={"W11_PROXY": " NEVER "}), "never")
+        self.assertEqual(passthrough.proxy_mode(env={"W11_PROXY": "Always"}), "always")
+
+    def test_the_per_tool_variable_beats_the_global_one(self):
+        env = {"W11_PROXY": "auto", "WDOTOOL_PROXY": "never",
+               "WXRANDR_PROXY": "always"}
+        self.assertEqual(passthrough.proxy_mode("xdotool", env), "never")
+        self.assertEqual(passthrough.proxy_mode("wdotool", env), "never")
+        self.assertEqual(passthrough.proxy_mode("xrandr", env), "always")
+        self.assertEqual(passthrough.proxy_mode("wmctrl", env), "auto")
+
+    def test_the_two_variables_do_not_read_each_other(self):
+        """The one that would be silently wrong: a `proxy_mode()` that fell
+        back to `W11_PASSTHROUGH`, or a `passthrough_mode()` that read
+        `W11_PROXY`, would tie two independent answers together -- and the
+        second of those would turn `W11_PROXY=never` into "do not hand over on
+        X11 either", which is the regression this whole module exists to
+        prevent."""
+        self.assertEqual(passthrough.proxy_mode(env={"W11_PASSTHROUGH": "always"}),
+                         "auto")
+        self.assertEqual(passthrough.passthrough_mode(env={"W11_PROXY": "never"}),
+                         "auto")
+        self.assertEqual(passthrough.proxy_mode(
+            "xdotool", {"WDOTOOL_PASSTHROUGH": "never"}), "auto")
+
+    def test_every_tool_with_a_passthrough_variable_has_a_proxy_one(self):
+        """Four originals, four pairs.  A table that grew a fifth tool in one
+        dictionary and not the other would leave that tool with no way to say
+        "not through the proxy"."""
+        self.assertEqual(sorted(passthrough.PROXY_MODE_VAR),
+                         sorted(passthrough._MODE_VAR))
+        for tool, var in passthrough.PROXY_MODE_VAR.items():
+            with self.subTest(tool):
+                self.assertEqual(var, passthrough._MODE_VAR[tool]
+                                 .replace("_PASSTHROUGH", "_PROXY"))
+
+
+class TheProxyIsOneOfUs(Base):
+    """`xw11` in `OUR_NAMES`, and what that buys.
+
+    The wrapper asks `real_tool()` for the original it is about to run through
+    the proxy, and `real_tool()` walks PATH: an installed `xw11` that the "not
+    us" guards did not recognise would be a candidate `xdotool` the moment
+    somebody copied it under that name, and `xw11/wrap.py:_exec_plan` would
+    refuse to re-exec the very script it is looking for."""
+
+    def test_it_is_in_our_names(self):
+        self.assertIn("xw11", passthrough.OUR_NAMES)
+        self.assertEqual(passthrough.real_name("xw11"), "xw11",
+                         "xw11 clones nothing, so it has no original")
+
+    def test_the_generated_console_script_is_us_under_an_originals_name(self):
+        """`pip install .` and dpkg both write this file: a setuptools shim
+        that imports `xw11.cli` and nothing else.  It is called `xdotool` here
+        and not `xw11` on purpose -- under its own name guard 2 answers on the
+        basename alone and never opens the file, so the question this batch
+        owed (batch-8.md, "measurements to take": does the HEAD SNIFF accept
+        the installed shim?) would go unasked.  Copied under an original's
+        name, the sniff is the only guard left, and `_OUR_MODULES` is what it
+        reads: measured 2026-09-11, `is_us()` on this file is True with `xw11`
+        in OUR_NAMES and False without it, so this line is the whole of what
+        keeps a PATH walk from exec'ing the proxy as `xdotool`."""
+        d = self.mkdir("xw11bin")
+        script = self.touch(os.path.join(d, "xdotool"),
+                            "#!/usr/bin/python3\nimport sys\n"
+                            "from xw11.cli import main\nsys.exit(main())\n")
+        os.chmod(script, 0o755)
+        with mock.patch.object(sys, "argv", ["/nowhere/else"]):
+            self.assertTrue(passthrough.is_us(script))
+            # ...and therefore not a candidate original, which is the point:
+            # real_tool() walks PATH for `xdotool` and must not find the proxy.
+            self.assertIsNone(passthrough.real_tool("xdotool", {"PATH": d}))
+
+    def test_no_cli_imports_the_wrapper_at_module_level(self):
+        """What makes "an X11 session never even imports the proxy" possible
+        (design section 8.1 rule 3): the import is inside `main()`, after the
+        handover has already left.  A top-level `from xw11 import wrap` would
+        also break the four zipapps, which carry no `xw11/` at all
+        (scripts/build-pyz.sh) -- the ImportError guard around that import is
+        what covers them, and it can only guard an import it wraps.
+
+        tests/test_xw11_wrap.py proves the consequence in a process of its own;
+        this is the property, read off the source."""
+        for name in ("wdotool", "wwmctl", "wxprop", "wxrandr"):
+            path = os.path.join(ROOT, name, "cli.py")
+            with self.subTest(name), open(path, encoding="utf-8") as f:
+                tree = ast.parse(f.read(), path)
+            for node in tree.body:
+                if isinstance(node, ast.Import):
+                    names = [a.name for a in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    names = [node.module or ""]
+                else:
+                    continue
+                for mod in names:
+                    self.assertNotEqual(mod.split(".")[0], "xw11",
+                                        "%s imports %s at module level" % (path, mod))
+
+
 class RealTool(Base):
     """`real_tool()`: the next binary of that name on PATH that is not us."""
 

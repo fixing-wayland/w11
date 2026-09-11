@@ -46,19 +46,25 @@ url="https://github.com/fixing-wayland/w11"
 # LICENSE's first line disagree.
 license=('BSD-2-Clause')
 
-# Pure standard library: python and nothing else.  Everything the six tools
+# Pure standard library: python and nothing else.  Everything the seven tools
 # reach for at run time is optional and named below, one clause each.
 depends=('python')
 makedepends=('python-build' 'python-installer' 'python-wheel' 'python-setuptools'
              'gobject-introspection' 'python-gobject')
+# The four originals are what the handover execve()s: on an X11 session
+# directly, and on a Wayland session through xw11's display, which is the
+# default there when they are installed (W11_PROXY=never asks for the clones
+# instead).  Arch has no Recommends -- optdepends is the whole vocabulary --
+# so where the .deb and the spec say "weak dependency, installed by default",
+# this file says it in the clause.
 optdepends=('python-gobject: the warandr GUI'
             'gtk3: the warandr GUI'
             'wl-mirror: wmirror, region and odd-shape mirroring on wlroots'
             'gnome-shell: the bridge extension, needed by the window commands on GNOME'
-            'xdotool: the real tool wdotool hands over to on an X11 session'
-            'wmctrl: the real tool wwmctl hands over to on an X11 session'
-            'xorg-xprop: the real tool wxprop hands over to on an X11 session'
-            'xorg-xrandr: the real tool wxrandr hands over to on an X11 session')
+            'xdotool: the real tool wdotool hands over to, on X11 and through xw11'
+            'wmctrl: the real tool wwmctl hands over to, on X11 and through xw11'
+            'xorg-xprop: the real tool wxprop hands over to, on X11 and through xw11'
+            'xorg-xrandr: the real tool wxrandr hands over to, on X11 and through xw11')
 install="$pkgname.install"
 
 # Upstream's tags are two-component -- v0.4 and v0.3 -- while pyproject.toml
