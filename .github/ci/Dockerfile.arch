@@ -48,3 +48,6 @@ RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cu
     && useradd -m -u 1000 -s /bin/bash ci \
     && install -d -m 0700 -o ci -g ci /tmp/xdg-ci \
     && echo 'ci ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/ci
+# the directory X servers and the xw11 proxy bind their filesystem socket in: on a real
+# system the first X server creates it 1777 as root; a container has no such first server
+RUN install -d -m 1777 /tmp/.X11-unix

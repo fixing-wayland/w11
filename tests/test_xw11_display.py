@@ -201,6 +201,53 @@ class BindBoth(DisplayCase):
         self.assertEqual(self.allocate().name, ":%d" % display_mod.FIRST_NUM)
 
 
+class SocketDirectoryNotOurs(DisplayCase):
+    """A container whose /tmp/.X11-unix is root's, or missing: CI run
+    34562929804 read every number in :20..:69 as taken and refused to start.
+    The abstract name is what libxcb tries first [recon/env.md 4], so the
+    display serves on it alone, the way Xvfb does, and says so once; a number
+    that is genuinely taken (EADDRINUSE on the abstract name) is still taken."""
+
+    def _unwritable_socket_dir(self):
+        # the sockets' directory (root's /tmp/.X11-unix in the container), NOT the
+        # locks' (/tmp, writable): a subdirectory of the case's own, made 0555
+        sock = os.path.join(self.dir, "X11-unix")
+        os.mkdir(sock)
+        os.chmod(sock, 0o555)
+        self.addCleanup(os.chmod, sock, 0o755)
+        x11_mini._SOCK_DIR = sock       # DisplayCase._restore puts the old one back
+
+    def test_an_unwritable_directory_is_abstract_only_and_not_taken(self):
+        if os.geteuid() == 0:
+            self.skipTest("root writes anywhere")
+        self._unwritable_socket_dir()
+        import io
+        from contextlib import redirect_stderr
+        err = io.StringIO()
+        with redirect_stderr(err):
+            d = display_mod.allocate()
+        self.addCleanup(d.release)
+        self.assertIsNone(d.fs_sock)
+        self.assertIsNotNone(d.abs_sock)
+        self.assertIn("abstract socket only", err.getvalue())
+        self.assertEqual(err.getvalue().count("abstract socket only"), 1)
+        with socket.socket(socket.AF_UNIX) as probe:
+            probe.connect("\0" + d.fs_path)   # the abstract name answers
+
+    def test_a_number_whose_abstract_name_is_taken_is_still_taken(self):
+        self._unwritable_socket_dir()
+        holder = socket.socket(socket.AF_UNIX)
+        self.addCleanup(holder.close)
+        holder.bind("\0" + display_mod.sock_path(display_mod.FIRST_NUM))
+        holder.listen(1)
+        import io
+        from contextlib import redirect_stderr
+        with redirect_stderr(io.StringIO()):
+            d = display_mod.allocate()
+        self.addCleanup(d.release)
+        self.assertEqual(d.num, display_mod.FIRST_NUM + 1)
+
+
 class LockFile(DisplayCase):
     def test_it_is_eleven_bytes_of_right_justified_pid(self):
         got = self.allocate()

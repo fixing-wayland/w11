@@ -1168,7 +1168,14 @@ class TerminateAndReturn(ProxyLive):
         self.assertEqual(first & ~0x1FFFFF, base)
         self.restart_own()
         second = self.shadow_id()
-        self.assertEqual(second & ~0x1FFFFF, self.rid_base())
+        # a base the server handed out: mask-aligned and non-zero. Not "the
+        # base the next connection gets": the server reissues freed bases out
+        # of order (batch 3's measurement), and on a CI runner the proxy's own
+        # reconnection and this test's probe were handed different ones
+        # (run 34562929804: 0x400000 against 0x600000).
+        self.assertEqual(second & 0x1FFFFF, second - (second & ~0x1FFFFF))
+        self.assertTrue(second & ~0x1FFFFF)
+        self.assertEqual((second & ~0x1FFFFF) % 0x200000, 0)
         self.assertTrue(second & 0x1FFFFF)
         got = self.tool(["xdotool", "getwindowname", str(second)])
         self.assertEqual((got.returncode, got.stdout.strip()), (0, FOOT_TITLE),

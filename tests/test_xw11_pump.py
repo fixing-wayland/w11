@@ -158,11 +158,12 @@ class Coalesce(unittest.TestCase):
         # One re-list per WAKE, never one per token. The loop can wake more
         # than once during a burst -- the pump writes a byte per token and the
         # selector is free to return between two of them -- so what is pinned
-        # is the ratio: 60 tokens, single figures of `list()`. A `for token in
-        # tokens: refresh()` inside `drain_pump` makes this 60.
+        # is the ratio: 60 tokens, single figures of `list()` on an idle box and
+        # 15 on a loaded CI runner (run 34562929804), never the 60 that a
+        # `for token in tokens: refresh()` inside `drain_pump` makes.
         # `test_one_drain_is_one_relist` in tests/test_xw11_events.py pins the
         # exact 1 on the deterministic seam.
-        self.assertLessEqual(backend.counts["list"] - listed, 8)
+        self.assertLessEqual(backend.counts["list"] - listed, 30)
         self.assertGreaterEqual(backend.counts["list"] - listed, 1)
         # And the reader after the last drain pays nothing: its snapshot is
         # fresh, because the drain took it.

@@ -33,7 +33,9 @@ the path dead while the abstract name kept serving, and every libxcb client kept
 working, so nothing reported it (recon/env.md 4).
 """
 
+import errno
 import os
+import sys
 import socket
 import stat
 import struct
@@ -225,6 +227,16 @@ def _lstat(path):
         return None
 
 
+_WARNED: set = set()
+
+
+def _warn_once(text: str) -> None:
+    """One line to stderr per distinct message for the life of the process."""
+    if text not in _WARNED:
+        _WARNED.add(text)
+        sys.stderr.write("xw11: %s\n" % text)
+
+
 def _take(num: int, force: bool):
     """Try to become `:num`. Returns a Display, or None when it is taken and we
     are scanning. Raises DisplayError when the caller named this number."""
@@ -265,10 +277,22 @@ def _take(num: int, force: bool):
     try:
         fs_sock = _bind(fs)
     except OSError as e:
-        abs_sock.close()
-        if force:
-            raise DisplayError("cannot bind %s: %s" % (fs, e)) from None
-        return None
+        if e.errno in (errno.EACCES, errno.EPERM, errno.ENOENT, errno.ENOTDIR, errno.EROFS):
+            # The directory is not ours to write (a container whose /tmp/.X11-unix
+            # is root's, or missing: CI run 34562929804 read every number as taken).
+            # That is not "this number is taken": the abstract name is bound, which
+            # is the one libxcb tries first (recon/env.md 4), so the display serves
+            # on it alone, the way Xvfb does when it cannot create the path, and
+            # says so once. A path-only client (xtrace, an old libX11) will not find
+            # it: not yet, and the route is the directory itself.
+            _warn_once("cannot create %s (%s): serving :%d on the abstract socket only"
+                       % (fs, e.strerror, num))
+            fs_sock = None
+        else:
+            abs_sock.close()
+            if force:
+                raise DisplayError("cannot bind %s: %s" % (fs, e)) from None
+            return None
     try:
         # 11 bytes, mode 0444, the pid right-justified in 10 columns plus a
         # newline: byte for byte what Xvfb writes and what its "Server is
@@ -280,8 +304,9 @@ def _take(num: int, force: bool):
             os.close(fd)
     except OSError as e:
         abs_sock.close()
-        fs_sock.close()
-        _unlink(fs)
+        if fs_sock is not None:
+            fs_sock.close()
+            _unlink(fs)
         if force:
             raise DisplayError("cannot create %s: %s" % (lock, e)) from None
         return None

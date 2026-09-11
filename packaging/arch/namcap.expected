@@ -35,7 +35,7 @@
 # real makepkg build still produces them is what the first CI run answers; the
 # pattern is here so that the answer is a green job either way, and it is
 # deliberately narrow -- only our own seven top-level names match.
-^w11 W: Referenced python module '(w11common|wdotool|wwmctl|wxprop|wxrandr|warandr|wmirror)[.']
+^w11 W: Referenced python module '(w11common|wdotool|wwmctl|wxprop|wxrandr|warandr|wmirror|xw11)[.']
 
 # The console scripts' interpreter.  namcap 3.5 reads `#!/usr/bin/python` and
 # reports the `python` it resolves to as an uninstalled dependency even though

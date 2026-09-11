@@ -71,7 +71,7 @@ PAIRS = {
     "usr/share/licenses/w11/LICENSE": "LICENSE",
 }
 
-TOOLS = ("warandr", "wdotool", "wmirror", "wwmctl", "wxprop", "wxrandr")
+TOOLS = ("warandr", "wdotool", "wmirror", "wwmctl", "wxprop", "wxrandr", "xw11")
 
 
 def load_gen_gir():
@@ -247,7 +247,7 @@ class ThePayload(PkgCase):
                 self.assertEqual(built["namespace"], ns)
                 self.assertEqual(built["shared_libraries"], [])
 
-    def test_usr_bin_is_the_six_commands(self):
+    def test_usr_bin_is_the_seven_commands(self):
         got = [m for m in self.members() if m.startswith("usr/bin/")]
         self.assertEqual(sorted(got), ["usr/bin/%s" % n for n in TOOLS])
 
