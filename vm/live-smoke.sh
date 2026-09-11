@@ -317,6 +317,15 @@ guest()  { "$VM" user "$NAME" -- env W11_PROXY="${SMOKE_PROXY:-never}" sh -c "$1
 # no cookie of its own for the proxy, is a NOT YET of its own: docs/XW11.md, What differs)
 root()   { "$VM" ssh  "$NAME" -- env W11_PROXY="${SMOKE_PROXY:-never}" sh -c "$1" 2>&1; }
 guestq() { "$VM" user "$NAME" -- env W11_PROXY="${SMOKE_PROXY:-never}" sh -c "$1" >/dev/null 2>&1; }   # guest(), quiet
+# An ISO-installed golden still runs unattended-upgrades at boot (its own timers are
+# off, but the desktop's shutdown/boot hook took the dpkg lock 531 s into the smoke:
+# resolute-gnome-iso, CI run 34628780504). Wait for the lock, then stop the service,
+# as a command of its own so the recorded install command stays byte-identical.
+apt_lock_free() {
+    [ "$DISTRO" = ubuntu ] || return 0
+    root 'for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \
+          systemctl stop unattended-upgrades.service 2>/dev/null; true' >/dev/null 2>&1 || true
+}
 shot()   { "$VM" shot "$NAME" --all "$SHOTDIR/$1" >/dev/null 2>&1 && note "shots: $SHOTDIR/$1-*.png" || true; }
 
 # ---------------------------------------------------------------- steps
@@ -442,6 +451,7 @@ phase_remove() {
         [ -n "$defsys" ] || defsys=/run/booted-system
         note "the default system to switch back into is $defsys"
     fi
+    command -v apt_lock_free >/dev/null 2>&1 && apt_lock_free   # defined by the driver; a sliced phase runs without it
     cmd=$(pkg_remove_cmd)
     out=$(root "$cmd") || st=$?
     ok "$cmd" "$st"

@@ -1224,6 +1224,9 @@ systemctl set-default graphical.target
 if [ -x /usr/sbin/NetworkManager ]; then
   systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
 fi
+# a desktop arm that wrote nothing under ~/.config (river's config lives elsewhere) leaves
+# no directory to chown, and the build died on it (arch-river, CI run 34628780504)
+mkdir -p "$TESTHOME/.config"
 chown -R test:test "$TESTHOME/.config"
 
 say "disabling automatic updates ($PKG)"

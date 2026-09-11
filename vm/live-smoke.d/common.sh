@@ -246,6 +246,7 @@ phase_install() {
                   | tr -d ' \r' || true)"
         return 0
     fi
+    command -v apt_lock_free >/dev/null 2>&1 && apt_lock_free   # defined by the driver; a sliced phase runs without it
     pkg_deploy || return 1
     local out st=0 cmd
     cmd=$(pkg_install_cmd)

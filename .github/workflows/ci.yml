@@ -36,7 +36,8 @@
 name: ci
 on:
   push:
-  pull_request:
+  # no pull_request trigger: a pull request from a branch of this repository already runs
+  # on its push, and the second run doubled 428 jobs for nothing (run 34629708573)
   workflow_dispatch:
     inputs:
       scope:
