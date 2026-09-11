@@ -22,7 +22,7 @@
 
 # `remove` is deliberately not in this list: it destroys the installation every
 # other phase measures, so live-smoke.sh runs it last and only under --remove.
-SMOKE_PHASES="busrec install bridge windows wm input five display persistent overlap enablebridge udev"
+SMOKE_PHASES="busrec install bridge windows wm proxy input five display persistent overlap enablebridge udev"
 SMOKE_PHASES="$SMOKE_PHASES root nodialog"
 EDITOR_CLASS=TextEditor          # WM_CLASS is org.gnome.TextEditor, exactly as
                                  # under X: `--class gnome-text-editor` matching

@@ -59,7 +59,7 @@
 # size below is compared with a tolerance), and the adjacency validator strings are in
 # libmuffin.so.0.0.0 with nothing having made muffin print one yet [recon2/cinnamon 2.2, 4].
 
-SMOKE_PHASES="xwayland busrec install windows wm input display persistent root nodialog"
+SMOKE_PHASES="xwayland busrec install windows wm proxy input display persistent root nodialog"
 
 # gnome-terminal is the terminal cinnamon-core's `gnome-terminal | x-terminal-emulator` first
 # alternative puts on the image, and it is the smoke's NATIVE Wayland client.  The pattern is a regex

@@ -27,7 +27,7 @@
 # reparenting WM moved too (100,100 asked, 102,140 read back under openbox).  The rounding is the window
 # manager's business on X and the client's on Wayland, and both sides of that fork fit inside one cell.
 
-SMOKE_PHASES="busrec install windows wm input desktops display mirror root nodialog"
+SMOKE_PHASES="busrec install windows wm proxy input desktops display mirror root nodialog"
 EDITOR_CLASS=foot
 
 # The X client the WM_CLASS-instance and _NET_CLIENT_LIST checks need; started by phase_wm and killed there.

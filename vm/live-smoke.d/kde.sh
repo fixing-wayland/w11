@@ -17,7 +17,7 @@
 # vm/build-image.sh's dm_plasma writes one autologin file or the other by which
 # one the packages created.  Which one actually seated the session is a thing
 # only the guest can say.
-SMOKE_PHASES="busrec install dm windows wm input display kwin root nodialog"
+SMOKE_PHASES="busrec install dm windows wm proxy input display kwin root nodialog"
 EDITOR_CLASS=kate
 
 # The greeter that logged the session in, from logind's own record of it.

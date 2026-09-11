@@ -306,7 +306,12 @@ xwant()   { local w=$1 re=$2; shift 2
 # ---------------------------------------------------------------- the guest
 # Never let a guest command's own status abort the run: a FAIL is a result, not
 # an accident.  Callers that care take the status from `$?` after `|| st=$?`.
-guest()  { "$VM" user "$NAME" -- sh -c "$1" 2>&1; }          # as user test, session env
+# As user test, in the session's environment, with W11_PROXY pinned: the smoke's window
+# and wm phases measure the CLONES, and on a Wayland flavor with the originals installed
+# the wrapper would otherwise hand every one of them to the original through the proxy
+# (measured by batch 9 of issue 1). phase_proxy names DISPLAY and W11_PROXY on its own
+# commands, and SMOKE_PROXY=always is the knob for a phase that wants the wrapper.
+guest()  { "$VM" user "$NAME" -- env W11_PROXY="${SMOKE_PROXY:-never}" sh -c "$1" 2>&1; }
 root()   { "$VM" ssh  "$NAME" -- sh -c "$1" 2>&1; }          # as root, no session env
 guestq() { "$VM" user "$NAME" -- sh -c "$1" >/dev/null 2>&1; }
 shot()   { "$VM" shot "$NAME" --all "$SHOTDIR/$1" >/dev/null 2>&1 && note "shots: $SHOTDIR/$1-*.png" || true; }

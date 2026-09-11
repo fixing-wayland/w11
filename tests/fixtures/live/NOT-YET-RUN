@@ -15,7 +15,45 @@ kde-x11
 lxqt
 mate
 river
-sway
 wayfire
 xfce
 xfce-wayland
+
+# A second class of line arrived with the X11 proxy: `proxy:<flavor>`, one per
+# FLAVOR rather than per step file, for the `proxy` phase vm/live-smoke.d/
+# common.sh added after `wm` on every Wayland step file.  It is per flavor
+# because what that phase measures is per compositor AND per distribution -- the
+# original xdotool is 3.20211022.1 on Ubuntu and Fedora and 4.20260303.1 on Arch
+# -- so a recording on one says nothing about the others.  Every flavor whose
+# `# vmctl-desktop:` names a Wayland step file is listed here until its `proxy`
+# phase has been run; the run that records one deletes its own line in the same
+# commit that adds the recording.  resolute-sway was the first, on 2026-09-11:
+# 27 pass, 0 fail, recorded as resolute-sway-1.11-windows-wm-proxy-replay.txt.
+proxy:arch-cosmic
+proxy:arch-gnome
+proxy:arch-hypr
+proxy:arch-kde
+proxy:arch-river
+proxy:arch-sway
+proxy:fedora43-gnome
+proxy:fedora44-cosmic
+proxy:fedora44-gnome
+proxy:fedora44-kde
+proxy:fedora44-sway
+proxy:nixos-gnome
+proxy:nixos-sway
+proxy:noble-gnome-iso
+proxy:noble-gnome
+proxy:noble-kde
+proxy:resolute-budgie
+proxy:resolute-cinnamon-wayland
+proxy:resolute-gnome-iso
+proxy:resolute-gnome
+proxy:resolute-hypr
+proxy:resolute-kde
+proxy:resolute-labwc
+proxy:resolute-lxqt-wayland
+proxy:resolute-wayfire
+proxy:resolute-xfce-wayland
+proxy:stonking-gnome
+proxy:stonking-kde

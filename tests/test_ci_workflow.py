@@ -382,6 +382,111 @@ class ThePackagingJobs(unittest.TestCase):
         self.assertNotIn("nixos-gnome", jobs()["nix"])
 
 
+class TheProxyInCI(unittest.TestCase):
+    """What the X11 proxy added to this workflow, and what would quietly stop
+    running if a line went.
+
+    Two of these have already been the failure elsewhere in this tree: a second
+    invocation added and the variable that makes it a second *thing* left off
+    (the parity run through the proxy is byte-for-byte the direct run without
+    `W11_PARITY_PROXY=1`, so a copy-paste that drops it is a job that passes
+    twice as slowly and proves nothing), and a package installed in a container
+    that has nothing to run it against."""
+
+    #: The four jobs that run the proxy against a real compositor: three that
+    #: have just installed or built a package, and the flake.
+    PROBERS = ("deb-install", "rpm", "pkgbuild", "nix")
+
+    def test_both_parity_jobs_run_the_oracle_twice(self):
+        """Once direct and once through a pass-through xw11 on :98.  The
+        second run is the framing's regression test: the two must differ only
+        in their `Ran N tests in` lines."""
+        for name in ("parity", "parity-arch"):
+            with self.subTest(name):
+                block = jobs()[name]
+                # `sh scripts/...`, the invocations: the step's own name says
+                # the script's path too and is not a run of it
+                self.assertEqual(block.count("sh scripts/parity-oracle.sh"), 2, block)
+                self.assertEqual(block.count("W11_PARITY_PROXY=1"), 1, block)
+
+    def test_the_bare_parity_runner_installs_what_native_parity_needs(self):
+        """`parity` is the one job on a bare runner rather than in one of our
+        images, so the packages are apt's and are listed by hand.
+        tests/test_xw11_parity.py::NativeParity needs a compositor, an Xwayland
+        and a native toplevel to compare against."""
+        block = jobs()["parity"]
+        for package in ("sway", "xwayland", "foot"):
+            with self.subTest(package):
+                self.assertRegex(block, r"install[^\n]*\b%s\b" % package)
+        # and the four it always had, so this test cannot pass by replacing them
+        for package in ("xvfb", "x11-utils", "xterm", "wmctrl"):
+            with self.subTest(package):
+                self.assertRegex(block, r"install[^\n]*\b%s\b" % re.escape(package))
+
+    def test_every_installer_runs_xw11_print_display_against_a_real_compositor(self):
+        """The one claim a container can make about the proxy: it starts, it
+        prints a display, and the second call prints the SAME one because a
+        session has one proxy.  A package that installs `xw11` and never runs
+        it is a package whose seventh command nobody has executed."""
+        for name in self.PROBERS:
+            with self.subTest(name):
+                block = jobs()[name]
+                self.assertIn("xw11-probe.sh", block)
+                self.assertIn("--print-display", block)
+                self.assertIn("WLR_BACKENDS=headless", block)
+                self.assertIn("xwayland enable", block)
+                # the comparison itself, not merely two calls
+                self.assertIn('[ "$a" = "$b" ]', block)
+
+    def test_the_probe_is_the_same_script_in_all_four(self):
+        """Four copies that have drifted apart are four different claims.  The
+        script is written by a quoted heredoc, so the bytes between `<<'PROBE'`
+        and the terminator are comparable directly."""
+        bodies = []
+        for name in self.PROBERS:
+            body = re.split(r"\n\s*PROBE\b",
+                            jobs()[name].split("<<'PROBE'", 1)[1], 1)[0]
+            bodies.append("\n".join(ln.strip() for ln in body.splitlines()))
+        self.assertEqual(len(set(bodies)), 1, [b[:200] for b in bodies])
+        self.assertIn("--print-display", bodies[0])
+
+    def test_the_probe_step_is_allowed_to_fail_and_says_why(self):
+        """It is measured on a desktop and not inside these containers, so the
+        first run there is the measurement -- the shape `parity-arch` already
+        uses for its own unmeasured gate.  The day one goes green the marker
+        comes off, which is why the reason is in the file beside it."""
+        step = "- name: xw11 --print-display under a headless sway"
+        for name in ("deb-install", "rpm", "nix"):
+            with self.subTest(name):
+                head, probe = jobs()[name].split(step, 1)
+                self.assertRegex(probe.split("run:", 1)[0], r"continue-on-error: true")
+                # The date belongs to THIS step: the contiguous comment block
+                # immediately above it plus its own keys down to `run:`, and not
+                # the whole job -- a reason that drifts off to an unrelated line
+                # of the job is a reason nobody reading the step will find.
+                comment, lines = [], head.splitlines()
+                if lines and not lines[-1].strip():
+                    lines.pop()                 # the step's own indentation
+                for line in reversed(lines):
+                    if not line.strip().startswith("#"):
+                        break
+                    comment.append(line)
+                where = "\n".join(reversed(comment)) + probe.split("run:", 1)[0]
+                self.assertIn("2026-09-11", where, where[-400:])
+        # pkgbuild's job is already continue-on-error for Arch's own reason, so
+        # its probe is inlined and guarded with `|| echo` instead
+        self.assertIn("did not run in this container", jobs()["pkgbuild"])
+
+    def test_lint_covers_the_whole_tree_and_xw11_is_not_excluded(self):
+        """`uvx ruff check .` is every package; the only thing that could take
+        xw11/ out of it is pyproject's own exclude list, so that is where this
+        looks."""
+        self.assertIn("uvx ruff check .", jobs()["lint"])
+        with open(os.path.join(ROOT, "pyproject.toml"), encoding="utf-8") as fh:
+            self.assertNotIn("xw11", fh.read().split("[tool.ruff]", 1)[1]
+                             .split("[tool.ruff.lint]", 1)[0])
+
+
 class TheRigJob(unittest.TestCase):
     """The vm job: one per flavor, and the package it installs."""
 
@@ -411,7 +516,12 @@ class TheRigJob(unittest.TestCase):
         own download step, which is where a missing rpm belongs."""
         self.assertIn("if: ${{ !cancelled() && needs.plan.result == 'success' "
                       "&& needs.deb.result == 'success' }}", self.vm)
-        self.assertNotIn("continue-on-error", jobs()["rpm"])
+        # JOB level, four spaces: `rpm` carries a step-level `continue-on-error`
+        # (eight spaces) on its headless-sway probe since the X11 proxy landed,
+        # and a step that is allowed to fail says nothing about what the JOB
+        # reports to its dependants, which is the whole of this claim.
+        self.assertIsNone(re.search(r"^    continue-on-error:", jobs()["rpm"], re.M),
+                          jobs()["rpm"])
         self.assertIn("needs.deb.result", self.vm)
 
     def test_each_download_is_guarded_by_the_flavors_own_distro(self):

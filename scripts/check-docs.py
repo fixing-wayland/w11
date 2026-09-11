@@ -28,7 +28,7 @@ import sys
 import tokenize
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOOLS = ["wdotool", "wwmctl", "wxprop", "wxrandr", "warandr", "wmirror"]
+TOOLS = ["wdotool", "wwmctl", "wxprop", "wxrandr", "warandr", "wmirror", "xw11"]
 OPT = re.compile(r"""["'](--[a-z][a-z0-9-]+)["']""")
 IN_TEXT = re.compile(r"(--[a-z][a-z0-9-]+)")
 
@@ -59,6 +59,31 @@ SILENT = {
     # `wxrandr --help` is xrandr 1.5.4's own usage text, byte for byte, so
     # every option of ours is missing from it on purpose.  They are documented
     # in docs/WXRANDR.md, "Command surface".
+    # `xw11 --help` prints all six of its own options.  What this table holds
+    # is the other twelve strings `options_in_code` finds under `xw11/`: the
+    # word the daemonised child is re-exec'd with, and the eleven clone-only
+    # tokens of `xw11/wrap.py:CLONE_ONLY`, which are not options of `xw11` at
+    # all -- they are the argv words that make a wrapped tool run OUR code
+    # instead of the original, and each is an option of the clone that owns it.
+    # Measured 2026-09-11: without these twelve entries this script reports
+    # twelve disagreements for a tree in which nothing disagrees.
+    "xw11": {
+        "__serve": "not an option: the argv the daemonised child is re-exec'd "
+                   "with, the way `wdotool __daemon` is.  It is deliberately "
+                   "absent from --help -- nobody types it",
+        "--layout": "wdotool's, read here to recognise it: xw11/wrap.py's "
+                    "CLONE_ONLY is the table of argv words that keep the clone",
+        "--vkbd": "wdotool's, the same",
+        "--backend": "wxrandr's, the same",
+        "--backends": "wxrandr's, the same",
+        "--print-backend": "wxrandr's, the same",
+        "--persistent": "wxrandr's, the same",
+        "--gnome-overlap-status": "wxrandr's, the same",
+        "--gnome-overlap-allow": "wxrandr's, the same",
+        "--gnome-overlap-forget": "wxrandr's, the same",
+        "--unsafe-gnome-overlap": "wxrandr's, the same",
+        "--unsafe-gnome-overlap-unmeasured": "wxrandr's, the same",
+    },
     "wxrandr": {
         "--backend": "ours, not xrandr's",
         "--backends": "ours, not xrandr's",

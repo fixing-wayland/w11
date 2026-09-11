@@ -22,7 +22,7 @@
 . "$STEPS/labwc.sh"
 
 # labwc's list plus one phase of Budgie's own.
-SMOKE_PHASES="busrec install windows wm input display mirror budgie root nodialog"
+SMOKE_PHASES="busrec install windows wm proxy input display mirror budgie root nodialog"
 
 # Budgie runs a display service of its own -- org.buddiesofbudgie.Services on the SYSTEM bus,
 # with an Outputs object -- and nothing in the recon established what it does when something

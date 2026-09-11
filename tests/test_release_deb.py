@@ -193,7 +193,6 @@ class ThePackageInTheTree(unittest.TestCase):
     def test_its_own_control_says_the_same_version(self):
         self.assertEqual(self.field("Version"), VERSION)
 
-    @unittest.expectedFailure
     def test_every_module_in_it_is_the_one_in_the_tree(self):
         """The finding itself.  A stale binary is invisible from inside the
         tree: every test passes, every document is right, and the thing people
@@ -369,7 +368,6 @@ class ThePackageInTheTree(unittest.TestCase):
         self.assertEqual(len(declared), 7, declared)
         self.assertIn("xw11", declared)
 
-    @unittest.expectedFailure
     def test_usr_bin_is_exactly_the_project_scripts_table(self):
         """The third list: what dpkg installs.  It is written in a fourth file
         -- the committed binary -- and nothing but this test connects it to the

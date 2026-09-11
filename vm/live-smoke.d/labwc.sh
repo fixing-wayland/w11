@@ -47,7 +47,7 @@
 # `nodialog` is trivially true here and cheap: this session runs no xdg-desktop-portal at all
 # (no org.freedesktop.portal.Desktop on the bus, measured on the Xfce variant
 # [recon2/xfce-wayland 1]).
-SMOKE_PHASES="busrec install windows wm input display mirror root nodialog"
+SMOKE_PHASES="busrec install windows wm proxy input display mirror root nodialog"
 
 # The terminal, in two knobs rather than a copied editor_start per flavor: budgie.sh and
 # lxqt-wayland.sh and xfce-wayland.sh source this file and set these BEFORE the source, which

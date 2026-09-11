@@ -50,6 +50,19 @@ xdotool documents.
 The gap is real time, so a repeat is not instantaneous, and the tool waits for it
 before exiting the way xdotool does.
 
+## On Wayland, with xdotool installed, this runs xdotool
+
+Since the X11 proxy, `wdotool` hands over on a **Wayland** session as well as on an X11 one:
+the original is exec'd with `DISPLAY` pointing at [`xw11`](XW11.md), which answers for
+native Wayland windows as well as for Xwayland's. The clone still runs when the original
+is not installed, when `W11_PROXY=never` (or `WDOTOOL_PROXY=never`) asks for it, when
+`W11_PASSTHROUGH=never` is set, and whenever the command uses one of our own options --
+`--layout`, `--vkbd` or the `keys` command, none of which xdotool has.
+Everything this document says about the clone's output is still what the clone prints;
+through the proxy the output is the original's, byte for byte, because it **is** the
+original. The six rules in order are
+[XW11.md § The wrapper rules](XW11.md#the-wrapper-rules).
+
 ## Compatibility
 
 All 48 xdotool commands are implemented, with output byte-compatible against

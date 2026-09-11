@@ -54,7 +54,7 @@
 # both), and `cosmic-randr list --kdl` on a real head reads `transform "normal"` -- NOT the
 # `flipped180` of the winit document in tests/fixtures/vm -- with only the current mode carrying
 # any flag at all.  See vm/flavors/fedora44-cosmic.yaml for the whole reading.
-SMOKE_PHASES="busrec install windows wm input display mirror root nodialog"
+SMOKE_PHASES="busrec install windows wm proxy input display mirror root nodialog"
 EDITOR_CLASS=foot
 
 # The editor is a terminal running `cat`, sway.sh's hook including the `cat >>`: see the

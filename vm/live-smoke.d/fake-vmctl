@@ -186,6 +186,12 @@ def main(argv):
         cmd = rest[1:]
         while cmd and cmd[0] in ("--", "-t", "--tty"):
             cmd.pop(0)
+        # `env K=V ... sh -c CMD` is the driver's own prefix (W11_PROXY pinned for the
+        # clones); the recordings are keyed on CMD, so the prefix is not part of the key
+        if cmd and cmd[0] == "env":
+            cmd.pop(0)
+            while cmd and "=" in cmd[0] and not cmd[0].startswith("-"):
+                cmd.pop(0)
         if cmd and cmd[0] == "sh" and len(cmd) > 2 and cmd[1] == "-c":
             cmd = [cmd[2]]
         text, rc = answer(" ".join(cmd))

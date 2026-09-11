@@ -275,6 +275,94 @@ class TheDaemonsTwoTimeouts(unittest.TestCase):
                 self.assertTrue(any(s in self.docs[name] for s in spellings), name)
 
 
+class TheProxysThreeConstants(unittest.TestCase):
+    """The three numbers that decide when the X11 proxy acts, against the prose
+    that quotes them -- the same claim `TheDaemonsTwoTimeouts` makes about the
+    input daemon, for the same reason.
+
+    Two of the three are a lifetime a user has to be able to find (`xw11` is a
+    process that outlives the command that started it, and a shadow window id
+    means nothing to the next proxy), and the third is a latency a compositor
+    has to beat.  Every one of them is written into a document as a literal, so
+    every one of them can go stale in a document without going stale in the
+    code.  Nothing below is transcribed: the numbers come out of `xw11.server`
+    and are rendered into the exact strings the documents carry."""
+
+    @classmethod
+    def setUpClass(cls):
+        from xw11 import server
+        cls.server = server
+        cls.docs = support.documents()
+
+    def test_the_constants_are_pinned(self):
+        """A pin and not a document check -- the three checks below are the
+        documents.  This one is the premise they rest on: a number that moved
+        in the code and in this file at once would still be caught by them,
+        because they render the code's value into the exact string the prose
+        has to carry."""
+        self.assertEqual(self.server._IDLE_SECONDS, 900.0)
+        self.assertEqual(self.server._CHECK_SECONDS, 15.0)
+        self.assertEqual(self.server.SETTLE_DELAYS, (0.050, 0.250))
+
+    def test_the_two_lifetimes_are_written_down_as_the_code_spells_them(self):
+        """`_IDLE_SECONDS = 900.0` and `_CHECK_SECONDS = 15.0`, verbatim, so a
+        reader who greps the document for the name finds the number the process
+        is actually using."""
+        for name in ("docs/XW11.md", "docs/Technical.md"):
+            for const in ("_IDLE_SECONDS", "_CHECK_SECONDS"):
+                want = "%s = %s" % (const, getattr(self.server, const))
+                with self.subTest("%s: %s" % (name, want)):
+                    self.assertIn(want, self.docs[name])
+
+    def test_the_idle_is_also_in_words_where_a_user_would_look(self):
+        """900 seconds is fifteen minutes and nobody thinks in seconds about a
+        process they did not start.  README and docs/XW11.md are the two a user
+        reads; the third is CHANGELOG, which is where the behaviour arrived."""
+        minutes = int(self.server._IDLE_SECONDS // 60)
+        spellings = ("fifteen minutes", "%d minutes" % minutes, "quarter of an hour")
+        for name in ("README.md", "docs/XW11.md", "CHANGELOG.md"):
+            with self.subTest(name):
+                self.assertTrue(any(w in self.docs[name] for w in spellings), name)
+        self.assertEqual(minutes, 15)
+
+    def test_the_settle_pair_is_the_pair_the_documents_quote(self):
+        """A CONSUMEd write arms a re-read of the compositor twice, because
+        sway sends no event at all for a floating `move position`.  Both
+        numbers are in the prose in milliseconds, and both are checked: a
+        document that quoted only the first would describe a proxy with no
+        backstop."""
+        want = ["+%d ms" % round(d * 1000) for d in self.server.SETTLE_DELAYS]
+        self.assertEqual(want, ["+50 ms", "+250 ms"])
+        for name in ("docs/XW11.md", "docs/Technical.md"):
+            for phrase in want:
+                with self.subTest("%s: %s" % (name, phrase)):
+                    self.assertIn(phrase, self.docs[name])
+
+    def test_every_document_that_names_the_idle_says_what_it_counts_from(self):
+        """The mirror of `TheDaemonsTwoTimeouts`' "at once" finding, stated as
+        the positive so that it pins prose rather than two spellings nobody has
+        typed: a lifetime with nothing to count from reads as "the proxy goes
+        when its last client does", and every id-lifetime claim in docs/XW11.md
+        would then be a claim about a much shorter window.  So a document that
+        names the idle at all carries, somewhere, a sentence that names it AND
+        the last client it is counted from.  Four documents do today (README,
+        CHANGELOG, docs/XW11.md, docs/Blogpost.md), which is why the floor
+        below is three rather than one."""
+        minutes = int(self.server._IDLE_SECONDS // 60)
+        numbers = ("fifteen minutes", "%d minutes" % minutes,
+                   "%d s" % int(self.server._IDLE_SECONDS))
+        named = 0
+        for name, text in self.docs.items():
+            if not any(n in text for n in numbers):
+                continue
+            named += 1
+            sentences = re.split(r"(?<=[.!?])\s+", text.replace("\n", " "))
+            hits = [s for s in sentences if any(n in s for n in numbers) and "client" in s]
+            with self.subTest(name):
+                self.assertTrue(hits, "%s names the idle and never what it counts from" % name)
+        self.assertGreaterEqual(named, 3, named)
+
+
 class TheSelftestParagraph(unittest.TestCase):
     """docs/Technical.md describes what `vm/selftest.sh` asserts.  It is a
     description of a script, so the script decides."""

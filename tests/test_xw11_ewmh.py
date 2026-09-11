@@ -192,7 +192,12 @@ class TheMeasuredMessages(EwmhCase):
         No backend in the tree has a show-the-desktop verb, so it is forwarded
         and one line names the route rather than a policy."""
         self.send_capture_messages("wmctrl-k")
-        self.assertEqual(self.backend.calls, [])
+        # forwarded means no backend VERB ran; the registry's own snapshot reads
+        # (views, get_desktop, num_desktops) may land in this window when the
+        # TTL expired under another file's timing, and they are not a write
+        reads = {"views", "list", "get_desktop", "num_desktops", "focused", "workspaces", "display_size",
+                 "_nodes", "pointer"}
+        self.assertEqual([c for c in self.backend.calls if c[0] not in reads], [])
         self.assertEqual(self.rig.upstream.ops[-2:],
                          [wire.OP_SEND_EVENT, wire.OP_GET_INPUT_FOCUS])
         said = self.log.carrying("_NET_SHOWING_DESKTOP")

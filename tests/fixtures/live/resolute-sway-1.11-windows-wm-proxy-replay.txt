@@ -1,0 +1,214 @@
+### true
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### rm -f $HOME/w11-smoke.txt; touch $HOME/w11-smoke.txt
+### rc=0
+### rm -f $HOME/w11-smoke.txt; setsid nohup foot -- sh -c 'cat >> $HOME/w11-smoke.txt' >/dev/null 2>&1 </dev/null &            sleep 3; true
+### rc=0
+### wdotool search --class foot | head -1
+7
+### rc=0
+### wdotool getwindowname 7
+foot
+### rc=0
+### wdotool getwindowgeometry 7
+Window 7
+  Position: 0,48 (screen: 0)
+  Geometry: 960x1032
+### rc=0
+### wdotool windowactivate --sync 7
+### rc=0
+### wdotool getactivewindow
+7
+### rc=0
+### wdotool set_desktop 1
+### rc=0
+### wdotool get_desktop
+1
+### rc=0
+### wdotool set_desktop 0
+### rc=0
+### wdotool get_desktop
+0
+### rc=0
+### wdotool windowactivate --sync 7
+### rc=0
+### wdotool mousemove 300 300
+### rc=0
+### wdotool getmouselocation
+x:300 y:300 screen:0 window:7
+### rc=0
+### wdotool mousemove 300 300 click 1
+### rc=0
+### wwmctl -l
+0x00000007  0 resolute-sway-smoke foot
+0x00000008  0 resolute-sway-smoke foot
+### rc=0
+### wwmctl -l -G
+0x00000007  0 0    48   960  1032 resolute-sway-smoke foot
+0x00000008  0 960  48   960  1032 resolute-sway-smoke foot
+### rc=0
+### wxprop -id 7 _NET_WM_STATE
+_NET_WM_STATE(ATOM) = 
+### rc=0
+### command -v xterm
+### rc=127
+### command -v xw11
+/usr/local/bin/xw11
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null
+:20 5250 :0
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### pgrep -u $(id -u) -f "xw11 __[s]erve" | wc -l
+1
+### rc=0
+### DISPLAY=:20 xdotool getdisplaygeometry
+1920 1080
+### rc=0
+### DISPLAY=:20 xdotool search --class foot | head -1
+4194305
+### rc=0
+### wdotool getwindowname 7
+foot
+### rc=0
+### DISPLAY=:20 xdotool getwindowname 4194305
+foot
+### rc=0
+### wdotool getwindowgeometry 7
+Window 7
+  Position: 0,48 (screen: 0)
+  Geometry: 960x1032
+### rc=0
+### DISPLAY=:20 xdotool getwindowgeometry 4194305
+Window 4194305
+  Position: 0,48 (screen: 0)
+  Geometry: 960x1032
+### rc=0
+### DISPLAY=:20 xprop -id 4194305
+_NET_WM_NAME(UTF8_STRING) = "foot"
+WM_NAME(STRING) = "foot"
+WM_CLASS(STRING) = "foot", "foot"
+_NET_WM_PID(CARDINAL) = 2374
+WM_CLIENT_MACHINE(STRING) = "resolute-sway-smoke"
+_NET_WM_DESKTOP(CARDINAL) = 0
+_NET_WM_STATE(ATOM) = 
+_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_NORMAL
+WM_STATE(WM_STATE):
+		window state: Normal
+		icon window: 0x0
+_NET_FRAME_EXTENTS(CARDINAL) = 0, 0, 0, 0
+WM_PROTOCOLS(ATOM): protocols  WM_DELETE_WINDOW
+### rc=0
+### DISPLAY=:20 wmctrl -l
+0x00400001  0 resolute-sway-smoke foot
+0x00400002  0 resolute-sway-smoke foot
+### rc=0
+### DISPLAY=:20 xdotool get_desktop
+0
+### rc=0
+### DISPLAY=:20 wmctrl -d
+0  * DG: 3840x1080  VP: N/A  WA: N/A  1
+1  - DG: 3840x1080  VP: N/A  WA: N/A  2
+### rc=0
+### DISPLAY=:20 xprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x400001, 0x400002
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-2 --pos 1920x200
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-2 1920,200
+Virtual-1 0,0
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-2 --pos 1920x0
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### DISPLAY=:20 xrandr -q
+Screen 0: minimum 16 x 16, current 3840 x 1080, maximum 32767 x 32767
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### tail -4 ${XW11_LOG:-/tmp/xw11-$(id -u).log}
+1789096771.909 xw11[5250] xw11: applied a RandR batch of 1 crtc(s) in 33 ms through sway (Virtual-2 on)
+1789096773.958 xw11[5250] xw11: applied a RandR batch of 1 crtc(s) in 22 ms through sway (Virtual-2 on)
+1789096857.347 xw11[5250] xw11: applied a RandR batch of 1 crtc(s) in 37 ms through sway (Virtual-2 on)
+1789096860.351 xw11[5250] xw11: applied a RandR batch of 1 crtc(s) in 38 ms through sway (Virtual-2 on)
+### rc=0
+### xw11 --stop
+### rc=0
+### printf "%s %s" "$(pgrep -u $(id -u) -f "xw11 __[s]erve" | wc -l)" \                   "$(test -e $XDG_RUNTIME_DIR/xw11/display && echo 1 || echo 0)"
+0 0
+### rc=0

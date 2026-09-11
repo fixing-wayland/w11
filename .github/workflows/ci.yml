@@ -132,6 +132,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      # `.` is every package in the tree, xw11/ included; pyproject's extend-exclude
+      # is one generated keysym table and nothing else.
       - run: uvx ruff check .
       - run: python3 scripts/check-docs.py
       - run: for f in vm/*.sh vm/live-smoke.d/*.sh scripts/*.sh; do bash -n "$f" || exit 1; done; sh -n gnome/install-bridge.sh; sh -n gnome/install-overlap.sh; sh -n packaging/common/enable-bridge; python3 -m py_compile vm/vmctl
@@ -268,12 +270,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
-      - run: sudo find /etc/apt/sources.list.d -type f ! -name ubuntu.sources -delete; sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends xvfb x11-utils xterm wmctrl
-      - name: the pinned oracles, then scripts/parity-oracle.sh
+      # sway, xwayland and foot are for tests/test_xw11_parity.py::NativeParity, which
+      # compares the pinned xdotool/wmctrl THROUGH the proxy with the clones on one
+      # headless sway; the four before them are the Xvfb half this job has always run.
+      - run: sudo find /etc/apt/sources.list.d -type f ! -name ubuntu.sources -delete; sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends xvfb x11-utils xterm wmctrl sway xwayland foot
+      - name: the pinned oracles, then scripts/parity-oracle.sh twice
         run: |
           nix build --no-link --print-out-paths --inputs-from . nixpkgs#xdotool nixpkgs#wmctrl > /tmp/oracles
           W11_ORACLE_PATH=$(sed 's|$|/bin|' /tmp/oracles | paste -sd:); export W11_ORACLE_PATH
           sh scripts/parity-oracle.sh
+          # ...and again with every byte through a pass-through xw11 on :98. The two runs
+          # must differ only in their `Ran N tests in` lines, which is what makes this the
+          # framing's regression test rather than a second copy of the first.
+          W11_PARITY_PROXY=1 sh scripts/parity-oracle.sh
 
   # The same comparison against a DISTRO's binary rather than a nix build. Arch is the only
   # one shipping xdotool 4.20260303.1 and wmctrl 1.07, the two versions this project clones
@@ -304,6 +313,9 @@ jobs:
           chown -R ci "$PWD"
           runuser -u ci -- env HOME=/home/ci XDG_RUNTIME_DIR=/tmp/xdg-ci W11_PASSTHROUGH=never \
               W11_ORACLE_PATH=/usr/bin dbus-run-session -- sh scripts/parity-oracle.sh
+          # the same run with every byte through a pass-through xw11 on :98
+          runuser -u ci -- env HOME=/home/ci XDG_RUNTIME_DIR=/tmp/xdg-ci W11_PASSTHROUGH=never \
+              W11_ORACLE_PATH=/usr/bin W11_PARITY_PROXY=1 dbus-run-session -- sh scripts/parity-oracle.sh
 
   deb:
     needs: [plan, image]
@@ -348,7 +360,48 @@ jobs:
           for t in wdotool wwmctl wxprop wxrandr warandr wmirror; do printf '%s: ' $t; $t --version 2>&1 | head -1; done
           ls /usr/share/gnome-shell/extensions/ /usr/lib/udev/rules.d/60-w11-uinput.rules \
              /etc/xdg/autostart/w11-enable-bridge.desktop /usr/lib/w11/enable-bridge
-          apt-get remove -y w11 >/dev/null && ! command -v wdotool
+      # The proxy against a real compositor, in the container that has just built or
+      # installed it. A headless sway needs no seat, no DRM and no /dev/dri
+      # (WLR_BACKENDS=headless), which makes this the cheapest place the whole thing can
+      # run: sway with xwayland on, then `xw11 --print-display` twice. It must print the
+      # SAME `:N` both times -- a session has one proxy, and the display file under
+      # $XDG_RUNTIME_DIR is what the second call finds instead of starting a second.
+      # Measured in exactly this shape on the development box on 2026-09-11 against sway
+      # 1.11 and Xwayland 24.1.10: `:20` twice, and the original `xdotool
+      # getdisplaygeometry` through it printed `1280 720`.
+      # continue-on-error, the way parity-arch carries its own unmeasured gate: that
+      # measurement is a desktop's and NOT one of these containers', so the first run here
+      # is the measurement rather than a reason to turn a push red.
+      - name: xw11 --print-display under a headless sway
+        continue-on-error: true
+        run: |
+          # this container has no unprivileged user, so sway runs as root here
+          apt-get install -y -qq --no-install-recommends sway xwayland >/dev/null
+          cat > /tmp/xw11-probe.sh <<'PROBE'
+          set -eu
+          : "${XW11:=xw11}"
+          RT=${XDG_RUNTIME_DIR:-/tmp/xdg-xw11}; mkdir -p "$RT"; chmod 700 "$RT"
+          export XDG_RUNTIME_DIR=$RT WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman
+          printf '%s\n' 'output HEADLESS-1 mode 1280x720' 'xwayland enable' \
+              "exec sh -c 'echo \"\$DISPLAY\" > $RT/display'" > "$RT/sway.conf"
+          sway -c "$RT/sway.conf" >/dev/null 2>&1 &
+          SWAYPID=$!
+          # by pid and never by pattern, on the `set -eu` exits as well as the end: a probe
+          # that leaves a compositor and its Xwayland running belongs to the rest of the job.
+          trap 'kill $SWAYPID 2>/dev/null || true' EXIT
+          i=0; while [ "$i" -lt 30 ] && [ ! -s "$RT/display" ]; do i=$((i + 1)); sleep 1; done
+          DISPLAY=$(cat "$RT/display"); export DISPLAY
+          SWAYSOCK=$(ls "$RT"/sway-ipc.*.sock | head -1); export SWAYSOCK
+          a=$($XW11 --print-display)
+          b=$($XW11 --print-display)
+          echo "xw11 --print-display: $a then $b (upstream DISPLAY=$DISPLAY)"
+          [ -n "$a" ]
+          [ "$a" = "$b" ]
+          $XW11 --stop
+          PROBE
+          sh /tmp/xw11-probe.sh
+      - name: apt remove, and nothing of ours left on PATH
+        run: apt-get remove -y w11 >/dev/null && ! command -v wdotool
 
   # The rpm half of `deb`. Three noarch rpms out of one build, rpmlint against the checked-in
   # rpmlintrc, and tests/test_release_rpm.py comparing the payload with the tree; the
@@ -372,6 +425,46 @@ jobs:
               sh scripts/build-rpm.sh --no-deps --lint
           runuser -u ci -- env HOME=/home/ci W11_PASSTHROUGH=never \
               python3 tests/test_release_rpm.py
+      # The proxy against a real compositor, in the container that has just built or
+      # installed it. A headless sway needs no seat, no DRM and no /dev/dri
+      # (WLR_BACKENDS=headless), which makes this the cheapest place the whole thing can
+      # run: sway with xwayland on, then `xw11 --print-display` twice. It must print the
+      # SAME `:N` both times -- a session has one proxy, and the display file under
+      # $XDG_RUNTIME_DIR is what the second call finds instead of starting a second.
+      # Measured in exactly this shape on the development box on 2026-09-11 against sway
+      # 1.11 and Xwayland 24.1.10: `:20` twice, and the original `xdotool
+      # getdisplaygeometry` through it printed `1280 720`.
+      # continue-on-error, the way parity-arch carries its own unmeasured gate: that
+      # measurement is a desktop's and NOT one of these containers', so the first run here
+      # is the measurement rather than a reason to turn a push red.
+      - name: xw11 --print-display under a headless sway
+        continue-on-error: true
+        run: |
+          # the tree's own xw11: this job builds the rpm, rpm-install is what installs one
+          cat > /tmp/xw11-probe.sh <<'PROBE'
+          set -eu
+          : "${XW11:=xw11}"
+          RT=${XDG_RUNTIME_DIR:-/tmp/xdg-xw11}; mkdir -p "$RT"; chmod 700 "$RT"
+          export XDG_RUNTIME_DIR=$RT WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman
+          printf '%s\n' 'output HEADLESS-1 mode 1280x720' 'xwayland enable' \
+              "exec sh -c 'echo \"\$DISPLAY\" > $RT/display'" > "$RT/sway.conf"
+          sway -c "$RT/sway.conf" >/dev/null 2>&1 &
+          SWAYPID=$!
+          # by pid and never by pattern, on the `set -eu` exits as well as the end: a probe
+          # that leaves a compositor and its Xwayland running belongs to the rest of the job.
+          trap 'kill $SWAYPID 2>/dev/null || true' EXIT
+          i=0; while [ "$i" -lt 30 ] && [ ! -s "$RT/display" ]; do i=$((i + 1)); sleep 1; done
+          DISPLAY=$(cat "$RT/display"); export DISPLAY
+          SWAYSOCK=$(ls "$RT"/sway-ipc.*.sock | head -1); export SWAYSOCK
+          a=$($XW11 --print-display)
+          b=$($XW11 --print-display)
+          echo "xw11 --print-display: $a then $b (upstream DISPLAY=$DISPLAY)"
+          [ -n "$a" ]
+          [ "$a" = "$b" ]
+          $XW11 --stop
+          PROBE
+          runuser -u ci -- env HOME=/home/ci XDG_RUNTIME_DIR=/tmp/xdg-ci \
+              PYTHONPATH="$PWD" XW11="python3 -m xw11" sh /tmp/xw11-probe.sh
       - uses: actions/upload-artifact@v4
         with:
           name: rpms
@@ -440,6 +533,33 @@ jobs:
           # `rpm -V`, and the same claim: `-Qkk` reads sizes and sha256s and not just
           # presence. The stamp post_install writes lives outside the file list.
           pacman -Qkk w11
+          cat > /tmp/xw11-probe.sh <<'PROBE'
+          set -eu
+          : "${XW11:=xw11}"
+          RT=${XDG_RUNTIME_DIR:-/tmp/xdg-xw11}; mkdir -p "$RT"; chmod 700 "$RT"
+          export XDG_RUNTIME_DIR=$RT WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman
+          printf '%s\n' 'output HEADLESS-1 mode 1280x720' 'xwayland enable' \
+              "exec sh -c 'echo \"\$DISPLAY\" > $RT/display'" > "$RT/sway.conf"
+          sway -c "$RT/sway.conf" >/dev/null 2>&1 &
+          SWAYPID=$!
+          # by pid and never by pattern, on the `set -eu` exits as well as the end: a probe
+          # that leaves a compositor and its Xwayland running belongs to the rest of the job.
+          trap 'kill $SWAYPID 2>/dev/null || true' EXIT
+          i=0; while [ "$i" -lt 30 ] && [ ! -s "$RT/display" ]; do i=$((i + 1)); sleep 1; done
+          DISPLAY=$(cat "$RT/display"); export DISPLAY
+          SWAYSOCK=$(ls "$RT"/sway-ipc.*.sock | head -1); export SWAYSOCK
+          a=$($XW11 --print-display)
+          b=$($XW11 --print-display)
+          echo "xw11 --print-display: $a then $b (upstream DISPLAY=$DISPLAY)"
+          [ -n "$a" ]
+          [ "$a" = "$b" ]
+          $XW11 --stop
+          PROBE
+          # the same probe the other three installers run, as the `ci` user, against the
+          # xw11 pacman just installed. `|| echo`: this job is continue-on-error for Arch's
+          # own reasons and the removal below has to be reached whatever sway does here.
+          runuser -u ci -- env HOME=/home/ci XDG_RUNTIME_DIR=/tmp/xdg-ci sh /tmp/xw11-probe.sh \
+              || echo "xw11 --print-display did not run in this container"
           pacman -R --noconfirm w11 && ! command -v wdotool
       - uses: actions/upload-artifact@v4
         with:
@@ -467,6 +587,46 @@ jobs:
         run: W11_NIX_LIVE=1 W11_PASSTHROUGH=never python3 tests/test_flake.py
       - name: the checks that boot nothing
         run: nix build --no-link -L .#checks.x86_64-linux.module-eval .#checks.x86_64-linux.tools .#checks.x86_64-linux.nixos-sway
+      # The proxy against a real compositor, in the container that has just built or
+      # installed it. A headless sway needs no seat, no DRM and no /dev/dri
+      # (WLR_BACKENDS=headless), which makes this the cheapest place the whole thing can
+      # run: sway with xwayland on, then `xw11 --print-display` twice. It must print the
+      # SAME `:N` both times -- a session has one proxy, and the display file under
+      # $XDG_RUNTIME_DIR is what the second call finds instead of starting a second.
+      # Measured in exactly this shape on the development box on 2026-09-11 against sway
+      # 1.11 and Xwayland 24.1.10: `:20` twice, and the original `xdotool
+      # getdisplaygeometry` through it printed `1280 720`.
+      # continue-on-error, the way parity-arch carries its own unmeasured gate: that
+      # measurement is a desktop's and NOT one of these containers', so the first run here
+      # is the measurement rather than a reason to turn a push red.
+      - name: xw11 --print-display under a headless sway
+        continue-on-error: true
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends sway xwayland >/dev/null
+          nix build --no-link --print-out-paths .#w11 > /tmp/w11out
+          cat > /tmp/xw11-probe.sh <<'PROBE'
+          set -eu
+          : "${XW11:=xw11}"
+          RT=${XDG_RUNTIME_DIR:-/tmp/xdg-xw11}; mkdir -p "$RT"; chmod 700 "$RT"
+          export XDG_RUNTIME_DIR=$RT WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman
+          printf '%s\n' 'output HEADLESS-1 mode 1280x720' 'xwayland enable' \
+              "exec sh -c 'echo \"\$DISPLAY\" > $RT/display'" > "$RT/sway.conf"
+          sway -c "$RT/sway.conf" >/dev/null 2>&1 &
+          SWAYPID=$!
+          # by pid and never by pattern, on the `set -eu` exits as well as the end: a probe
+          # that leaves a compositor and its Xwayland running belongs to the rest of the job.
+          trap 'kill $SWAYPID 2>/dev/null || true' EXIT
+          i=0; while [ "$i" -lt 30 ] && [ ! -s "$RT/display" ]; do i=$((i + 1)); sleep 1; done
+          DISPLAY=$(cat "$RT/display"); export DISPLAY
+          SWAYSOCK=$(ls "$RT"/sway-ipc.*.sock | head -1); export SWAYSOCK
+          a=$($XW11 --print-display)
+          b=$($XW11 --print-display)
+          echo "xw11 --print-display: $a then $b (upstream DISPLAY=$DISPLAY)"
+          [ -n "$a" ]
+          [ "$a" = "$b" ]
+          $XW11 --stop
+          PROBE
+          XW11=$(cat /tmp/w11out)/bin/xw11 sh /tmp/xw11-probe.sh
 
   nix-full:
     needs: plan

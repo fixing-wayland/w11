@@ -99,6 +99,16 @@ phase_passthrough() {
     want "wmirror --check says this is an X11 session" "this is an X11 session" "$out"
     local firstline; firstline=$(printf '%s\n' "$out" | head -1)
     xwant "...and says it before any apt line, not after the helper line (fix 40, T21)" "X11" "$firstline"
+    # 4. ...and no X11 proxy was started on the way.  Rule 3 of xw11/wrap.py:
+    # on an X11 session `maybe_exec_real` has already replaced the process one
+    # line above, so xw11 is never started, never spawned and never imported.
+    # The pid file is the check, not a process pattern: a proxy that exists
+    # writes $XDG_RUNTIME_DIR/xw11/display with its own `:N` and pid, and a
+    # proxy that was never started leaves the path absent.  This file is sourced
+    # by every other X11 step file (cinnamon, gnome-x11, i3, kde-x11, lxqt,
+    # mate), so this is that claim on all seven.
+    want "the X11 handover starts no proxy: there is no xw11 display file" "^none$" \
+         "$(guest 'cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null || echo none' | tr -d ' \r\n' || true)"
     guest "pkill xterm; true" >/dev/null 2>&1 || true
     root "rm -f /usr/local/bin/xdotool /usr/local/bin/wmctrl /usr/local/bin/xprop /usr/local/bin/xrandr" \
         >/dev/null 2>&1 || true

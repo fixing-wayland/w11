@@ -9,6 +9,19 @@ just works). Same house rules as the rest of the tree
 ([Technical.md](Technical.md)): pure-stdlib Python, no third-party dependency,
 byte-parity oracles.
 
+## On Wayland, with xprop installed, this runs xprop
+
+Since the X11 proxy, `wxprop` hands over on a **Wayland** session as well as on an X11 one:
+the original is exec'd with `DISPLAY` pointing at [`xw11`](XW11.md), which answers for
+native Wayland windows as well as for Xwayland's. The clone still runs when the original
+is not installed, when `W11_PROXY=never` (or `WXPROP_PROXY=never`) asks for it, when
+`W11_PASSTHROUGH=never` is set, and whenever the command uses one of our own options --
+of which `xprop` has none: every byte this clone takes, xprop takes too.
+Everything this document says about the clone's output is still what the clone prints;
+through the proxy the output is the original's, byte for byte, because it **is** the
+original. The six rules in order are
+[XW11.md § The wrapper rules](XW11.md#the-wrapper-rules).
+
 ## Planes
 
 - **X windows** (id ≥ the X resource base, or found via the compositor tree's

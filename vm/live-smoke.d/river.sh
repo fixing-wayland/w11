@@ -49,7 +49,7 @@
 # /dev/uinput; `wmirror --check` found both capture managers.  `wl-mirror` itself could NOT be
 # run in the recon (no EGL in that sandbox: `failed to create EGL display`), so this rig is
 # the first place a real mirror on river is measured at all [recon2/river 3].
-SMOKE_PHASES="busrec install windows wm input display mirror root nodialog"
+SMOKE_PHASES="busrec install windows wm proxy input display mirror root nodialog"
 EDITOR_CLASS=foot
 
 #: Where the second terminal writes its own pid.  In $HOME and not /tmp, for the reason

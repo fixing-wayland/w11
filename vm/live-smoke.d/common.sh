@@ -39,8 +39,12 @@ ORACLE='$HOME/w11-oracle.py'
 
 # --- helpers ------------------------------------------------------------------
 
-# The tools under test, in the order build-pyz.sh names them.
-SMOKE_TOOLS="wdotool wwmctl wxprop wxrandr warandr wmirror"
+# The tools under test, in the order build-pyz.sh names them.  `xw11` is the
+# seventh and is here for phase_proxy: a `--tree` run installs the package first
+# and overlays dist/ on top of it, so without this line a tree deploy would
+# measure the proxy the PACKAGE carries (or none at all, on a package built
+# before it landed) while measuring the tree's six everywhere else.
+SMOKE_TOOLS="wdotool wwmctl wxprop wxrandr warandr wmirror xw11"
 
 # `wdotool getwindowgeometry` prints two indented lines; the smoke wants them
 # as one word, `100,100 800x600`, which is the shape the measurement is in.
@@ -417,6 +421,215 @@ phase_wm() {
     want "wwmctl -d lists desktops" "^0 " "$(guest 'wwmctl -d' || true)"
     want "wxprop -root _NET_CLIENT_LIST is a window-id list" "window id|0x[0-9a-f]+|WINDOW" \
          "$(guest 'wxprop -root _NET_CLIENT_LIST' || true)"
+}
+
+# The proxy phase (design section 9.4), appended after `wm` in every Wayland
+# step file's SMOKE_PHASES.  Every other phase in this run measures OUR code;
+# this one measures the ORIGINALS -- the distribution's own xdotool, wmctrl,
+# xprop and xrandr, which every golden installs as test-support packages
+# (vm/build-image.sh:34, and all 34 flavor files carry xdotool and wmctrl) --
+# answering through `xw11` about the same windows the clones just answered
+# about.  That is the whole claim of the proxy and it cannot be made anywhere
+# but here: the originals need a real compositor with a real Xwayland in front
+# of it, and 14 of the 34 flavors have no X client at all, which is exactly the
+# case that proves the proxy needs none to have a client list.
+#
+# What it does NOT do is re-measure the compositor.  Where the clone already
+# answered in `windows`/`wm`, the check is that the original's answer through
+# the proxy AGREES with it (ids tokenised: the clone prints the compositor's own
+# id and the proxy a shadow, and they are different numbers for the same
+# window on purpose).  Where the clone had no answer, the check is the
+# original's alone.
+phase_proxy() {
+    local disp file out id n props clist
+
+    # 0.  The proxy has to be installed at all.  `--pkg` installs
+    # release/w11_*.deb and `--tree` overlays dist/, and a package built before
+    # the proxy landed carries neither /usr/bin/xw11 nor the wrapper the four
+    # tools call -- which would make every check below pass over nothing.
+    if [ -z "$(guest 'command -v xw11' || true)" ]; then
+        fail "no xw11 on this guest: the package predates the proxy, and no dist/xw11 arrived"
+        return 1
+    fi
+
+    # 1.  Starting it.  `xw11 --print-display` starts one when there is none and
+    # prints its `:N`; a second call must answer the SAME one, because a session
+    # has one proxy and the display file under $XDG_RUNTIME_DIR is what the
+    # loser of that race finds instead of starting a second.
+    disp=$(guest 'xw11 --print-display' | tr -d ' \r\n' || true)
+    want "xw11 --print-display starts a proxy and prints its display" '^:[0-9]+$' "$disp"
+    case $disp in :[0-9]*) ;; *) fail "no display from xw11 --print-display [$(ev "$disp")]"; return 1 ;; esac
+    file=$(guest 'cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null' || true)
+    want "the session's display file names that display and a pid" "^$disp [0-9]+" "$file"
+    same "a second --print-display answers the proxy that is already there" "$disp" \
+         "$(guest 'xw11 --print-display' | tr -d ' \r\n' || true)"
+    # `__[s]erve` and not `__serve`: -f is a regex matched against every command
+    # line, and the `sh -c` this very command is running carries the literal
+    # string -- so the plain spelling counts itself and answers 1 with no proxy
+    # running at all.  The bracket matches the same character and is not in the
+    # text being matched.
+    n=$(guest 'pgrep -u $(id -u) -f "xw11 __[s]erve" | wc -l' | tr -d ' \r\n' || true)
+    same "exactly one xw11 __serve, and ps can be grepped for that word" "1" "${n:-0}"
+
+    # 2.  The originals, against that display.  getdisplaygeometry is the
+    # cheapest command that opens one, and it is xdotool's own answer to
+    # XINERAMA, which the proxy forwards untouched.
+    want "the original xdotool opens the proxy's display" "^[0-9]+ [0-9]+$" \
+         "$(guest "DISPLAY=$disp xdotool getdisplaygeometry" | tr -d '\r' || true)"
+    id=$(guest "DISPLAY=$disp xdotool search --class $EDITOR_CLASS | head -1" | tr -d ' \r\n' || true)
+    want "the original xdotool finds the editor by class through the proxy" "^[0-9]+$" "$id"
+    if [ -n "$id" ]; then
+        same "...and its title is the one the clone read" \
+             "$(guest "wdotool getwindowname $WIN" || true)" \
+             "$(guest "DISPLAY=$disp xdotool getwindowname $id" || true)"
+        same "...and its geometry is the one the clone read" "$(win_geom "$WIN")" \
+             "$(guest "DISPLAY=$disp xdotool getwindowgeometry $id" | awk '
+                 /Position:/ { pos = $2 } /Geometry:/ { geo = $2 }
+                 END { printf "%s %s\n", pos, geo }' || true)"
+        # The eleven names ListProperties answers for a shadow, in the order it
+        # answers them (docs-rows-batch-3 section 1, measured 2026-09-10 on a
+        # native foot, and the same eleven in the resolute-sway recording of
+        # 2026-09-11).  The set is ours and fixed; a real X window answers in
+        # reversed creation order, which is the What-differs row.  Two of the
+        # eleven are conditional -- _NET_WM_PID where the compositor knows the
+        # pid, WM_CLIENT_MACHINE where the kernel says the hostname -- so a
+        # flavor that drops one goes red here and that red is the measurement
+        # its NOT-YET-RUN line is waiting for, not a bug in the check.
+        props="_NET_WM_NAME WM_NAME WM_CLASS _NET_WM_PID WM_CLIENT_MACHINE _NET_WM_DESKTOP"
+        props="$props _NET_WM_STATE _NET_WM_WINDOW_TYPE WM_STATE _NET_FRAME_EXTENTS WM_PROTOCOLS"
+        same "the original xprop prints the shadow's eleven names in ListProperties order" \
+             "$props" "$(guest "DISPLAY=$disp xprop -id $id" \
+                          | awk -F'[(:]' '/^[A-Za-z_]/ { printf "%s ", $1 }' | sed 's/ *$//' || true)"
+    fi
+    # Not a regex that any row would satisfy: the original's list IS the clone's
+    # list, title for title, once the id column is tokenised -- the two number
+    # the same windows differently on purpose (the clone answers the
+    # compositor's own id, the proxy a shadow), and nothing else may differ.
+    same "the original wmctrl -l lists what the clone lists, ids tokenised" \
+         "$(guest 'wwmctl -l' | awk '{ $1 = "#"; print }' || true)" \
+         "$(guest "DISPLAY=$disp wmctrl -l" | awk '{ $1 = "#"; print }' || true)"
+    # tools section 4.10: all four of these exited 1 on a wlroots session with
+    # `Your windowmanager claims not to support _NET_CURRENT_DESKTOP`, because
+    # each reads _NET_SUPPORTED first and gives up before sending the read it
+    # came for.  The proxy's union of that list is what turns them.
+    out=$(guest "DISPLAY=$disp xdotool get_desktop" | tr -d ' \r\n' || true)
+    want "xdotool get_desktop answers a number where it used to exit 1" "^[0-9]+$" "$out"
+    want "wmctrl -d prints a desktop row where it used to exit 1" "^[0-9]+ +[*-] " \
+         "$(guest "DISPLAY=$disp wmctrl -d" || true)"
+    # The point of the whole phase on a flavor with no xterm: the root's client
+    # list is the compositor's, so it names the SHADOW of a native window on a
+    # session with no X client at all.  xprop prints the ids unpadded
+    # (`0x400001` in the resolute-sway recording, for the shadow xdotool
+    # answered as 4194305), so the pattern allows the padding and demands a
+    # delimiter after it -- `0x400001` must not be matched by `0x4000010`.
+    clist=$(guest "DISPLAY=$disp xprop -root _NET_CLIENT_LIST" || true)
+    if [ -n "$id" ]; then
+        want "xprop -root _NET_CLIENT_LIST names the shadow $(printf '0x%x' "$id") itself" \
+             "$(printf '0x0*%x([,)[:space:]]|$)' "$id")" "$clist"
+    else
+        want "xprop -root _NET_CLIENT_LIST names a window with no X client on the session" \
+             "window id # 0x[0-9a-f]+" "$clist"
+    fi
+
+    # 3.  The wrapper.  The four zipapps carry no xw11 at all, so a --tree run
+    # deliberately never hands over and the route measured here is the installed
+    # package's.  Both halves are a claim, and which one is true is MODE.
+    if [ "$MODE" = tree ]; then
+        note "(tree mode: the zipapps carry no xw11, so the wrapper route is the package's and is not measured here)"
+    else
+        want "W11_PROXY=always makes the wrapper exec the ORIGINAL xdotool" "^[0-9]+$" \
+             "$(guest "W11_PROXY=always wdotool search --class $EDITOR_CLASS | head -1" | tr -d ' \r\n' || true)"
+        same "W11_PROXY=never is the clone, and still answers the compositor's own id" "$WIN" \
+             "$(guest "W11_PROXY=never wdotool search --class $EDITOR_CLASS | head -1" | tr -d ' \r\n' || true)"
+        # Rule 5b: a version request opens no display, so it runs the original
+        # and starts nothing.  The original's version string is the archive's,
+        # which is never the 4.20260303.1 our clone prints.
+        note "wdotool --version under the wrapper: $(guest 'wdotool --version' | tr -d '\r' || true)"
+    fi
+
+    # 4.  RandR.  The read side passes untouched and the write side is collected
+    # in the client's own grab and applied once, so a layout change through the
+    # proxy has to show up in the COMPOSITOR -- which is what the native oracle
+    # reads, and what it reads is positions.  So the round trip is a `--pos`:
+    # without the proxy that exits 0 on a Wayland session and nothing happens,
+    # and through it the output moves.  Measured on resolute-sway 2026-09-11
+    # (two 1920x1080 virtual heads): Virtual-2 from 1920,0 to 1920,200 and back,
+    # exit 0 both ways, sway's own rect following each time.
+    local pair anchor mover before bx by ny
+    pair=$(display_pair); anchor=${pair%% *}; mover=${pair#* }
+    if [ -z "$mover" ]; then
+        note "(one enabled output: --pos has nowhere to move it, and the mode note below is what is left)"
+    else
+        before=$(opos "$mover")
+        bx=${before%%,*}; by=${before#*,}; ny=$((by + 200))
+        guest "DISPLAY=$disp xrandr --output $mover --pos ${bx}x${ny}" >/dev/null 2>&1 || true
+        sleep 2
+        same "xrandr --output $mover --pos ${bx}x${ny} reaches the compositor (exit 0 and nothing, before)" \
+             "$bx,$ny" "$(opos "$mover")"
+        guest "DISPLAY=$disp xrandr --output $mover --pos ${bx}x${by}" >/dev/null 2>&1 || true
+        sleep 2
+        same "...and putting it back is where the native tool started it" "$before" "$(opos "$mover")"
+    fi
+    # The mode round trip is NOT a check here, and that is a measurement rather
+    # than a gap in this phase: `xrandr -q` lists what XWAYLAND fabricates for a
+    # virtual head -- a CVT ladder off its current logical size -- and the
+    # compositor's list is the EDID's.  Measured on resolute-sway 2026-09-11,
+    # the two share exactly ONE entry, the current mode (xrandr offers
+    # 1920x1080, 1440x1080, 1400x1050, 1280x1024...; sway offers 1920x1080,
+    # 5120x2160, 3840x2160, 1920x1440, 2560x1080...), so
+    # `--mode 1440x1080` through the proxy is BadMatch at RRSetScreenSize and
+    # `cannot find mode 1440x1080` in the proxy log -- the compositor refusing a
+    # mode it does not have, which is the row docs/XW11.md carries.  What the
+    # two lists have in common is per flavor and per virtual head, so this
+    # records both and asserts neither.
+    note "xrandr -q offers $anchor: $(guest "DISPLAY=$disp xrandr -q" | awk -v h="$anchor" '
+        $1 == h { f = 1; next } /^[A-Za-z]/ { f = 0 }
+        f && $1 ~ /^[0-9]+x[0-9]+$/ { printf "%s ", $1 }' | cut -c1-200)"
+    note "the last four lines of the proxy log: $(ev "$(guest 'tail -4 ${XW11_LOG:-/tmp/xw11-$(id -u).log}' || true)")"
+
+    # 5.  R2 and R9, the two risks nobody has measured on a compositor that is
+    # not wlroots: KWin loads a JS engine per scripting operation and Mutter's
+    # apply waits for MonitorsChanged, and neither has ever been measured under
+    # the proxy's 20 ms registry TTL.  These are xwants and not wants: they are
+    # measurements nobody has taken, and the first green run here is the
+    # measurement.
+    case $DESKTOP in
+    gnome|kde)
+        guest "DISPLAY=$disp xdotool windowactivate --sync $id" >/dev/null 2>&1 || true
+        editor_clear
+        guest "DISPLAY=$disp xdotool type --delay 30 -- 'proxy: yz@'" >/dev/null 2>&1 || true
+        sleep 0.6; editor_save; sleep 1
+        xwant "R9: the original xdotool types into a NATIVE window (until a GNOME/KDE run)" \
+              "proxy: yz@" "$(editor_text)"
+        # `$anchor` and not an unset variable: xwant is <what> <regex> <text>,
+        # and an empty regex matches anything -- an XPASS whatever the
+        # compositor did, which is the opposite of a measurement.  The head is
+        # the anchor display_pair named above, the name is anchored, and the
+        # read-back is the compositor's own tool.
+        if [ -n "$anchor" ]; then
+            xwant "R2: xrandr --primary is read back as $anchor (until a GNOME/KDE run)" \
+                  "^$anchor\$" "$(guest "DISPLAY=$disp xrandr --output $anchor --primary \
+                      >/dev/null 2>&1; wxrandr --query" | awk '/ primary /{ print $1 }' || true)"
+        else
+            note "(the oracle named no output: R2's xwant has no head to name and did not run)"
+        fi
+        # dash is /bin/sh on every golden and has neither the `time` keyword nor
+        # TIMEFORMAT (both are bash's), so the milliseconds come from date(1) on
+        # either side of ONE registry read -- which is the whole of R9's
+        # question under the proxy's 20 ms registry TTL.
+        note "R9 timing, one registry read: $(guest "DISPLAY=$disp; export DISPLAY; \
+s=\$(date +%s%N); xdotool search --class $EDITOR_CLASS >/dev/null 2>&1; \
+printf '%s ms\\n' \$(( (\$(date +%s%N) - s) / 1000000 ))" || true)"
+        ;;
+    esac
+
+    # 6.  Leave the session as it was found: the proxy is on demand and a rig
+    # run must not leave one holding an Xwayland open for the phases after it.
+    guest 'xw11 --stop' >/dev/null 2>&1 || true
+    sleep 1
+    same "xw11 --stop leaves no proxy and no display file" "0 0" \
+         "$(guest 'printf "%s %s" "$(pgrep -u $(id -u) -f "xw11 __[s]erve" | wc -l)" \
+                  "$(test -e $XDG_RUNTIME_DIR/xw11/display && echo 1 || echo 0)"' | tr -d '\r' || true)"
 }
 
 phase_input() {

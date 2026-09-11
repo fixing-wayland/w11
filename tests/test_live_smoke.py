@@ -131,9 +131,50 @@ def recorded_tokens():
     return out
 
 
+#: The second class of line in NOT-YET-RUN, which arrived with the `proxy`
+#: phase: `proxy:<flavor>`, one per FLAVOR rather than one per step file.  The
+#: shell half of the same bookkeeping (`selftest-offline.sh` pass 5) matches its
+#: tokens with `grep -cx`, so a line of this shape is invisible to it, which is
+#: what lets the two classes share one file.
+PROXY_LINE = re.compile(r"^proxy:(\S+)$")
+
+
 def not_yet_run():
+    """The step-file tokens declared not yet recorded -- the `proxy:` lines are
+    a different claim and `not_yet_run_proxy` is where they are read."""
     return [ln.strip() for ln in read(NOT_YET_RUN).splitlines()
-            if ln.strip() and not ln.lstrip().startswith("#")]
+            if ln.strip() and not ln.lstrip().startswith("#")
+            and not PROXY_LINE.match(ln.strip())]
+
+
+def not_yet_run_proxy():
+    """The flavors whose `proxy` phase has never been run."""
+    return [PROXY_LINE.match(ln.strip()).group(1)
+            for ln in read(NOT_YET_RUN).splitlines()
+            if PROXY_LINE.match(ln.strip())]
+
+
+#: Every Wayland step file, which is every one whose SMOKE_PHASES runs `windows`
+#: -- the X11 files run `passthrough` and stop, because the handover has already
+#: replaced the process by the time a window command could run.  Read out of the
+#: files rather than listed here: a step file that changes sides has to change
+#: this test's answer with it.
+def phases_of(token):
+    """`SMOKE_PHASES` as the driver sees it, inheritance resolved.
+
+    Three step files are three assignments and a source (lxqt-wayland sources
+    labwc, i3 and kde-x11 source xfce), so the list has to come from bash and
+    not from a regex over the file."""
+    pre = "set -u\nSTEPS=%s\nDESKTOP=%s\nDISTRO=ubuntu\nMODE=pkg\nREUSE=0\n" % (STEPS, token)
+    pre += "VM=/nonexistent/vmctl\nNAME=t\nFLAVOR=t\nREPO=%s\nHEADS=2\nSCALE=0\n" % ROOT
+    for name in TheStepFiles.HELPERS.split():
+        pre += "%s() { :; }\n" % name
+    pre += '. "$STEPS/common.sh"\n. "$STEPS/%s.sh"\necho "P:$SMOKE_PHASES"\n' % token
+    got = subprocess.run(["bash", "-c", pre], capture_output=True, text=True, timeout=60)
+    line = [ln[2:] for ln in got.stdout.splitlines() if ln.startswith("P:")]
+    if not line:
+        raise AssertionError("%s printed no SMOKE_PHASES:\n%s" % (token, got.stderr[-2000:]))
+    return line[0].split()
 
 
 class TheOracle(unittest.TestCase):
@@ -916,6 +957,119 @@ class TheDistroPhases(unittest.TestCase):
                          "w11: 61 total files, 3 altered files", mode="tree")
         self.assertNotIn("PASS|", out)
         self.assertNotIn("FAIL|", out)
+
+
+class TheProxyPhase(unittest.TestCase):
+    """The `proxy` phase: where it runs, where it must not, and the bookkeeping
+    that says which flavors have run it.
+
+    It is the only place in the tree where the ORIGINAL xdotool, wmctrl, xprop
+    and xrandr are driven through `xw11` against a real compositor, so a
+    Wayland step file that quietly lost the phase would take the whole claim
+    with it and nothing else would notice.  The mirror claim matters as much:
+    on an X11 session the handover has already replaced the process one line
+    above the wrapper's call, so no proxy may be started there at all -- and
+    that is asserted by the pid file the proxy writes, not by a process
+    pattern.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.common = read(STEPS, "common.sh")
+        cls.phases = {t: phases_of(t) for t in step_tokens()}
+
+    def wayland_tokens(self):
+        """A step file is a Wayland one when it runs `windows`; the X11 ones
+        run `passthrough` and stop, because after the handover there is no
+        clone left in the process to ask about a window."""
+        return sorted(t for t, p in self.phases.items() if "windows" in p)
+
+    def x11_tokens(self):
+        return sorted(t for t, p in self.phases.items() if "windows" not in p)
+
+    def test_common_sh_defines_phase_proxy(self):
+        """The premise: every list below names a function, and this is where it
+        lives -- no desktop file carries a copy."""
+        self.assertIn("\nphase_proxy() {", self.common)
+        self.assertEqual(sum(1 for t in step_tokens()
+                             if "phase_proxy()" in read(STEPS, t + ".sh")), 0)
+
+    def test_the_split_is_not_empty_on_either_side(self):
+        """The premise of the two tests below: a `phases_of` that stopped
+        resolving would make both of them pass over nothing."""
+        self.assertGreaterEqual(len(self.wayland_tokens()), 10, self.phases)
+        self.assertGreaterEqual(len(self.x11_tokens()), 5, self.phases)
+
+    def test_every_wayland_step_file_runs_proxy_right_after_wm(self):
+        """Right after `wm` and not anywhere: the phase re-runs the `windows`
+        and `wm` assertions with the originals and compares them with what the
+        clones answered, so it needs $WIN and those answers to be the freshest
+        thing that happened."""
+        for token in self.wayland_tokens():
+            with self.subTest(token):
+                phases = self.phases[token]
+                self.assertIn("proxy", phases, phases)
+                self.assertIn("wm", phases, phases)
+                self.assertEqual(phases.index("proxy"), phases.index("wm") + 1, phases)
+
+    def test_no_x11_step_file_runs_proxy(self):
+        for token in self.x11_tokens():
+            with self.subTest(token):
+                self.assertNotIn("proxy", self.phases[token], self.phases[token])
+
+    def test_every_x11_step_file_asserts_that_no_proxy_was_started(self):
+        """One `want`, in the `passthrough` phase, on the display file --
+        `xfce.sh` defines that phase and the other six X11 files source it, so
+        the claim reaches all seven."""
+        want = ("want \"the X11 handover starts no proxy: "
+                "there is no xw11 display file\"")
+        self.assertIn(want, read(STEPS, "xfce.sh"))
+        for token in self.x11_tokens():
+            with self.subTest(token):
+                got = subprocess.run(
+                    ["bash", "-c",
+                     'STEPS=%s; DESKTOP=%s; . "$STEPS/common.sh" >/dev/null 2>&1;'
+                     ' . "$STEPS/%s.sh" >/dev/null 2>&1;'
+                     ' declare -f phase_passthrough' % (STEPS, token, token)],
+                    capture_output=True, text=True, timeout=60)
+                self.assertIn("xw11/display", got.stdout,
+                              "%s: phase_passthrough does not check for a proxy" % token)
+
+    def test_the_phase_runs_the_originals_and_not_the_clones(self):
+        """What separates this phase from `windows`: the binaries it names.  A
+        phase that called `wdotool` everywhere would be measuring our code
+        twice and calling the second run a proxy test."""
+        body = self.common.split("phase_proxy() {", 1)[1].split("\nphase_input", 1)[0]
+        for original in ("xdotool", "wmctrl", "xprop", "xrandr"):
+            with self.subTest(original):
+                self.assertIn("DISPLAY=$disp %s" % original, body)
+        self.assertIn("xw11 --print-display", body)
+        self.assertIn("xw11 --stop", body)
+
+    def test_the_proxy_lines_are_one_per_wayland_flavor_minus_the_recorded_ones(self):
+        """Per flavor and not per step file, because what the phase measures is
+        per compositor AND per distribution: the original xdotool is
+        3.20211022.1 on Ubuntu and Fedora and 4.20260303.1 on Arch, and a
+        recording on one says nothing about the other."""
+        way = set(self.wayland_tokens())
+        flavors = {f for f, d in flavor_desktops().items() if d in way}
+        self.assertTrue(flavors, "no flavor names a Wayland step file")
+        recorded = {f for f in flavors
+                    for name in os.listdir(LIVEFIX)
+                    if name.startswith(f + "-") and name.endswith("-replay.txt")
+                    and "-proxy" in name}
+        self.assertEqual(sorted(set(not_yet_run_proxy())),
+                         sorted(flavors - recorded))
+
+    def test_no_proxy_line_names_a_flavor_that_does_not_exist(self):
+        self.assertEqual([f for f in not_yet_run_proxy()
+                          if f not in flavor_desktops()], [])
+
+    def test_the_step_file_list_and_the_proxy_list_do_not_overlap(self):
+        """The two classes of line share one file and are read by two different
+        functions; a token that parsed as both would be a line one of them is
+        silently skipping."""
+        self.assertEqual(sorted(set(not_yet_run()) & set(not_yet_run_proxy())), [])
 
 
 class TheOfflineSelfTest(unittest.TestCase):

@@ -39,7 +39,7 @@
 # puts org.freedesktop.impl.portal.desktop.hyprland on the session bus of a default install, so
 # the portal is PRESENT here where it is absent on sway -- and phase_nodialog counts method
 # CALLS by interface, which is the reason a name sitting on the bus does not turn it red.
-SMOKE_PHASES="busrec install windows wm input display mirror root nodialog"
+SMOKE_PHASES="busrec install windows wm proxy input display mirror root nodialog"
 EDITOR_CLASS=foot
 
 # No text editor on this golden either: the "editor" is a terminal running `cat`, sway.sh's

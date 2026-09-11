@@ -1,38 +1,35 @@
-<a id="technicalmd-how-the-tree-is-put-together"></a>
+# Technical.md — how the tree is put together
 
-# Technical.md: how the tree is put together
-
-This document explains the current architecture and where to make changes. Shared
-implementations handle hit testing, numeric parsing, keyboard layout selection,
-background processes and display transforms. The `w11common/` package provides
-common infrastructure, and display backends implement a shared interface.
+This is the orientation document. It describes the tree **as it is now**, after the
+0.3 subtraction: one hit-test, one number parser, one layout decision, one detach
+protocol, one transform table, a shared `w11common/` package, and four display
+backends that are one shape. Read it if you are about to change something and want to
+know where that something lives.
 
 The user-facing documents are elsewhere and this file does not repeat them: the
 [README](../README.md) is the install and the per-desktop support, and each tool has a
-contract of its own, [WDOTOOL.md](WDOTOOL.md), [WWMCTL.md](WWMCTL.md),
+contract of its own — [WDOTOOL.md](WDOTOOL.md), [WWMCTL.md](WWMCTL.md),
 [WXPROP.md](WXPROP.md), [WXRANDR.md](WXRANDR.md), [WARANDR.md](WARANDR.md),
 [WMIRROR.md](WMIRROR.md), plus [gnome/README.md](../gnome/README.md) for the bridge
 extension and [vm/README.md](../vm/README.md) for the rig.
 
-Terminology used here: an **oracle** is an original X tool used for comparison;
-a **prepared VM image** is a prepared VM image reused by tests; a **test seam** is an
-interface replaced by a test double. The **X11 connection** supplies window properties and identities, while the
-**compositor interface** handles native window operations. User guides use these explicit descriptions where possible.
-
 ## 1. The six tools
 
 Six commands, seven Python packages, no third-party dependency anywhere except the
-system GTK 3 bindings that `warandr` imports at run time.
+system GTK 3 bindings that `warandr` imports at run time — plus `xw11`, which is the
+seventh command and the eighth package and is not a clone of anything
+([§ 13](#13-the-x11-proxy)).
 
 | package | command | clones | talks to |
 |---|---|---|---|
 | `wdotool/` | `wdotool` | xdotool 4.20260303.1 | `/dev/uinput`, `zwp_virtual_keyboard_v1`, `zwlr_virtual_pointer_v1`, one of eight window backends, and one of five desktop readers for the active keyboard layout |
-| `wwmctl/` | `wwmctl` | wmctrl 1.07 | one window backend, plus the X11 connection through `x11_mini` |
-| `wxprop/` | `wxprop` | xprop 1.2.8 | the X11 connection through `x11_mini`, plus one window backend for native windows |
+| `wwmctl/` | `wwmctl` | wmctrl 1.07 | one window backend, plus the X plane through `x11_mini` |
+| `wxprop/` | `wxprop` | xprop 1.2.8 | the X plane through `x11_mini`, plus one window backend for native windows |
 | `wxrandr/` | `wxrandr` | xrandr 1.5.4 | sway IPC, Hyprland's IPC, `zwlr_output_management_v1`, Mutter's DisplayConfig, the same under Muffin's name, KWin's output protocol |
 | `warandr/` | `warandr` | arandr | `wxrandr` or the real `xrandr`, as a child process |
-| `wmirror/` | `wmirror` | nothing, there is no X11 original | the external `wl-mirror`, whose lifetime it owns |
-| `w11common/` | n/a |, | shared by all six |
+| `wmirror/` | `wmirror` | nothing — there is no X11 original | the external `wl-mirror`, whose lifetime it owns |
+| `w11common/` | — | — | shared by all six |
+| `xw11/` | `xw11` | nothing — it is an X **server** front end, not a client clone | the session's X server upstream, one window backend, one display backend and the input daemon downstream ([§ 13](#13-the-x11-proxy)) |
 
 `w11common/` holds what more than one tool needs and nothing else does, in eight
 modules: `session.py` (which session is this, and where are its sockets), `passthrough.py`
@@ -40,7 +37,7 @@ modules: `session.py` (which session is this, and where are its sockets), `passt
 `errors.py` (`CmdError`, the exception every command in the tree raises and catches),
 `stdio.py` (the exit-status rule for an output that never reached its reader),
 `procs.py` (detached children) and `distro.py` (the distribution family from
-`/etc/os-release`, `debian`, `fedora`, `arch`, `nixos` or none, and the install command
+`/etc/os-release` — `debian`, `fedora`, `arch`, `nixos` or none — and the install command
 that follows from it, over six package keys: `xdotool wmctrl xprop xrandr wl-mirror
 gtk3-python`, with an unknown or missing os-release getting Debian's, which is what every
 message said before). It is a package rather than a corner of `wdotool`
@@ -69,7 +66,7 @@ numbers (`1.07`, `xprop 1.2.8`) and deliberately not ours.
 
 `scripts/build-pyz.sh` writes one zipapp per tool into `dist/`. Each is a plain
 `python3 -m zipapp` with a `/usr/bin/env python3` shebang and a
-`w11-clone:` stamp in its first few hundred bytes, which is the file-signature check
+`w11-clone:` stamp in its first few hundred bytes, which is the head sniff
 `w11common.passthrough.is_us()` uses to recognise a copy of ourselves installed under
 an original's name. What each bundle contains:
 
@@ -91,11 +88,11 @@ script's contents are the statement that keeps.
 Two modules answer two questions that look like one, and keeping them apart is the
 whole design.
 
-* **`w11common/session.py` answers "where is the session?"**, which runtime
+* **`w11common/session.py` answers "where is the session?"** — which runtime
   directory, which Wayland socket, which session bus, which `DISPLAY`, which X
   cookie, for a caller that may be root with an empty environment. It is what makes
   `sudo wdotool key a`, `ssh root@box wwmctl -l` and a `@reboot` cron job work.
-* **`w11common/passthrough.py` answers "is this session ours to serve?"**, and, when
+* **`w11common/passthrough.py` answers "is this session ours to serve?"** — and, when
   it is not, `execve`s the real `xdotool`/`wmctrl`/`xprop`/`xrandr` with argv
   untouched. It has to decide **before** any backend is detected, because backend
   detection would half succeed on an X11 session: GNOME-on-Xorg owns
@@ -115,7 +112,7 @@ has a socket of its own:
   route for anything the compositor did not start.
 * `find_hypr_socket()`: `$HYPRLAND_INSTANCE_SIGNATURE`, else `hypr/*/.socket.sock` in
   the runtime dirs, preferring the instance directory that still holds
-  `hyprland.lock`, five stale ones accumulated after five restarts. The event socket
+  `hyprland.lock` — five stale ones accumulated after five restarts. The event socket
   is `.socket2.sock` beside it.
 * `find_wayfire_socket()`: `$WAYFIRE_SOCKET`, `$_WAYFIRE_SOCKET`, `wayfire-*.socket`
   in the runtime dirs, then `/tmp` owner-checked. The recorded name has an empty pid
@@ -124,7 +121,7 @@ has a socket of its own:
 `_SESSION_LEADERS` gained `i3, mate-session, cinnamon-session, cinnamon, lxqt-session,
 lxsession, openbox, labwc, wayfire`, appended after `sway` so the existing desktops keep
 winning. `comm` is matched as `name[:15]` and as `("." + name + "-wrapped")[:15]`,
-because comm truncates at 15 bytes and nixpkgs wraps GUI programs, nixpkgs' gnome-shell
+because comm truncates at 15 bytes and nixpkgs wraps GUI programs — nixpkgs' gnome-shell
 runs as `.gnome-shell-wr`, and the truncation is *built* rather than guessed at with a
 `-wr` suffix, because a name of twelve or thirteen characters leaves no `-wr` in the
 comm at all (`kwin_wayland` becomes `.kwin_wayland-w`). `find_xauthority()` also globs
@@ -135,11 +132,11 @@ session's own `$XAUTHORITY`. And there is a third test seam beside `RUN_USER_DIR
 directory at all (i3 and Wayfire). Candidate runtime dirs are anchored on the
 graphical session: a dir holding a `wayland-*` socket sorts first (so `ssh root@`
 with its own empty `/run/user/0` still finds the user's bus), then `SUDO_UID` /
-`PKEXEC_UID`, then real users. The X11 connection (Xwayland) is found by
+`PKEXEC_UID`, then real users. The X plane (Xwayland) is found by
 `session.find_x_display()` / `find_xauthority()`: `$DISPLAY`/`$XAUTHORITY`, the
-session leader's own environment via `/proc`, gnome-shell, `startplasma-x11`,
+session leader's own environment via `/proc` — gnome-shell, `startplasma-x11`,
 `kwin_x11`, `plasmashell`, `xfce4-session`, `sway`, uid-qualified, which is the only
-route to SDDM's `/tmp/xauth_<random>`, Mutter's
+route to SDDM's `/tmp/xauth_<random>` — Mutter's
 `$XDG_RUNTIME_DIR/.mutter-Xwaylandauth.*` cookie, then `/tmp/.X11-unix/X*`.
 
 The **cookie order matters and was measured**: SDDM 0.20 keeps its cookie in
@@ -150,7 +147,8 @@ is the *greeter's* and its cookie authorises nothing on the user's X server. uid
 never an answer from either source: `sudo -i` run *by* root leaves `SUDO_UID=0`
 behind, and believing it sends the search into `/root`. `x11_mini._session_xauthority()`
 resolves the uid explicitly for the same reason and never searches root's: from
-`ssh root@box` on a live SDDM + LXQt session, `session.session_uid()` answers 0, `/run/user/0` is a real runtime directory and the first candidate, and the search then
+`ssh root@box` on a live SDDM + LXQt session, `session.session_uid()` answers 0 —
+`/run/user/0` is a real runtime directory and the first candidate — and the search then
 went to root's own environment and `/root/.Xauthority`, neither of which belongs to the
 graphical session, whose cookie SDDM had written to `/tmp/xauth_<random>` under uid 1000.
 With no other candidate the call is what it always was.
@@ -162,17 +160,17 @@ Cinnamon, LXQt/Openbox, GNOME/KDE on Xorg) the right thing to do is get out of t
 server is authoritative there, `xdotool` has XTEST and `--sync` on real X
 events, `xprop` has the real property store, `xrandr` has the real RandR, and
 we cannot beat any of it from outside. Worse, backend detection would *half*
-succeed, GNOME-on-Xorg owns `org.gnome.Shell`, KWin-on-X11 owns
-`org.kde.KWin`, so the check has to run **before** it. Measured on the
+succeed — GNOME-on-Xorg owns `org.gnome.Shell`, KWin-on-X11 owns
+`org.kde.KWin` — so the check has to run **before** it. Measured on the
 `noble-kde-x11` flavor (Plasma 5.27 on Xorg): `backend_detect.detect()` there
 does answer `KwinBackend`, the script backend does load into `kwin_x11` and
-list its windows, and on the same session our own `getdisplaygeometry` has
+list its windows — and on the same session our own `getdisplaygeometry` has
 nothing to ask, because a Plasma X11 session has no compositor socket at all.
 `wxprop` is the one tool with a native X11 path of its own, so it is also the
 one that could reach that backend *after* the handover declined (no real
 `xprop` installed): `wxprop.core._detect_backend()` therefore answers `None`
 outright on an X11 session, and `-root` is the X root, as the original's is.
-That last one is hardening rather than a fix, measured on both Plasma X11
+That last one is hardening rather than a fix — measured on both Plasma X11
 images the merged root was byte-identical to the real `xprop`, because every
 window on an X11 session is an X window; what it removes is the synthesized
 root the same code produces when the compositor's view carries no X id.
@@ -183,26 +181,26 @@ of `tests/test_passthrough_exec.py` are written against the shape below.
 
 **`session_kind() -> "wayland" | "x11" | None`**, ordered, memoised, and
 reading nothing but the environment it is handed plus three seam directories
-(`_X11_SOCK_DIR`, `_LOGIND_DIR`, `_RUN_USER_DIR`, which is what makes the
+(`_X11_SOCK_DIR`, `_LOGIND_DIR`, `_RUN_USER_DIR` — which is what makes the
 tests hermetic):
 
 1. `W11_PASSTHROUGH` / `WDOTOOL_PASSTHROUGH` & co: `never` -> wayland
    (run our own code whatever the session), `always` -> x11. Those variables
    are about the *handover*, so a caller that never hands over passes
-   `respect_override=False` and skips this step, see `warandr` below;
+   `respect_override=False` and skips this step — see `warandr` below;
    `passthrough_mode()` is the way to ask about the variables themselves.
 2. `$WAYLAND_DISPLAY` **and** its socket exists -> wayland. Wayland is tested
    first because `$DISPLAY` is set on a Wayland session too (Xwayland) and is
-   therefore never evidence of an X11 session, while a live compositor
+   therefore never evidence of an X11 session — while a live compositor
    socket is conclusive.
 3. `$XDG_SESSION_TYPE`, ignored when `SUDO_UID`/`PKEXEC_UID` is set (`sudo`
    keeps root's `XDG_SESSION_TYPE=tty` from an `ssh root@` login).
 4. logind's own record, `/run/systemd/sessions/*` (world-readable key=value,
    read-only best-effort; `<id>.ref` is a FIFO and is never opened): the
    active, local, non-greeter session of the target user, and its `TYPE=`.
-5. Socket scan: a `wayland-*` socket **owned by the target user**, a display
+5. Socket scan: a `wayland-*` socket **owned by the target user** — a display
    manager's Wayland greeter under another uid must not turn an Xfce box into
-   a Wayland session, which is the one real trap in this design, else an X
+   a Wayland session, which is the one real trap in this design — else an X
    socket (or a `host:0` display, which the original handles and we do not).
 6. Nothing -> `None`, and the tool prints its own "no session" error.
 
@@ -210,15 +208,15 @@ tests hermetic):
 is not us. Four independent "not us" guards, because each alone has a hole:
 `samestat` against our own entry points; `basename(realpath(cand))` in
 `{wdotool, wwmctl, wxprop, wxrandr, warandr}` (the normal install, where
-`xdotool` is a *symlink* to our `wdotool`); a signature check in the first 4 KiB for the
+`xdotool` is a *symlink* to our `wdotool`); a 4 KiB head sniff for the
 `w11-clone:` stamp `scripts/build-pyz.sh` writes into every zipapp
 (the build fails without it) or for an import of one of our packages, which
-is what a `pip`-generated console script looks like, never an ELF, and
+is what a `pip`-generated console script looks like — never an ELF, and
 never a bare `w11`/`wmctrl` *substring*, or a third-party wrapper
 that merely mentions the project would be skipped and the user told to
 install what is already installed; and `_W11_PASSTHROUGH`, which
 carries the realpaths already
-handed over to, a process that finds *itself* in that list was exec'd as
+handed over to — a process that finds *itself* in that list was exec'd as
 somebody's "real tool" and refuses to go round again (plus a depth backstop).
 `WDOTOOL_REAL_XDOTOOL` / `WWMCTL_REAL_WMCTRL` / `WXPROP_REAL_XPROP` /
 `WXRANDR_REAL_XRANDR` skip the walk; set-but-unusable is an error naming the
@@ -236,7 +234,7 @@ back to `SIG_DFL` (Python ignores both, and an *ignored* disposition survives
 stdio flush. argv[0] is the original's own name, so its usage text is
 internally consistent. No original installed: **127** (never confusable with
 a tool failure) and one line naming the package to install and the override
-variable, except for a `--help`/`--version`/bare invocation, which falls
+variable — except for a `--help`/`--version`/bare invocation, which falls
 back to our own output, and except for `wxprop` (below). The package that line names
 follows `/etc/os-release` through `w11common/distro.py`: `apt install x11-utils` on
 Debian and Ubuntu, `dnf install xprop` on Fedora, `pacman -S xorg-xprop` on Arch and
@@ -257,7 +255,7 @@ is `auto`, `x11` or one of wxrandr's own backends (`sway`, `wlr`,
 hook above has to know about the flag before anything is parsed:
 `wxrandr.cli.scan_backend_argv()` walks argv with xrandr's own option
 arities and reports `--backend NAME` / `--backend=NAME` and whether
-`--print-backend`/`--backends` are present, so `--backend sway` on an X11
+`--print-backend`/`--backends` are present — so `--backend sway` on an X11
 session runs our own code, `--backend x11` on a Wayland session hands over
 (`maybe_exec_real(..., force=True)`; the keyword was added for exactly that,
 and it does not override `entry`), the
@@ -274,7 +272,7 @@ a backend that is not available here is one line naming what was missing and
 exit 1, never a silent fallback; a `--backend` with no value is still
 the flag (the scan returns `""`), so its error is ours on both kinds of
 session. `$WXRANDR_BACKEND` keeps its older behaviour (no pre-check), because
-those bytes are pinned, except for the single value `x11`, which the hook
+those bytes are pinned — except for the single value `x11`, which the hook
 does read: the handover is settled before parsing, so a variable that only
 reached `Session` could ask this process to be something it can no longer
 become, and would have to answer with a fatal about a flag nobody typed.
@@ -286,7 +284,7 @@ switch backends while it is open.
 `$XAUTHORITY` is replaced with the session's own (logind's `DISPLAY=`, the
 socket scan, the display manager's cookie), so `sudo xdotool key a`,
 `ssh root@box xprop -root` and cron jobs work *through* us where the original
-alone fails, the Wayland trick of `session.py`, applied to X. Values that
+alone fails — the Wayland trick of `session.py`, applied to X. Values that
 already work are never touched, and a `$XAUTHORITY` that points at nothing is
 *removed* rather than forwarded (left in place it suppresses the original's
 own `~/.Xauthority` default). The repair is `repair_x_env()` and the handover
@@ -294,20 +292,21 @@ is only its first caller: warandr's X11 runner is a *child*, so it never
 reaches `child_env()`, and until it took the repair for itself it was the one
 tool in the repo that still answered `Can't open display` from a root shell
 while the other four worked in the same one. A repair is not a guarantee:
-where the X server has no cookie file at all, wlroots starts Xwayland with no
-`-auth`, so only the session user's own processes may open it, there is
+where the X server has no cookie file at all — wlroots starts Xwayland with no
+`-auth`, so only the session user's own processes may open it — there is
 nothing to find, and the real `xprop` fails from that shell too (`wxprop` falls
 back to the compositor's synthesized properties; see the repo README, *Desktop
 support*).
 
 Whose session, though: as root with no `SUDO_UID` (`ssh root@box`, root cron)
 the uid is in neither the environment nor `getuid()`, and `session_uid()` then
-asks logind. Failing that, a system account's runtime directory is skipped, the lowest-numbered one on a box with a display manager is the *greeter's*,
+asks logind. Failing that, a system account's runtime directory is skipped —
+the lowest-numbered one on a box with a display manager is the *greeter's*,
 and its cookie authorises nothing on the user's X server, so forwarding it
 would break precisely the case this repair exists for. Same rule as
 `find_wayland_socket()`. uid 0 is never an answer either, from either source:
 `sudo -i` run *by* root leaves `SUDO_UID=0` behind, and believing it sends the
-search into `/root`, measured on a real Xfce box, that is the difference
+search into `/root` — measured on a real Xfce box, that is the difference
 between `sudo -i xdotool getactivewindow` printing the window name through us
 and printing `Authorization required, but no authorization protocol
 specified`.
@@ -316,7 +315,7 @@ specified`.
 native X11 option worth having (no XTEST, no `XKeysymToKeycode`, no `--sync`
 on X events; uinput would inject, but `getmouselocation` would report our
 tracked pointer and `--clearmodifiers` could clear only what uinput
-itself holds, missing anything the X server or XTEST put there, the
+itself holds, missing anything the X server or XTEST put there — the
 documented Wayland approximations on a platform that has none). `wxrandr`:
 the X server's RandR is the truth, and our Mutter backend on GNOME-on-Xorg is
 at best a second opinion. `wwmctl` *does* carry an X11 wire client
@@ -324,21 +323,22 @@ at best a second opinion. `wwmctl` *does* carry an X11 wire client
 workarea, `-e` gravity math, `-r -b` state toggles, `-x` class matching and
 `:SELECT:` (which needs `GrabPointer`/`QueryPointer`, not in `x11_mini`) would
 all have to be reimplemented and their byte parity re-proved against the real
-`wmctrl` on X11, for the sole benefit of a box with no `wmctrl` installed, and `x11_mini` is unix-socket only, so it cannot do `ssh -X`'s
+`wmctrl` on X11, for the sole benefit of a box with no `wmctrl` installed —
+and `x11_mini` is unix-socket only, so it cannot do `ssh -X`'s
 `DISPLAY=localhost:10.0` while a handover does that for free. `wxprop` is the
 exception: its native X11 path is already complete and proven against a live
-X server (`WXPROP.md`), and `core.Session` resolves the X11 connection from
+X server (`WXPROP.md`), and `core.Session` resolves the X plane from
 `$DISPLAY` with no backend at all, so it hands over when a real `xprop`
-exists and keeps running when none does (`fallback_native=True`), no 127
+exists and keeps running when none does (`fallback_native=True`) — no 127
 from `wxprop`, ever. From a script's point of view the four behave
 identically: on X11 the output is the original's.
 
-`warandr` does **not** exec, it is not a clone of an X11 binary we are
+`warandr` does **not** exec — it is not a clone of an X11 binary we are
 installed over, and it already drives the real `xrandr` on X11. It only swaps
 `randr.choose()`'s bare `$WAYLAND_DISPLAY` test for
 `passthrough.session_kind(respect_override=False) == "wayland"` (the
-`respect_override` is required: `W11_PASSTHROUGH=never` means
-"do not hand over", and warandr has nothing to hand over, read as a session
+`respect_override` is load-bearing: `W11_PASSTHROUGH=never` means
+"do not hand over", and warandr has nothing to hand over — read as a session
 type it would select `wxrandr` on an X11 box and every Apply would say
 `Can't open display`, for exactly the developers the variable is documented
 for), which fixes a stale
@@ -346,7 +346,7 @@ for), which fixes a stale
 `Can't open display`) and makes a thin `.desktop` environment work. It still
 writes the bare word `xrandr` into `~/.screenlayout/*.sh` for arandr
 compatibility; if we are installed over `/usr/local/bin/xrandr` that word
-resolves to us and passes through, one extra process, correct result, no
+resolves to us and passes through — one extra process, correct result, no
 recursion.
 
 **Never exec'ing the test runner.** ~17 tests call `cli.main([...])`
@@ -354,7 +354,7 @@ in-process and several spawn our tools as subprocesses, so an unguarded hook
 would `execve` the suite away (and `tests/test_cli_parity.py`, which shells a
 shim named `xdotool` while the real one is on PATH, would compare the real
 xdotool with itself and pass tautologically). Three independent belts:
-`entry=False`, an explicit argv means we are being used as a library, and a
+`entry=False` — an explicit argv means we are being used as a library, and a
 library never replaces its caller's process; `tests/conftest.py`; and the
 `W11_PASSTHROUGH=never` line every `tests/test_*.py` carries (the
 suite is run file by file, where conftest never loads), which a test in
@@ -371,9 +371,9 @@ binary (`gdbus`, `busctl`, `swaymsg`, `hyprctl`, `xprop`) to do its talking.
 | `w11common/dbus_mini.py` | D-Bus, session bus or any `unix:` address | `DBusError(name, message)` for ERROR replies **and** for local failures, under `org.freedesktop.DBus.Error.` + `NoServer`/`AuthFailed`/`NoReply`/`Disconnected`. Nothing socket-level escapes: a peer that closes mid-SASL comes back as `Disconnected`, not as a bare `ConnectionResetError` |
 | `w11common/wayland_mini.py` | the Wayland wire protocol | exceptions from the socket, with a deadline on every roundtrip. A wedged compositor times out and the caller degrades, rather than hanging the daemon |
 | `wdotool/x11_mini.py` | the X11 core protocol against Xwayland or Xorg | two classes, and every caller treats both as "degrade gracefully": `XUnavailable` for anything connection-level (no server, bad `DISPLAY`, auth rejected, connection lost) and `X11Error` for errors the server reports (BadWindow and friends) |
-| `wdotool/hypr_ipc.py` | Hyprland's request socket (`$XDG_RUNTIME_DIR/hypr/<sig>/.socket.sock`) | send the request as text, read the reply to EOF, close, one connection per request, which is the whole protocol. `j/<name>` for JSON, `dispatch`/`keyword` for the two mutating verbs, and `.socket2.sock`'s `name>>payload` line stream for events |
+| `wdotool/hypr_ipc.py` | Hyprland's request socket (`$XDG_RUNTIME_DIR/hypr/<sig>/.socket.sock`) | send the request as text, read the reply to EOF, close — one connection per request, which is the whole protocol. `j/<name>` for JSON, `dispatch`/`keyword` for the two mutating verbs, and `.socket2.sock`'s `name>>payload` line stream for events |
 | `wdotool/backend_wayfire.py`'s `_WayfireIPC` | Wayfire's JSON IPC | a native-endian int32 length and a JSON body, both ways; one connection for commands and one per `watch()` |
-| `wdotool/backend_detect.py` | nothing itself, it decides which window backend to build | one `ListNames` over `dbus_mini` answers the KWin, GNOME and Cinnamon questions at once, and the connection is handed to the backend that wins rather than opened twice |
+| `wdotool/backend_detect.py` | nothing itself — it decides which window backend to build | one `ListNames` over `dbus_mini` answers the KWin, GNOME and Cinnamon questions at once, and the connection is handed to the backend that wins rather than opened twice |
 
 
 **The detection order** is: `WDOTOOL_BACKEND` → the sway/i3 IPC socket → the Hyprland
@@ -387,20 +387,21 @@ spelling of `sway` and is not in the refusal's list of eight.
 
 Three rules make that order behave under partial evidence. **The socket arms carry on
 and the registry arm does not.** sway/i3, Hyprland and Wayfire catch the backend's
-`CmdError` and go on down the order, because a socket is weak evidence, it can be a
+`CmdError` and go on down the order, because a socket is weak evidence — it can be a
 stale file. The registry arm does not: the global list `session_registry()` has just
 read IS the evidence that the protocol is there, so if `WlrBackend`/`CosmicBackend` then
 refuses, that refusal is the answer. Before this, a wlr failure fell through to a
 sentence claiming the compositor offered neither family, about a compositor that had
 just advertised one. **`org.gnome.Shell` is not proof of GNOME Shell.** The GNOME arm is
-taken only when one of GNOME's own two names is beside it on the session bus, `org.gnome.Mutter.DisplayConfig` (gnome-shell's own) or `org.w11.Bridge` (which
+taken only when one of GNOME's own two names is beside it on the session bus —
+`org.gnome.Mutter.DisplayConfig` (gnome-shell's own) or `org.w11.Bridge` (which
 can only be owned from inside gnome-shell). With neither, the registry decides, and a
 compositor that publishes a foreign-toplevel protocol is not Mutter, which publishes
 none. That is measured rather than argued: on the `resolute-budgie` golden
 (2026-09-09, `busctl --user list --acquired`, recorded whole in
 `tests/fixtures/live/busnames-resolute-budgie-10.10.2.txt`) `org.gnome.Shell` is owned by
 **budgie-power-dialog**, pid 2697, and no `org.gnome.Mutter.*` name is on that bus at
-all, so before the fix every window command on Budgie answered with a bridge hint about
+all — so before the fix every window command on Budgie answered with a bridge hint about
 logging out of a GNOME Shell that was not there. The GNOME arm is still never swallowed
 where nothing below it could answer: a session that owns `org.gnome.Shell` and whose
 compositor offers neither toplevel family still gets the bridge hint, because Mutter
@@ -413,13 +414,13 @@ bug and stays visible.
 
 `x11_mini.py` lives under `wdotool/` and not under `w11common/` on purpose: it already
 imports `w11common.session`, and moving it into `w11common` would make that a cycle.
-Its three callers are `wwmctl.core` (the X11 connection of XWayland windows: `WM_CLASS`,
+Its three callers are `wwmctl.core` (the X plane of XWayland windows: `WM_CLASS`,
 `WM_CLIENT_MACHINE`, geometry, EWMH ClientMessages), `wxprop.core` (all of its
 X-window work) and `wdotool.backend_kwin` (the XWayland ids KWin 6 does not export).
 It carries enough of the core protocol for that and nothing more: InternAtom,
 GetProperty with the long-property offset loop, ChangeProperty, SendEvent, GetGeometry
 plus TranslateCoordinates, QueryTree, GetInputFocus as the post-void-request sync, and
-OpenFont/QueryFont/CloseFont for `wxprop -font`, the one place it allocates a
+OpenFont/QueryFont/CloseFont for `wxprop -font` — the one place it allocates a
 resource id. No extensions, no big-requests, byte order `l` only. Property values of
 format 32 come back as unsigned 32-bit ints (EWMH's `-1` reads as `0xFFFFFFFF`), and
 `get_prop_string()` truncates at the first NUL exactly like wmctrl's `printf("%s")`.
@@ -454,7 +455,7 @@ Pure-stdlib D-Bus client for the session bus and any `unix:` address (QEMU's
   MEMBER, ERROR_NAME, REPLY_SERIAL, SENDER, SIGNATURE, UNIX_FDS (byte-identical to
   libdbus's Hello). On read each known field must carry its fixed signature and a
   call/signal/reply/error its required fields (else ValueError); unknown field codes
-  and unknown message types (5+) are ignored, such frames are dropped, fds closed. Full
+  and unknown message types (5+) are ignored — such frames are dropped, fds closed. Full
   grammar `ybnqiuxtdhsog a() a{} v`; alignment relative to message start (the pad after
   an array length to the element alignment is not counted and is present for empty
   arrays); reads both endians, writes `l`. struct↔tuple, array↔list (`ay`↔bytes),
@@ -473,15 +474,15 @@ Pure-stdlib D-Bus client for the session bus and any `unix:` address (QEMU's
   `NoServer`/`AuthFailed`/`NoReply`/`Disconnected`). Method calls aimed at us get
   UnknownMethod immediately (Peer.Ping answered) unless `serve_calls`. One `Bus` per
   thread. `Bus(timeout=)` bounds connect (SO_SNDTIMEO covers the kernel wait on a full
-  AF_UNIX backlog), auth, Hello and every later send, the socket stays in timeout mode
+  AF_UNIX backlog), auth, Hello and every later send — the socket stays in timeout mode
   and a send that times out closes the connection (Disconnected); `call(timeout=)`
   bounds the reply (NoReply). Fds in a received message belong to whoever takes it and
   are CLOEXEC; fds on frames the client discards (late replies, auto-answered calls,
   unknown types, anything still queued at `close()`) are closed by the client.
 - **Root vs the user's bus**: stock session.conf has no `<allow user="*"/>`, so
   dbus-daemon answers root's EXTERNAL auth with `OK` and then closes the socket at the
-  policy check (Hello dies with EPIPE). `Bus(as_uid=uid)`, and the automatic retry
-  when euid 0 is turned away by a socket owned by another uid, forks a child that
+  policy check (Hello dies with EPIPE). `Bus(as_uid=uid)` — and the automatic retry
+  when euid 0 is turned away by a socket owned by another uid — forks a child that
   `setgroups/setgid/setuid`s, connects, authenticates and Hellos, then hands the live
   socket back over a socketpair with SCM_RIGHTS (`connect_as_uid`); SO_PEERCRED is
   fixed at connect, so the bus keeps attributing the connection to that uid.
@@ -494,7 +495,7 @@ Pure-stdlib D-Bus client for the session bus and any `unix:` address (QEMU's
   IFACE PROP | --get-all DEST PATH IFACE | --introspect DEST PATH | --monitor [RULE…]
   [--seconds N]`. Output is JSON (variants unwrapped, `ay` as int lists). Exit 0, 1
   (D-Bus/OS error; Ctrl-C and a closed stdout exit quietly like wwmctl), 2 (usage).
-- **Tests**: `tests/test_dbus_mini.py`, byte-exact marshalling facts, the canonical
+- **Tests**: `tests/test_dbus_mini.py` — byte-exact marshalling facts, the canonical
   128-byte Hello, big-endian parse, DisplayConfig `GetCurrentState`/`ApplyMonitorsConfig`
   fixtures, QEMU `SetUIInfo(qqiiuu)`, an in-process mock bus (auth, names, echo of every
   type, errors, timeouts + late replies, signals, unix fds both ways, client↔client
@@ -507,19 +508,6 @@ Pure-stdlib D-Bus client for the session bus and any `unix:` address (QEMU's
   properties, `SetUIInfo`).
 
 ## 4. Window backends
-
-`wdotool/backend_detect.py` chooses in this order: `WDOTOOL_BACKEND`, sway/i3 IPC,
-Hyprland IPC, KWin, GNOME, Cinnamon, Wayfire IPC, then the wlr or COSMIC toplevel
-protocols. Failed sway/Hyprland connection attempts can fall through. The bus-based
-backends report their own failures instead of silently switching implementations.
-
-GNOME detection requires `org.gnome.Shell` plus either the bridge or Mutter's
-DisplayConfig name. If neither companion name is present, a toplevel protocol
-identifies a different compositor (such as Budgie's labwc session); without such a
-protocol the GNOME backend supplies the bridge diagnostic. At the final registry
-step wlr wins when advertised; COSMIC requires both its toplevel-info protocol and
-the standard foreign-toplevel-list protocol. Otherwise detection reports an error.
-
 
 Eight backends implement one interface, `wdotool/backend.py:WindowBackend`, and three
 tools drive them: `wdotool`'s window commands, all of `wwmctl`, and `wxprop` for
@@ -535,7 +523,7 @@ reaches into a backend's privates any more.
 `set_num_desktops(n)`, `select_window()` with its `select_window_hint`.
 
 **The optional hooks**, which default to "not available" so a caller falls back to
-`list()`/`find()`: `views()` (typed `View` records, X ids of XWayland windows,
+`list()`/`find()`: `views()` (typed `View` records — X ids of XWayland windows,
 `WM_CLASS` instance and class, app id, states), `workspaces()` (names and work
 areas), `move_to_current_desktop(wid)`, `x_info()` (the compositor's own `DISPLAY`
 and cookie path), `pointer()` and `events(timeout)`. These exist so that a backend
@@ -561,15 +549,16 @@ knowing before writing one.
 
 | backend | id | stable? | accepts an X id? |
 |---|---|---|---|
-| **sway** (`backend_sway.py`) | the sway node id | for the life of the window | no, an X id is not a node id |
+| **sway** (`backend_sway.py`) | the sway node id | for the life of the window | no — an X id is not a node id |
 | **i3** (`backend_sway.py`, the i3 dialect) | the window's **X id**, the same number `wmctrl -l`, `xwininfo` and `xprop -id` use | for the life of the window | yes, it is one. i3's own container ids are 47-bit pointers; the id this printed truncated to `0x5168c680` and `wxprop -id` answered `BadWindow` |
 | **GNOME** (`backend_gnome.py`) | `Meta.Window.get_id()`, through the bridge | for the life of the window | XWayland windows also carry their real X id in `views()`, which is what `wwmctl -l` prints |
-| **Cinnamon** (`backend_cinnamon.py`) | `get_stable_sequence()`, with the xid straight from `get_xwindow()` | for the life of the window | `get_xwindow()` is the real X id for an X client and 0 for a native one, so this backend needs no matching against `_NET_CLIENT_LIST` at all. Not `get_id()`, which is a ~3e9 counter, two windows measured 3070932382 and 2959920136 |
+| **Cinnamon** (`backend_cinnamon.py`) | `get_stable_sequence()`, with the xid straight from `get_xwindow()` | for the life of the window | `get_xwindow()` is the real X id for an X client and 0 for a native one, so this backend needs no matching against `_NET_CLIENT_LIST` at all. Not `get_id()`, which is a ~3e9 counter — two windows measured 3070932382 and 2959920136 |
 | **KDE** (`backend_kwin.py`) | minted: `0x40000000 \| 30 bits of internalId`, because the scripting API has no numeric window id at all | while the window lives | no. The range is deliberately outside the one Xwayland hands its clients, so a native id is never mistaken for an X id in the same listing |
 | **Hyprland** (`backend_hypr.py`) | minted from the compositor's `address` with `backend.mint_id()` | for the life of the window, and the same in two processes | XWayland windows are joined to `_NET_CLIENT_LIST` through `wdotool/xid_match.py` |
-| **Wayfire** (`backend_wayfire.py`) | the view's own `id` from `window-rules/list-views`, unchanged | while the view lives | nothing is minted, and nothing collides with an Xwayland id, Wayfire's ids start at 1 and count up |
-| **COSMIC** (`backend_cosmic.py`) | `backend.mint_id(identifier)` over the 32-character `identifier`, `0x40000000 \| 30 bits of blake2b` | for the life of the window, across processes | no, and it is out of Xwayland's range on purpose |
-| **wlr** (`backend_wlr.py`) | `1000000 + enumeration order` | within one process only, closing the first-arrived window renames the survivor | no |
+| **Wayfire** (`backend_wayfire.py`) | the view's own `id` from `window-rules/list-views`, unchanged | while the view lives | nothing is minted, and nothing collides with an Xwayland id — Wayfire's ids start at 1 and count up |
+| **COSMIC** (`backend_cosmic.py`) | `backend.mint_id(identifier)` over the 32-character `identifier` — `0x40000000 \| 30 bits of blake2b` | for the life of the window, across processes | no, and it is out of Xwayland's range on purpose |
+| **wlr** (`backend_wlr.py`) | `1000000 + enumeration order` | within one process only — closing the first-arrived window renames the survivor | no |
+| **a shadow, through `xw11`** (`xw11/shadow.py`) | `rid_base \| n` out of the 21-bit range the X server allocated to the proxy's own connection — `0x600001` for the first one on the rig | for the life of the proxy, which is the session or fifteen idle minutes, whichever ends first. An Xwayland restart re-bases every one of them | it **is** one, in the sense that matters: it is inside the range that X server promised the proxy, so it can never collide with a real Xwayland window and an upstream error for one is impossible. A toplevel the compositor reports a real X id for gets no shadow at all |
 
 KWin's minting is 32-bit clean because every X-shaped consumer truncates there
 (`wxprop -id` parses into an XID, the synthesized `_NET_CLIENT_LIST`, wmctrl's
@@ -578,13 +567,13 @@ than dropping it out of the listing.
 
 The **XWayland id of a KWin 6 window** is the hardest case in the tree and is worth
 reading before touching it: `x11window.h` lost every scriptable property in Plasma 6,
-so `View.xid` is matched against the X server's own `_NET_CLIENT_LIST`, a pid and
+so `View.xid` is matched against the X server's own `_NET_CLIENT_LIST` — a pid and
 `WM_CLASS` filter, then a title and geometry distance score, greedy best first. A
 pair must *agree* on pid or class: an X client that publishes neither contradicts
 nothing, and matching it on geometry alone would hand its id to a native window,
 which would then claim to be an X11 client. Where nothing separates two candidates
 they keep id 0 rather than being handed one of two ids. It runs only when an Xwayland
-process already exists, because connecting to the X11 connection must not *start* one.
+process already exists, because connecting to the X plane must not *start* one.
 
 `sway`'s desktop mapping is the other one to know: wmctrl and xdotool want a dense
 0-based desktop list and sway has sparse, named workspaces. `SwayBackend.workspaces()`
@@ -605,15 +594,15 @@ viewport currently in front, so a view one screen to the left of it reads a nega
 sticky view is on all nine and reports desktop -1, as it does everywhere else.
 
 **The X-id matcher, and who has how much of it.** `wdotool/xid_match.py` is KWin's
-matcher moved out of `backend_kwin.py` unchanged, pid and `WM_CLASS` are filters, title
+matcher moved out of `backend_kwin.py` unchanged — pid and `WM_CLASS` are filters, title
 and geometry distance are the score, the position in each list breaks a tie, and a pair
 that agrees on nothing keeps xid 0. Every backend whose compositor publishes toplevels
 with no X ids on them reads it, but not all of them can feed it the same keys: Hyprland
 and Wayfire hand it pid, class, title and geometry, while the **wlr floor and COSMIC
-have title and a lowercased `app_id` against `WM_CLASS` and nothing else**, no pid, no
-geometry, no list-order tie-break, so a tie there keeps xid 0 more often.
+have title and a lowercased `app_id` against `WM_CLASS` and nothing else** — no pid, no
+geometry, no list-order tie-break — so a tie there keeps xid 0 more often.
 
-**The desktop mapping of the generic wlr backend.** Desktops exist wherever the compositor
+**The desktop mapping of the wlr floor.** Desktops exist wherever the compositor
 publishes `ext_workspace_manager_v1` (labwc, Budgie 10.10, Xfce 4.20 on Wayland, COSMIC)
 and the refusal stands where it does not (sway 1.11, Wayfire 0.10).
 `wdotool/ext_workspace.py` is the client: `activate` on the handle plus `commit` on the
@@ -622,8 +611,8 @@ manager, workspaces ordered by `(coordinates, arrival)`, which covers both COSMI
 `window_desktop` stays -1 on every one of them, because neither foreign-toplevel protocol
 carries a workspace association.
 
-The per-backend measured detail, what each compositor does with maximize, shading,
-raise, lower, ids, and every quirk that has a test pinning it, is
+The per-backend measured detail — what each compositor does with maximize, shading,
+raise, lower, ids, and every quirk that has a test pinning it — is
 [WDOTOOL.md § Backend notes](WDOTOOL.md#backend-notes).
 
 ## 5. Input: the daemon, two injection paths, one layout decision
@@ -641,25 +630,25 @@ Three facts about it decide most of its code:
 2. **There are two sinks, and a hold cannot move between them.** `/dev/uinput` and
    the Wayland protocols are different devices, and only the device that pressed a
    key can release it. `_own_sink()` and `_own_pointer()` exist for exactly that.
-3. **One policy picks the sink, for both input paths**: `key`/`keydown`/`keyup`/`type` go
+3. **One policy picks the sink, for both halves**: `key`/`keydown`/`keyup`/`type` go
    through `zwp_virtual_keyboard_v1`, and
    `click`/`mousedown`/`mouseup`/`mousemove`/`mousemove_relative` through
    `zwlr_virtual_pointer_v1`, **when the matching kernel device cannot be opened and
-   the compositor implements that protocol**, through `/dev/uinput` in every other
+   the compositor implements that protocol** — through `/dev/uinput` in every other
    case, with `--vkbd on|off` (`WDOTOOL_VKBD`) forcing either.
 
-**And it does not live for ever.** A daemon that can no longer be reached, its
+**And it does not live for ever.** A daemon that can no longer be reached — its
 socket file deleted, which is what logging out does to `$XDG_RUNTIME_DIR`, or
-replaced by a second daemon's, exits, and so does one nobody has used for fifteen
+replaced by a second daemon's — exits, and so does one nobody has used for fifteen
 minutes; neither can touch a daemon with a client connected or a key held down. The
 period, the check interval and the two off switches are in
 [WDOTOOL.md § The input daemon](WDOTOOL.md#the-input-daemon).
 
-**One layout box, from one source, except where one source cannot answer.** Every
+**One layout box, from one source — except where one source cannot answer.** Every
 absolute pointer coordinate is mapped across the layout bounding box the daemon reads
 off the Wayland wire, so which *pixel space* that box is in decides where a move
 lands. `zxdg_output_v1`'s logical geometry is that source, and it stays that
-source in every state measured, including the one GNOME 46 state where it is stale
+source in every state measured — including the one GNOME 46 state where it is stale
 (Fractional Scaling switched on under an already-scaled monitor, after which Mutter
 stops re-sending `logical_size`), because Mutter maps absolute pointer motion across
 the same stale rectangle it is advertising. Reading the box from DisplayConfig there
@@ -706,7 +695,7 @@ failure so the guess and its notice stand exactly as they did.
   meaning on Plasma 6.6 and 5.27.
   **Never kded, and this is a live hazard rather than a preference.** Two other
   objects declare the same interface, `org.kde.kded6 /modules/keyboard` and the kded5
-  one, and calling `getLayout` on either **crashes kded**, measured on both
+  one, and calling `getLayout` on either **crashes kded** — measured on both
   generations, every call answered `NoReply` and the bus name changed owner
   afterwards, taking the user's background service down with it. Nothing here calls
   them, there is no fallback to them, and there must never be one:
@@ -714,8 +703,8 @@ failure so the guess and its notice stand exactly as they did.
   and fails the test if anything ever calls it.
 * **GNOME** (`xkbmap.GnomeInputSources`): `org.gnome.desktop.input-sources`, read
   through `org.freedesktop.portal.Settings.ReadAll`. The portal is the route because
-  dconf has none, `ca.desrt.dconf` publishes `Init`, `Change` and the `Notify`
-  signal and **no read method**, and it is the one portal call in the tree (§ 10).
+  dconf has none — `ca.desrt.dconf` publishes `Init`, `Change` and the `Notify`
+  signal and **no read method** — and it is the one portal call in the tree (§ 10).
   `mru-sources[0]` is the live source, written on every switch and restored at login;
   `current` is deprecated and ignored whatever its name suggests. The mapping is
   `index % 3 + 1`, clamped the same way, and the `% 3` is Mutter's doing: it appends
@@ -732,7 +721,8 @@ failure so the guess and its notice stand exactly as they did.
   four keyboards on one `us,de` session, `main: true` on wdotool's own
   `wdotool-virtual-keyboard`, index 1 on the physical `at-translated-set-2-keyboard`,
   and a `power-button` that is a keyboard to libinput and never switches anything. The
-  rule is: never one of ours (`wdotool-virtual-keyboard`, `hl-virtual-keyboard-*`, reading the injected device's index would be reading back the state we set), then
+  rule is: never one of ours (`wdotool-virtual-keyboard`, `hl-virtual-keyboard-*` —
+  reading the injected device's index would be reading back the state we set), then
   `main: true`, then a name that looks like a keyboard, then the first row.
   `active_layout_index + 1`, clamped against `group_count`. That skip-ours-first clause
   is what makes the `main` clause usable at all: measured live on 2026-09-09, Hyprland's
@@ -747,14 +737,15 @@ failure so the guess and its notice stand exactly as they did.
   whole set. **`wayfire/set-keyboard-state` is never called and must never be**: one call
   recompiles the keymap as the selected layout *duplicated* (`possible-layouts` became
   `["English (US)", "English (US)"]` and the German layout was gone until restart), which
-  is a wreckage this reader has to survive reading and never to cause, `tests/test_xkbmap.py`'s `WayfireSetLandmine` is `KdedLandmine`'s sibling. A
+  is a wreckage this reader has to survive reading and never to cause —
+  `tests/test_xkbmap.py`'s `WayfireSetLandmine` is `KdedLandmine`'s sibling. A
   `No such method found!` is a fact about the session's `plugins` line and is remembered
   like an absent bus name.
 * **Cinnamon** (`xkbmap.CinnamonInputSources`): `org.cinnamon.desktop.input-sources`,
   read through `org.Cinnamon.Eval` with one read-only program. The schema's keys are
   `sources`, `current`, `show-all-sources` and `xkb-options` and there is **no
   `mru-sources`**, so unlike GNOME the live index really is `current` and the whole
-  mapping is `current + 1` clamped, no chunking, because muffin appends no group of its
+  mapping is `current + 1` clamped — no chunking, because muffin appends no group of its
   own. No portal call and no fork-and-drop-privileges dance either: Eval identifies
   nobody, so a root daemon reads what the session user reads. Two refusals, both because
   the setting then describes no single live layout: an index that is not in `sources`,
@@ -763,8 +754,8 @@ failure so the guess and its notice stand exactly as they did.
 
 **COSMIC needs no reader at all**, which is why it is not in that list. cosmic-comp
 publishes `zcosmic_keyboard_layout_manager_v1`, whose `group` event the protocol XML says
-is "received even when the client has no focused window", the single sentence that
-separates it from `wl_keyboard.modifiers`, so `_fetch_wayland` binds it, calls
+is "received even when the client has no focused window" — the single sentence that
+separates it from `wl_keyboard.modifiers` — so `_fetch_wayland` binds it, calls
 `get_keyboard_layout(new_id, wl_keyboard)` and takes the group off the wire, the way
 sway's arrives. One extra round trip, and only where the interface is advertised and the
 keymap has more than one group. `Snapshot.source` therefore says `wayland` on COSMIC, not
@@ -792,10 +783,10 @@ connects, calls, and pipes the answer home as JSON: 6.3 ms against the session u
 its child hands the socket back and exits, leaving no process for the portal to
 identify (`AccessDenied: Unable to open /proc/N/root`).
 
-The measured behaviour of all of this, the reverse map, the US bypass, the group
+The measured behaviour of all of this — the reverse map, the US bypass, the group
 read and the guess behind it, the ceiling map for the absolute axis, the
 unchanged-`EV_ABS` nudge, the `--clearmodifiers` kernel facts, and every defect the
-live sessions found, is
+live sessions found — is
 [WDOTOOL.md § The input daemon](WDOTOOL.md#the-input-daemon) and
 [§ Typing and clicking with no privilege](WDOTOOL.md#typing-and-clicking-with-no-privilege---vkbd).
 This file does not repeat it.
@@ -815,11 +806,11 @@ own flags out of the remaining argv, and every chainable command uses it.
 
 | backend | protocol or interface | picked when | persistent store |
 |---|---|---|---|
-| `sway` | sway/i3 IPC (`GET_OUTPUTS`, batched `output ...` commands in one `RUN_COMMAND`) | a sway or i3 IPC socket exists | n/a |
+| `sway` | sway/i3 IPC (`GET_OUTPUTS`, batched `output ...` commands in one `RUN_COMMAND`) | a sway or i3 IPC socket exists | — |
 | `hypr` | Hyprland's own IPC: `j/monitors all` to read, one `keyword monitor NAME,WxH@Hz,XxY,SCALE[,transform,N][,mirror,OTHER]` per touched output to write | a Hyprland IPC socket exists | `hyprland.conf` |
-| `wlr` | `zwlr_output_management_unstable_v1`, one atomic configuration apply | the compositor advertises it | n/a |
+| `wlr` | `zwlr_output_management_unstable_v1`, one atomic configuration apply | the compositor advertises it | — |
 | `mutter` | `org.gnome.Mutter.DisplayConfig` on the session bus, one `ApplyMonitorsConfig` | GNOME | `~/.config/monitors.xml` |
-| `cinnamon` | `org.cinnamon.Muffin.DisplayConfig`, the Mutter backend under Muffin's name | Cinnamon | `~/.config/cinnamon-monitors.xml` |
+| `cinnamon` | `org.cinnamon.Muffin.DisplayConfig` — the Mutter backend under Muffin's name | Cinnamon | `~/.config/cinnamon-monitors.xml` |
 | `kwin` | `kde_output_management_v2`, with device objects found two ways | Plasma | KWin's own |
 | `x11` | the real `xrandr`, by `execve` | an X11 session, or `--backend x11` | the desktop's |
 
@@ -830,7 +821,8 @@ cinnamon, kwin` with the aliases `gnome`→`mutter`, `kde`→`kwin`, `muffin`→
 name column, and warandr's *Layout > Backend* menu carries the same eight entries in the
 same order. `--print-backend --verbose` says
 `compositor: COSMIC (wlr-output-management)` when the registry also carries
-`zcosmic_output_manager_v1`, and `compositor: wlroots (XDG_CURRENT_DESKTOP=labwc:wlroots)`, or `Budgie`, `XFCE`, `LXQt:labwc:wlroots`, when the variable is set and is not `sway`;
+`zcosmic_output_manager_v1`, and `compositor: wlroots (XDG_CURRENT_DESKTOP=labwc:wlroots)`
+— or `Budgie`, `XFCE`, `LXQt:labwc:wlroots` — when the variable is set and is not `sway`;
 the token stays `wlr` either way.
 
 **`cinnamon` is the `mutter` backend with three names swapped.** `GetCurrentState` and
@@ -839,7 +831,8 @@ unchanged, and a real mode change applied and read back with only the bus name, 
 object path and the interface changed. Muffin carries Mutter's validator with Mutter's
 strings (`Logical monitors not adjacent`, `Logical monitors overlap`, `Logical monitor
 scales must be identical`, `Config contains multiple primary logical monitors`), so
-everything §6 says about adjacency, gaps, mirroring and one-primary applies verbatim, and on three heads a live muffin was made to print `not adjacent` for the first time.
+everything §6 says about adjacency, gaps, mirroring and one-primary applies verbatim —
+and on three heads a live muffin was made to print `not adjacent` for the first time.
 Eight behaviours that used to be keyed on the token `mutter` are keyed on the
 implementation's flavour instead, and every GNOME string is byte-identical because the
 words come off `wxrandr/mutter.py:Flavor` (`.name`, `.desktop`, `.compositor`). Muffin
@@ -856,7 +849,7 @@ output present even the first one hangs; `wlr-randr`, the reference client, hang
 ever on the same request. Measured on 0.53.3 and again on 0.56.2. `keyword monitor` on a
 session that has not touched the protocol applies at once, which is the route this
 backend takes, and every apply is verified by re-reading `j/monitors all`: enabled or
-disabled, position, mode size and transform, but **not** the scale, because asked 1.37
+disabled, position, mode size and transform — but **not** the scale, because asked 1.37
 Hyprland applied 1.33 and answered `ok`. `j/monitors all` and not `j/monitors`, because
 a head Hyprland has disabled is not in the plain answer at all: the row vanishes rather
 than gaining `disabled: true`.
@@ -865,7 +858,7 @@ than gaining `disabled: true`.
 sends the identical configuration a second time when `_stray_head()` finds an enabled
 output away from the position the apply put it at; a third disagreement is a `Fatal`
 naming the output and both numbers. That second send exists for labwc, which answers
-`succeeded` and then lays the heads out itself, measured on labwc 0.9.3 / wlroots
+`succeeded` and then lays the heads out itself — measured on labwc 0.9.3 / wlroots
 0.19.2 with three heads, where `--output Virtual-3 --off` followed by `--auto` left
 `V-1 0,0  V-3 3840,0  V-2 5760,0` for an apply that asked for `V-1 0,0  V-2 1920,0
 V-3 3840,0`, and three applies later a head had drifted to `+9600+1080`. It is not our
@@ -890,14 +883,14 @@ and six name tests scattered through `Session`; there is now one attribute, and
 
 **One mode resolver.** `core.match_mode` and
 `core.resolve_real_mode(t, state, interlace_known)` are shared, and the
-`interlace_known` flag is required: KWin's modes are
+`interlace_known` flag is load-bearing rather than decorative: KWin's modes are
 flagless and Mutter's are not, so a resolver that assumed either would pick the wrong
 mode on one of them. There is a test for that divergence.
 
 **Layout representations went from four to three.** What is on the screen is
 `core.OutputState`; what was asked for is `core.Target`; what the user sees is the
-rendered `--query` text. `wmirror` used to carry a fourth, its own `Output` class
-and `outputs_from_heads()`, and now calls `snapshot_wlr(wlr, state=None)` instead,
+rendered `--query` text. `wmirror` used to carry a fourth — its own `Output` class
+and `outputs_from_heads()` — and now calls `snapshot_wlr(wlr, state=None)` instead,
 which is what makes "wmirror can never disagree with `wxrandr --query`" a literal
 statement about one code path rather than a claim about two.
 
@@ -913,7 +906,8 @@ serialisation contract with a program from 2010.
 ### GNOME's saved display configuration is all or nothing
 
 `~/.config/monitors.xml` holds one `<configuration>` per monitor set the user has ever
-kept, the laptop alone, the laptop plus the desk monitor, the three heads at work, and GNOME applies the entry whose monitors are plugged in. Mutter's **reader** verifies
+kept — the laptop alone, the laptop plus the desk monitor, the three heads at work —
+and GNOME applies the entry whose monitors are plugged in. Mutter's **reader** verifies
 every entry in the file with the same `meta_verify_logical_monitor_config_list()` that
 `ApplyMonitorsConfig` uses, and **one failure discards the whole file**. Measured on
 the 26.04 default install (GNOME 50.1, `resolute-gnome-iso`, three heads), on a file
@@ -931,8 +925,9 @@ Virtual-3 connected 1920x1080+3840+0           # the file, untouched and perfect
 
 Nothing says so: no window, no notification, nothing on any screen. The file stays on
 disk exactly as it was and every layout in it is inactive, at every login, until
-somebody edits it back by hand. Mutter's **writer** verifies nothing, `meta_monitor_config_manager_save_current()` serialises whatever configuration is
-current, so a file in that state can be written by anything that reaches libmutter
+somebody edits it back by hand. Mutter's **writer** verifies nothing —
+`meta_monitor_config_manager_save_current()` serialises whatever configuration is
+current — so a file in that state can be written by anything that reaches libmutter
 without going through DisplayConfig (GNOME on Xorg derives its logical monitors from
 the X layout with no verification at all; a Shell extension can ship its own typelib
 and call the symbols DisplayConfig does not export). And the next confirmed save
@@ -942,7 +937,7 @@ being recoverable. Measured, same rig: our confirmed `--persistent` on top of a
 discarded file left one `<configuration>` where there had been three.
 
 **No path through our own tools can put a bad entry in that file**, and that is
-measured rather than argued, every route tried on both default installs (GNOME 50.1
+measured rather than argued — every route tried on both default installs (GNOME 50.1
 on 26.04 and GNOME 46.0 on 24.04, three virtio heads, the "Keep changes?" dialog
 confirmed with `wdotool key Return`, `sha256sum` on the file after every step):
 
@@ -966,7 +961,7 @@ the validator has already accepted, and the writer runs only after the user conf
 A refused `--persistent` reaches neither.
 
 **One thing can still rot a file we caused to be written, and it is not a layout
-error.** With Fractional Scaling off, GNOME 46's default, the session is in physical
+error.** With Fractional Scaling off — GNOME 46's default — the session is in physical
 layout mode, where a scaled monitor keeps its pixel width, and Mutter writes the file
 with no `<layoutmode>` element at all. Turn the setting on and the same numbers are
 read as logical pixels, where a `--scale 2` head is half as wide as the gap its
@@ -982,18 +977,18 @@ Failed to read monitors config file '/home/test/.config/monitors.xml': Logical m
 
 Both entries gone. The layout was valid, Mutter validated it, Mutter wrote it; what
 changed is what the numbers mean. GNOME Settings' own 200% scaling writes exactly the
-same file, so this is not a wxrandr defect, but `--persistent` is the moment the user
+same file, so this is not a wxrandr defect — but `--persistent` is the moment the user
 chooses to save, and it is the moment to say so.
 
 **What `wxrandr --persistent` therefore does** (`wxrandr/monitors_xml.py`, about 200
 lines, none of it reached by a temporary apply):
 
 1. reads the file before the apply and prints one line when Mutter has already
-   discarded it, with Mutter's own verifier, in Mutter's order (adjacency first, so
+   discarded it — with Mutter's own verifier, in Mutter's order (adjacency first, so
    the sentence matches the one in the journal), judging an entry that names its layout
    mode in that one and an entry that does not in the session's;
 2. warns, before the dialog, when the layout being saved is one that a later
-   Fractional Scaling change would break, only in physical layout mode, only when
+   Fractional Scaling change would break — only in physical layout mode, only when
    something is scaled, and only when the row really does come apart in the other mode;
 3. copies the previous bytes to `monitors.xml.wxrandr-backup` once Mutter has accepted
    the layout, so that a rewrite that drops the other monitor sets is recoverable. A
@@ -1006,7 +1001,7 @@ and the copy against real files from both releases, and
 `tests/test_wxrandr_mutter.py:SavedConfigurationFile` holds the invariant end to end:
 every refusal leaves the file byte-identical and writes no copy, an accepted persistent
 apply writes the copy and still does not touch the file, and a temporary apply does not
-open it, that last one enforced by making the reader explode if it is called.
+open it — that last one enforced by making the reader explode if it is called.
 
 ### Why Mutter refuses monitors that share area
 
@@ -1036,40 +1031,45 @@ wxrandr and reads the same refusal.
 **And Mutter already holds overlapping logical monitors in practice.** GNOME on Xorg
 derives them from the X layout with no verification at all, so a plain `xrandr
 --output B --pos 960x0` on a GNOME/X11 session puts an overlapping set inside the
-very same data structures. The restriction therefore comes from this configuration validator, rather than
-from the monitor data structures. KWin, wlroots and X can apply the same layout.
+very same data structures. The invariant is enforced at one door, not required by the
+building, which is what makes this a limitation rather than a law of nature, and why
+the identical layout is taken as drawn by KWin, by wlroots and by X.
 
-**Available interfaces and their current behavior:**
+**Every supported route in is closed, and one is worse than closed.**
 
 | route | what happens |
 |---|---|
 | `ApplyMonitorsConfig` (D-Bus) | validates **before** it applies, on every method: 0 verify, 1 temporary, 2 persistent. `--dryrun` therefore gets exactly the answer an apply would |
-| `~/.config/monitors.xml` | the parser calls the **same verifier**, and a failure discards the **entire file**, see the warning below |
+| `~/.config/monitors.xml` | the parser calls the **same verifier**, and a failure discards the **entire file** — see the warning below |
 | a GNOME Shell extension | **the one route that works**, and since 0.4 it is packaged, opt-in and off: it reaches the non-introspected libmutter symbols by shipping a type description of its own. Measured working on all **three** measured generations (GNOME 46, 50 and 51), shared region byte-identical. It also encodes a private struct offset and the library SONAME, and a wrong offset **writes into the compositor's heap** rather than raising an error, which on Wayland means the user loses the session. What makes that shippable is below |
 
-**Cinnamon overlap support is not yet implemented.** Its existing
-`org.Cinnamon.Eval` method can access `MetaMonitorsConfig` inside Muffin without
-installing an extension, so the implementation would use route 2 in `AGENTS.md`.
-
-The remaining work is to measure and maintain the private structure offsets for
-each Cinnamon release. Unlike GNOME's versioned Meta typelibs, Muffin uses
-`Meta-0` and `libmuffin.so.0` across releases, so those names cannot identify which
-structure layout is safe to access. The diagnostic explains this requirement
-and identifies the Eval interface as the proposed route.
-
-A shared diagnostic function keeps the explanation consistent across
-`--unsafe-gnome-overlap`, `--gnome-overlap-status` and `--gnome-overlap-allow`.
+**There is no Cinnamon analogue, and the route it would take is one rung lower.** The
+GNOME extension exists because Mutter's `MetaMonitorsConfig` is not introspected and the
+route reaches it from inside the shell; on Cinnamon `org.Cinnamon.Eval` already reaches
+`MetaMonitorsConfig` with nothing installed, so the rung is 2 rather than 3 (AGENTS.md
+lists Eval under rung 2, and the rule asks for the lowest rung that does the job). What
+stops it being written today is the offsets: the GNOME route picks a private struct
+description **by Meta typelib version**, and muffin's GIR namespace is `Meta-0` with
+`libmuffin.so.0` for every release ever made, so the record would have to be measured per
+*Cinnamon* release rather than per Meta generation. **Not yet**, with that route and that
+cost, and `wxrandr` prints exactly that: *this is Cinnamon, whose Meta-0 typelib has no
+generation to check; not yet here, and the route is org.Cinnamon.Eval reaching
+MetaMonitorsConfig inside muffin with nothing installed (AGENTS.md route 2), at the cost of
+an offset record measured per Cinnamon release instead of per Meta generation.* One
+function produces it, so `--unsafe-gnome-overlap`, `--gnome-overlap-status` and
+`--gnome-overlap-allow` all say it, which is the point of having one function behind all
+three.
 
 **And on GNOME-on-Xorg the flag has nothing to do at all**, because Mutter does not refuse
 an overlap there: `wxrandr --backend mutter --output Virtual-3 --pos 1920x0` answered rc 0
 with empty output and `xrandr --query` then showed Virtual-2 and Virtual-3 both at
 `1920x1080+1920+0` (GNOME Shell 46.0, mutter 46.2, 2026-09-09). It really is the D-Bus
-route that places it, `--print-backend --backend mutter --verbose` says `protocol:
-org.gnome.Mutter.DisplayConfig (D-Bus)` on that session, so the `Logical monitors not
+route that places it — `--print-backend --backend mutter --verbose` says `protocol:
+org.gnome.Mutter.DisplayConfig (D-Bus)` on that session — so the `Logical monitors not
 adjacent` string that IS in `libmutter-14` belongs to the path a Wayland Mutter takes.
 `--gnome-overlap-status` already says the right thing there: `unavailable / shell: 46.0 /
 reason: this session is x11, which places overlapping monitors without it`, which are the
-handover diagnostic, on purpose, so that a user who asks the status and then types
+handover branch's own words, on purpose, so that a user who asks the status and then types
 `--unsafe-gnome-overlap` on the same box is told the same thing twice in the same sentence.
 
 #### The extension, and the three properties that make it shippable
@@ -1083,13 +1083,14 @@ of thing, its own uuid, its own installer (`gnome/install-overlap.sh`) and its o
 step. Since 0.4 the package carries its files, because a route nobody can reach from
 the way almost everybody installs is not a route; what it does not carry is any step
 that turns it on. Installed, it is inert: nothing enables it, nothing calls it, and
-the flag that does is off. `--gnome-overlap-allow` is not a gate in front of it, the agreement is read between the last refusal and the call, and all it decides is
+the flag that does is off. `--gnome-overlap-allow` is not a gate in front of it —
+the agreement is read between the last refusal and the call, and all it decides is
 whether the risk is printed in full or in one line.
 
 `nm -D` on the shipped library lists `meta_monitor_manager_apply_monitors_config`,
 `meta_monitor_manager_get_config_manager`, `meta_monitor_config_manager_get_current`,
 `meta_monitor_config_manager_create_linear` and `meta_verify_monitors_config` as
-ordinary dynamic symbols, libmutter is built with hidden visibility, but the
+ordinary dynamic symbols — libmutter is built with hidden visibility, but the
 test-export macro expands to a real export. They are absent from the introspection
 data, not from the library, and an extension can prepend its own search path.
 `meta_monitors_config_copy` is exported on mutter 18 and **not** on mutter 14, so
@@ -1105,7 +1106,8 @@ nothing on disk*, below.
 
 **2. No pointer is ever dereferenced by the type system.** Every pointer in the
 described structures is declared `guint64`, so reading one yields a *number*; each
-step to the next struct is `g_memdup2(ptr, n)`, a bounded copy of exactly n bytes, and `g_strndup(ptr, 63)` for the connector names, with the address range-checked
+step to the next struct is `g_memdup2(ptr, n)` — a bounded copy of exactly n bytes —
+and `g_strndup(ptr, 63)` for the connector names, with the address range-checked
 against `/proc/self/maps` first and list walks capped at 16. With pointers declared as
 pointers, a wrong offset killed gnome-shell outright (measured, 50.1, a node whose
 `next` was `0x1`); with them declared as numbers, all twelve wrong descriptions tried
@@ -1125,13 +1127,13 @@ beside the copy embedded in `extension.js` for reading rather than for loading.
 
 Both methods take the same request object, and neither field is required:
 
-* `layout_mode`, the number `GetCurrentState` reports publicly, 1 physical or 2
+* `layout_mode` — the number `GetCurrentState` reports publicly, 1 physical or 2
   logical. It decides nothing about the layout. It is checked against the value read at
   the offset this description believes, and a disagreement is a refusal, which pins the
   structure's tail a second time with a number the caller got from Mutter's public API:
   claiming logical mode on GNOME 46, whose default is physical, gets `layout_mode reads
   2 at the offset this description believes; DisplayConfig says 1`.
-* `expect`, the layout the caller believes is running, one entry per logical monitor
+* `expect` — the layout the caller believes is running, one entry per logical monitor
   as `{"connectors": [...], "x": …, "y": …}`. On GNOME 46 it is also where the
   connector names in the public comparison come from, because that Shell exposes no
   way to name a monitor from JS at all and a synchronous DisplayConfig call from
@@ -1235,8 +1237,8 @@ stock GNOME 46.0 (libmutter 14) and 50.1 (libmutter 18), with `parent_config` an
 | 60 | `layout_mode` | unused |
 | 64 | `switch_config` | unused |
 | 68 | padding | `layout_mode` |
-| 72 | n/a | `switch_config` |
-| 76 | n/a | padding |
+| 72 | — | `switch_config` |
+| 76 | — | padding |
 | **size** | **72 bytes** | **80 bytes** |
 
 The list at 40 is the one that is walked, and it is the same offset on both, which is
@@ -1317,13 +1319,13 @@ because the size cannot say which of them this build is.
 
 **Every name is written out; none is computed.** That is the whole design change,
 and mutter is why. Through GNOME 50, libmutter's API version was a counter of its
-own, 46 carried `libmutter-14`, 50 carried `libmutter-18`, so
+own — 46 carried `libmutter-14`, 50 carried `libmutter-18` — so
 `libmutter-<major − 32>.so.0` happened to be right, and this tree derived a
 soname, a typelib version and a `W11Overlap` namespace from one small integer in
 four different places. mutter 51 sets `libmutter_api_version = '51'`
 (`meson.build` line 10 of the `51~rc` tarball), so the next Ubuntu ships
 `/usr/lib/x86_64-linux-gnu/libmutter-51.so.0` from `libmutter-51-0`, with
-`Meta-51.typelib` from `gir1.2-mutter-51` beside it, checked against the archive,
+`Meta-51.typelib` from `gir1.2-mutter-51` beside it — checked against the archive,
 not guessed. The arithmetic is gone, and a table that stores strings does not care:
 a generation whose names follow no scheme at all is still one record.
 
@@ -1341,7 +1343,7 @@ typelibs must be present and which shells to warn about. There is no fourth plac
 **The procedure**, in order. Steps 1 and 2 are typing; step 3 is the work.
 
 1. **Derive the numbers from the release's own source.** Not from the running
-   compositor, see *Why the description is not generated from the running
+   compositor — see *Why the description is not generated from the running
    compositor* below.
 
    ```console
@@ -1373,8 +1375,8 @@ typelibs must be present and which shells to warn about. There is no fourth plac
    an error naming `--shell`: the table is keyed by GNOME major, and a script that
    takes one number when it means the other invites exactly the wrong answer.
 2. **Write the record twice and regenerate.** The soname is the file
-   `gnome-shell` actually maps, read it out of `/proc/$(pidof gnome-shell)/maps`,
-   do not compose it, and `meta_typelib` is what `GIRepository` answers for `Meta`.
+   `gnome-shell` actually maps — read it out of `/proc/$(pidof gnome-shell)/maps`,
+   do not compose it — and `meta_typelib` is what `GIRepository` answers for `Meta`.
 
    ```console
    $ $EDITOR gnome/w11-overlap@w11/generations.json
@@ -1387,7 +1389,7 @@ typelibs must be present and which shells to warn about. There is no fourth plac
    `metadata.json` is part of that generation and not a fourth place to edit:
    both its `shell-version` list and the sentence of its `description` that names
    the measured releases come out of the table, and `--check` fails when either
-   has gone stale. `shell-version` is not cosmetic, `gnome-shell` refuses to
+   has gone stale. `shell-version` is not cosmetic — `gnome-shell` refuses to
    *load* an extension that does not name the running Shell major, which is why,
    until a release is in the table, `install-overlap.sh` adds that major to the
    **installed** copy and says so. That is what makes the honest refusal (and
@@ -1398,7 +1400,7 @@ typelibs must be present and which shells to warn about. There is no fourth plac
    fields of the same size swapped upstream would pass step 1 and every static
    check here.
 
-   1. `sh gnome/install-overlap.sh --check`, every guard against the running
+   1. `sh gnome/install-overlap.sh --check` — every guard against the running
       libmutter, writing nothing. All six have to pass. `struct-size` compares the
       new description's record size with `GObject.type_query()` on the live build,
       and `sentinel` writes `0x5f5a` through Mutter's own `set_switch_config` on a
@@ -1411,8 +1413,8 @@ typelibs must be present and which shells to warn about. There is no fourth plac
       the shared region and compare the raw RGB. `vm/vmctl` builds the images, and
       the numbers the two shipped generations produced are in
       [WXRANDR.md](WXRANDR.md#--unsafe-gnome-overlap-the-one-route-through).
-   4. Break it on purpose. Install a deliberately wrong description, the
-      neighbouring generation's, or one with two same-size fields swapped, and
+   4. Break it on purpose. Install a deliberately wrong description — the
+      neighbouring generation's, or one with two same-size fields swapped — and
       confirm it is *refused by name* with `gnome-shell` still running. A guard
       nobody has watched fire on this release is a guard nobody has tested on it;
       that is how the first `pending-dialog` check shipped unable to fire at all.
@@ -1420,7 +1422,7 @@ typelibs must be present and which shells to warn about. There is no fourth plac
       **Log in again between descriptions.** gjs *maps* a typelib into the
       process and keeps the mapping, so writing different bytes over a file a
       running `gnome-shell` has already loaded changes the blob under it and the
-      next call through that description aborts the process, a dead session
+      next call through that description aborts the process — a dead session
       that says nothing about the description you were testing. Measured on
       GNOME 51, twice, before it was understood. The same hazard is a real one
       for users, not only for testing, so `install-overlap.sh` replaces a
@@ -1440,7 +1442,7 @@ message, against Ubuntu 26.10's `stonking-gnome` image (GNOME Shell 51.beta,
 
 * **the numbers.** `gen-gir.py --from-header` on mutter 51's own
   `meta-monitor-config-manager.h` lays `MetaMonitorsConfig` out at 80 bytes with three
-  tail slots, `for_lease_monitor_specs` at 48 and `switch_config` at 72, the same
+  tail slots, `for_lease_monitor_specs` at 48 and `switch_config` at 72 — the same
   layout as mutter 18, under different names for everything around it. The live
   build agreed: `GObject.type_query()` reported 80, the sentinel round-tripped at the
   declared offset, the bounded read walked three logical monitors and the field by
@@ -1483,11 +1485,11 @@ inside `gnome-shell`. That argument is the design: a command line pasted out of 
 forum names the poster's GNOME and is refused by number on anybody else's, which is
 a property a bare `--force` cannot have. It is not a default anywhere, no
 environment variable sets it, `warandr` has no way to reach it, and a forced run
-neither reads nor writes the recorded agreement, so the paragraph it prints cannot
+neither reads nor writes the recorded agreement — so the paragraph it prints cannot
 be silenced, and `--gnome-overlap-allow` refuses to be typed with it.
 
 **What it skips: one check.** That this GNOME is in the table, and with it the tie
-between the shell and the libmutter it is *supposed* to carry, on a build nobody
+between the shell and the libmutter it is *supposed* to carry — on a build nobody
 has measured there is no supposed to. The description to read through is then
 chosen by the size the running build's own GType registry reports for
 `MetaMonitorsConfig`, which is a selection and not a relaxation: the size still has
@@ -1495,17 +1497,17 @@ to be exactly a shipped description's, an ambiguous answer is a refusal, and a s
 nothing describes is a refusal that says forcing cannot invent a description.
 
 **What it cannot skip: everything else, and the rule is not a list of exceptions.**
-A refusal here is either *cautious*, this is a build nobody has measured, or
-*certain*, something is missing, or has just proved itself wrong. Only the first
+A refusal here is either *cautious* — this is a build nobody has measured — or
+*certain* — something is missing, or has just proved itself wrong. Only the first
 kind is forceable, and there is exactly one of them. The certain ones, each for its
 own reason: `--persistent` (the file it writes is read back through the validator
 this exists to get past); a compositor that is not GNOME (KDE, wlroots and X place
-the layout as drawn, there is nothing to buy); a shell that will not say its
+the layout as drawn — there is nothing to buy); a shell that will not say its
 version (forcing is somebody vouching for a build by naming it, and a version
 nothing can read is not a build anybody can name); an extension that is not on the
 bus (nothing there to talk to); an invocation that changes more than a position
 (the extension writes two words and cannot do anything else); `symbols` (libmutter
-has dropped an export, the code cannot run); `struct-size` (no description of this
+has dropped an export — the code cannot run); `struct-size` (no description of this
 struct exists); `sentinel`, `bounded-read`, `layout-mode`, `public-view`,
 `read-back`, `positive-control` (the read or the write has just disagreed with
 Mutter, which is the guard working); `shared-library` (the description names a
@@ -1521,7 +1523,7 @@ and demands it still refuses.
 
 **What it prints before it does it**: what is skipped, what is not, that the two
 words may land somewhere else on this build and take the session with them, that
-nothing is recorded, and the way back from a session that will not start, the same
+nothing is recorded, and the way back from a session that will not start — the same
 route as the ordinary warning, which is printed underneath it and not instead of
 it.
 
@@ -1536,11 +1538,11 @@ passes and refuses under three different names depending on what was wrong.
 | # | check | what it catches | what a failure looks like |
 |---|---|---|---|
 | 1 | `shell-version` | a build nobody has measured: the Shell major is a record in the table, exactly one libmutter is mapped into the process, its soname is the one that record names, and the `Meta` typelib version agrees with it. The one check `--unsafe-gnome-overlap-unmeasured` can be told to skip | `GNOME Shell 48.3: this extension knows the private layout of GNOME 46 and 50 and 51 only`, or `GNOME Shell 50.1 should carry libmutter-18, this process has [14]`, or `the Meta typelib says 14, libmutter says 18`. The tool refuses one release earlier still, from the Shell's public version property, before the bus is touched |
-| 2 | `typelib` | the description is missing, will not load, has lost a symbol, or describes a structure of the wrong size. The size is read back out of *our own* typelib through `GIRepository` and compared with `GObject.type_query(MetaMonitorsConfig).instance_size`, so there is no constant in this tree to go stale | `W11Overlap18-1.0.typelib is not installed in …`, `W11Overlap18.create_linear is not callable`, or the one that matters: `this build's MetaMonitorsConfig is 72 bytes, the description shipped for libmutter-14 is 80`, **having read nothing at all** |
+| 2 | `typelib` | the description is missing, will not load, has lost a symbol, or describes a structure of the wrong size. The size is read back out of *our own* typelib through `GIRepository` and compared with `GObject.type_query(MetaMonitorsConfig).instance_size`, so there is no constant in this tree to go stale | `W11Overlap18-1.0.typelib is not installed in …`, `W11Overlap18.create_linear is not callable`, or the one that matters: `this build's MetaMonitorsConfig is 72 bytes, the description shipped for libmutter-14 is 80` — **having read nothing at all** |
 | 2b | `shared-library` | a description that names a shared library GIRepository cannot open. It is read statically out of the loaded namespace, before any call is made through it, because the failure it prevents is not catchable: gjs asserts and aborts the process on the first call through a namespace whose module did not load | `W11Overlap18 names the shared library libmutter-18.so.0, which is not mapped into gnome-shell ([libmutter-51.so.0] are)`. Descriptions generated here name none; this is for one left behind by an older install. Measured on GNOME 51, where the same input killed the session before this check existed |
 | 3 | `sentinel` | the tail has moved even though the size has not. `0x5f5a` is written through Mutter's own exported `set_switch_config`, on a throwaway `create_linear()` object and never on the live one, and has to reappear at the offset this description believes | `switch_config reads 0 at the offset this description believes, not 24410: the tail of MetaMonitorsConfig is not where it was measured`. It pins offset 64 on mutter 14 and 72 on mutter 18, which is precisely what differs between them |
 | 4 | `pending-dialog` | the one window in which a mutated configuration could reach Mutter's *writer*: confirming a *Keep changes?* makes Mutter save whatever is current, and a saved overlap poisons `monitors.xml` for ever. `Main.modalCount` must be exactly 0 | `something holds a modal grab on the shell (Main.modalCount is 1). If that is GNOME asking whether to keep a display change, …`. It fails closed: a count that is not a whole number, or is negative, refuses too. Measured refusing with the dialog on screen on both releases; measured **not** firing at all in the first cut of this check, which is its own subsection below; and measured refusing once with nothing on screen at all, seconds into a fresh session, which is under "Measured against a real update stream" |
-| 5 | `bounded-read` | anything unreadable: the whole configuration is copied out with `g_memdup2` and `g_strndup`, every address checked against `/proc/self/maps` first, list walks capped at 16 monitors and connector names at 63 bytes | `node[1]: 0x1+24 is not in a readable mapping`, the wild pointer that killed a shell back when pointers were declared as pointers. `layout-mode` refuses here too, when the publicly reported layout mode is not what is read at the offset believed: `layout_mode reads 2 at the offset this description believes; DisplayConfig says 1` |
+| 5 | `bounded-read` | anything unreadable: the whole configuration is copied out with `g_memdup2` and `g_strndup`, every address checked against `/proc/self/maps` first, list walks capped at 16 monitors and connector names at 63 bytes | `node[1]: 0x1+24 is not in a readable mapping` — the wild pointer that killed a shell back when pointers were declared as pointers. `layout-mode` refuses here too, when the publicly reported layout mode is not what is read at the offset believed: `layout_mode reads 2 at the offset this description believes; DisplayConfig says 1` |
 | 6 | `public-view` | everything else: count, `x`, `y`, `w`, `h`, `scale`, `primary` and the connector names against `global.display` and `MetaMonitorManager`. This is where a wrong offset that survived the size gate and the sentinel dies, because garbage does not agree with the public view on all of that at once | `private read has 1 monitors, Mutter reports 3; monitor 0: x reads -41753344, Mutter says 0 …` **and gnome-shell survived it**. The reply says which public source was used, because GNOME 46 can only supply the geometry half and takes the names from what the caller read out of DisplayConfig |
 
 Then, on `ApplyOverlap` only, after the write and before the apply: the configuration
@@ -1576,13 +1578,13 @@ dialog is up (measured, 46.0 and 50.1), and the decision is `modalVerdict()` in
 `rules.js`, where plain `node` can test it. It **fails closed**: a count that is not a
 whole number, or is negative, is a refusal, so a shell that renames the field stops
 the feature instead of silently disarming its most consequential guard. It is coarse
-on purpose, any modal grab refuses, the overview and an open menu included, because
+on purpose — any modal grab refuses, the overview and an open menu included — because
 a dialog this shell will not name cannot be recognised any more precisely, and a
 false refusal costs a retry while a false pass costs the file.
 
 Re-measured with the guard alive, on both releases: the dialog on screen, the overlap
 **refused** by name, and the confirmed dialog then saving the layout GNOME itself had
-applied, a valid one, which the next boot read back with no journal complaint.
+applied — a valid one, which the next boot read back with no journal complaint.
 
 The general lesson, and the reason the tests are shaped the way they are: **a guard
 that cannot fire is worse than no guard, because it is believed.** Every check here is
@@ -1665,7 +1667,7 @@ Ubuntu installer, three virtio heads, nothing patched.
   same-size field swap that read garbage (`public-view`). **`gnome-shell` survived all
   five**: no crash, no core dump, the desktop still running afterwards. Four more went
   in during the update testing below, on both LTS releases and on other libmutter
-  builds, a wrong-generation description on 24.04, and on 26.04 a 72-byte tail as
+  builds — a wrong-generation description on 24.04, and on 26.04 a 72-byte tail as
   `W11Overlap18` (`struct-size`), `layout_mode` and `switch_config` swapped at the same
   size (`sentinel`, `switch_config reads 1 at the offset this description believes, not
   24410`) and the list read out of the `key` slot (`bounded-read`). Three more went in
@@ -1713,27 +1715,27 @@ layout alone on both releases, and nothing persisted across a reboot.
 
 **The generation cannot move inside a release.** One `libmutter-N-0` per Ubuntu
 release across release+updates+security+backports, every time: bionic 2, focal 6,
-jammy 10, noble 14, plucky 16, questing 17, resolute 18, stonking 51, mutter 51
-renumbered the library to the GNOME major, so the counting stops there, and
+jammy 10, noble 14, plucky 16, questing 17, resolute 18, stonking 51 — mutter 51
+renumbered the library to the GNOME major, so the counting stops there — and
 `-backports` has never carried mutter or gnome-shell at all. The generation moves at a release
 upgrade and nowhere else.
 
 **Two independent confirmations of the offsets.** `gen-gir.py --from-header`
 (below) lays out `struct _MetaMonitorsConfig` from each release's own header and
-arrives at exactly the two shipped descriptions, 72/80 bytes, the list at 40,
-`switch_config` at 64/72, which is upstream source agreeing with a live
+arrives at exactly the two shipped descriptions — 72/80 bytes, the list at 40,
+`switch_config` at 64/72 — which is upstream source agreeing with a live
 measurement. And `meta-monitor-config-manager.h` is byte-identical (sha256
 `5f131fc1…`) between the mutter 46.0 and 46.2 tarballs, which is the change
 24.04's shell version cannot see.
 
 **What did go wrong, once.** On the first overlapping run after a post-update
-login on 24.04, `pending-dialog` refused with nothing on screen, no dialog, no
-menu, no overview, screenshot checked, and the next run seconds later applied.
+login on 24.04, `pending-dialog` refused with nothing on screen — no dialog, no
+menu, no overview, screenshot checked — and the next run seconds later applied.
 It did not reproduce over a dozen probes on two ordinary reboots. Something in a
 session that has just come up holds a modal grab briefly, and `Main.modalCount`
 cannot distinguish that from the dialog that matters. **The guard was not
-loosened**, because the costs are not symmetrical, a false refusal is a retry, a
-false pass is `monitors.xml` for ever, and the message was fixed instead: it
+loosened**, because the costs are not symmetrical — a false refusal is a retry, a
+false pass is `monitors.xml` for ever — and the message was fixed instead: it
 names the count and says that a grab nobody can see releases itself.
 
 **What the update stream did expose was a gap in the bookkeeping, not in the
@@ -1741,9 +1743,9 @@ guards.** The recorded agreement said it named "this build and no other", and it
 did not: it named the Shell version string, libmutter's generation and the struct
 size, and a routine `apt upgrade` of libmutter changes none of those. So a
 `libmutter` swapped under an unchanged 46.0 or 50.1 carried the old agreement
-over to a binary nobody had agreed to. The answer is a fourth recorded fact, the
+over to a binary nobody had agreed to. The answer is a fourth recorded fact — the
 GNU build id of the mapped library, read from its ELF note by the extension and
-relayed like the rest, audited against the reply exactly where the other two
+relayed like the rest — audited against the reply exactly where the other two
 are. Measured on both releases: 46.2 → the GA 46.0 under one unchanged shell
 version, and 50.1-0ubuntu2.2 → 2.3 from `-proposed`, each applying with every
 check green and then printing `this GNOME is not the one that was agreed to
@@ -1751,8 +1753,8 @@ check green and then printing `this GNOME is not the one that was agreed to
 
 It is deliberately *not* a guard. The library the checks ran against is the one
 being written to, so a different file on disk says nothing about the write. Which
-is also why an `apt upgrade` under a live session, where `/proc/self/maps` gains
-` (deleted)` and the running shell keeps the old library mapped, produces a
+is also why an `apt upgrade` under a live session — where `/proc/self/maps` gains
+` (deleted)` and the running shell keeps the old library mapped — produces a
 printed note rather than a refusal, and why the build id is reported as unknown
 while that is true instead of being read from a file the answer is not about.
 
@@ -1764,7 +1766,7 @@ check it, and none of it needs a debugger:
 1. **`sh gnome/install-overlap.sh --check`.** It runs every guard against the running
    libmutter and writes nothing. The refusal names the check, and the check names the
    cause. Everything below is that output read closely.
-2. **`shell-version`**, a new GNOME. The allowlist is the table,
+2. **`shell-version`** — a new GNOME. The allowlist is the table,
    `gnome/w11-overlap@w11/generations.json` and its twin
    `GENERATIONS` in `wxrandr/gnome_overlap.py`; `metadata.json` is generated from it
    and a test proves the two copies identical. The refusal prints what to add: the
@@ -1776,7 +1778,7 @@ check it, and none of it needs a debugger:
    `--unsafe-gnome-overlap-unmeasured <major>`, which skips this check and no other. A recorded agreement (below) has already stopped
    applying at this point, on its own, because it names the version it was given on:
    the upgraded machine asks in full again rather than proceeding on an old yes.
-3. **`struct-size`**, reported by the `typelib` check, `MetaMonitorsConfig`
+3. **`struct-size`**, reported by the `typelib` check — `MetaMonitorsConfig`
    changed size. The message says both numbers.
    The fix is a new `.gir` for the new generation under `gnome/overlap-typelib/`,
    rebuilt with `python3 gnome/overlap-typelib/gen-gir.py`, whose `--check` proves the
@@ -1806,25 +1808,25 @@ check it, and none of it needs a debugger:
    struct is refused outright, because then the description's shape is wrong and not
    only its numbers. Both are exercised by `tests/test_gnome_overlap.py`, which also
    runs it against the mutter 46 and mutter 50 headers in `tests/fixtures/mutter/` and
-   demands those two of the three shipped descriptions back, so the offsets this
+   demands those two of the three shipped descriptions back — so the offsets this
    feature rests on now have upstream source and a live compositor agreeing about
    them.
-4. **`sentinel`**, the size is right and the *tail* moved. This is the dangerous
+4. **`sentinel`** — the size is right and the *tail* moved. This is the dangerous
    shape, the one that would write into somebody else's field, and it is why the
    sentinel goes through Mutter's own `set_switch_config` on a throwaway
    `create_linear()` object. Re-derive the offsets with `--from-header` above;
    `layout_mode` cross-checked against DisplayConfig's public value is the second
    opinion.
-5. **`public-view`**, the read is nonsense. Do not fix it by adjusting offsets until
+5. **`public-view`** — the read is nonsense. Do not fix it by adjusting offsets until
    the numbers agree, which is how a same-size field swap gets shipped. Fix it by
    deriving the layout from the release's own source, then proving it: apply an
    overlap on a three-head VM, crop both heads to the shared region, and compare the
    raw RGB. `vm/vmctl` builds the images; the measurements this feature rests on are
    in [WXRANDR.md](WXRANDR.md#--unsafe-gnome-overlap-the-one-route-through).
-6. **`pending-dialog`**, `Main.modalCount` is gone or is not a whole number. Do not
+6. **`pending-dialog`** — `Main.modalCount` is gone or is not a whole number. Do not
    make this check pass. It fails closed for a reason, and the reason is the section
    above.
-7. **`bounded-read`** on a build that passes everything above, either the addresses
+7. **`bounded-read`** on a build that passes everything above — either the addresses
    are not where this description says they are, or the list is being changed under
    the walk. Neither is fixable by retrying, and a refusal is the right answer to
    both, which is what it gives.
@@ -1850,8 +1852,8 @@ Stated plainly, because a reader has to be able to decide against this:
   the live one and it is not hypothetical: the version gate said yes to seven different
   libmutter builds during the update testing above, which is what it is for, and every
   one of them happened to have the same private layout. The mechanism that would beat
-  it exists, mutter 50.1-0ubuntu2.3, in `resolute-proposed`, adds a field to
-  `_MetaMonitorManagerPrivate` under an unchanged 50.1 Shell version, and it happens
+  it exists — mutter 50.1-0ubuntu2.3, in `resolute-proposed`, adds a field to
+  `_MetaMonitorManagerPrivate` under an unchanged 50.1 Shell version — and it happens
   not to be aimed at this struct.
 * **The measurement has a shelf life.** All of it was true of the archive on the day it
   was run, on x86-64, on Ubuntu. A check that has been right twelve times is a check
@@ -1900,10 +1902,10 @@ rule is one sentence: **the agreement decides what is printed and nothing else.*
 * it is recorded only by `--gnome-overlap-allow`, which runs the six checks first and
   writes nothing if any of them refuses, so an agreement can only ever name a build
   they have just passed on;
-* what it names is what they *measured*, the Shell version string, libmutter's
+* what it names is what they *measured* — the Shell version string, libmutter's
   generation, `GObject.type_query(MetaMonitorsConfig).instance_size` as the `typelib`
   check read it, and the GNU build id of the mapped libmutter as the extension read it
-  out of that file's ELF note, relayed to the caller as `instance_size` and
+  out of that file's ELF note — relayed to the caller as `instance_size` and
   `libmutter_build` in the extension's answer. No number in this tree, which is the
   failure that check exists to catch. The build id is there because the other three
   cannot see an `apt upgrade`: 24.04 has carried mutter 46.2 under GNOME Shell 46.0 for
@@ -1920,7 +1922,7 @@ rule is one sentence: **the agreement decides what is printed and nothing else.*
 * the version string is compared before anything is read, because that comparison has
   to decide whether the paragraph is printed *before* the write. The other three facts
   are audited against the reply afterwards, and a difference deletes the record so the
-  next run asks in full, bookkeeping rather than a guard, because the extension's own
+  next run asks in full — bookkeeping rather than a guard, because the extension's own
   `typelib` check makes the layout cases a refusal, and a new build of the same layout
   is not dangerous at all. Measured on both releases, on the two updates that carry a
   new libmutter under an unchanged shell version: the apply goes through with six green
@@ -1938,8 +1940,8 @@ upgrade: inside 24.04 and 26.04, eight libmutter builds later, it has not broken
 
 #### Why the description is not generated from the running compositor
 
-The obvious next step, have the extension build its own description at install time,
-by asking the libmutter it is about to use, is the one thing here that must not be
+The obvious next step — have the extension build its own description at install time,
+by asking the libmutter it is about to use — is the one thing here that must not be
 done, and it is worth writing down why, because it looks like self-repair.
 
 **It would spend the independence the checks are made of.** `struct-size` compares two
@@ -1954,7 +1956,7 @@ confirms whatever it finds. What is left is the public-view comparison, alone.
 size and nothing else about a private struct: which words are pointers, which are ints,
 where a `GList` head is. Those are exactly the facts a wrong description gets wrong, and
 exactly the facts a running compositor will not tell you. A generator would have to
-guess them, on the build it is about to write into.
+guess them — on the build it is about to write into.
 
 **The evidence does not transfer, either.** Twelve wrong descriptions were caught,
 but every one of them was caught *by disagreeing with the build*. A self-derived
@@ -2001,7 +2003,7 @@ therefore useless from a hotkey.
 
 ## 7. Detached children, runtime paths and stdio
 
-**One detach protocol.** `w11common/procs.py` is the complete operation, and both callers use
+**One detach protocol.** `w11common/procs.py` is the whole of it, and both callers use
 it: `wxrandr/gamma.py`'s holder, which keeps a `zwlr_gamma_control` alive for as long
 as a brightness is set, and `wmirror/supervise.py`, which owns one `wl-mirror`.
 
@@ -2022,7 +2024,7 @@ What it promises, and why each promise has code:
 * **liveness is `(pid, starttime)` read out of `/proc`**, so a recycled pid is never
   mistaken for the process we started, and the euid check means nothing is signalled
   that is not ours;
-* **every kill is bounded**, SIGTERM, wait, SIGKILL, confirm, and never
+* **every kill is bounded** — SIGTERM, wait, SIGKILL, confirm — and never
   fire-and-forget.
 
 `daemon._spawn` deliberately does *not* use it: the input daemon has its own
@@ -2054,13 +2056,15 @@ way out and make the status 120 exactly as stdout's do.
 
 ## 8. The environment
 
-Related environment variables are grouped in the table below.
+Twenty-five rows below, and rather more names than rows, because some of them group.
 All but seven are also written down in the README, in a tool contract or in
-`gnome/README.md`; the seven in **bold** are written down only here.
+`gnome/README.md`; the seven in **bold** are written down only here. Five of the rows and
+six of the names are the proxy's, and [XW11.md](XW11.md#variables-and-options) is where
+they are explained.
 
 | variable | read by | effect |
 |---|---|---|
-| `W11_PASSTHROUGH` | `wdotool`, `wwmctl`, `wxprop`, `wxrandr` | `never` runs our own code whatever the session, `always` hands over whatever the session. `WDOTOOL_PASSTHROUGH`, `WWMCTL_PASSTHROUGH`, `WXPROP_PASSTHROUGH` and `WXRANDR_PASSTHROUGH` do the same per tool |
+| `W11_PASSTHROUGH` | all six | `never` runs our own code whatever the session, `always` hands over whatever the session. `WDOTOOL_PASSTHROUGH`, `WWMCTL_PASSTHROUGH`, `WXPROP_PASSTHROUGH` and `WXRANDR_PASSTHROUGH` do the same per tool |
 | `WDOTOOL_REAL_XDOTOOL` and friends | `passthrough` | where the original is. Also `WWMCTL_REAL_WMCTRL`, `WXPROP_REAL_XPROP`, `WXRANDR_REAL_XRANDR`. Set but unusable is an error naming the variable, never a silent fallback |
 | `WDOTOOL_LAYOUT`, `WDOTOOL_XKB_KEYMAP` | the daemon | the character table, a keymap from a file |
 | `WDOTOOL_XKB_GROUP` | the **command**, carried to the daemon on the request | the layout group to pin. Read where the user set it, like `--layout`, because the daemon keeps the environment it was spawned with and outlives it |
@@ -2069,8 +2073,8 @@ All but seven are also written down in the README, in a tool contract or in
 | `WDOTOOL_BACKEND` | `backend_detect` | force a window backend, ahead of detection |
 | `WXRANDR_BACKEND`, `WXRANDR_PERSIST` | `wxrandr` | force a display backend (`--backend` beats it); make `--persistent` the default |
 | `WWMCTL_WMCTRL_GENERATION` | `wwmctl` | `1.07` or `git`: which upstream `--help` text to print, instead of consulting the installed oracle |
-| **`WWMCTL_NO_X`** | `wwmctl.core` | do not open the X11 connection at all. The listing then carries compositor ids and no X enrichment, how the "no X server" path is exercised without taking one away |
-| **`WXPROP_NO_X`** | `wxprop.core` | the same for wxprop: never resolve an X11 connection, so `-root` answers from the compositor's synthesized set |
+| **`WWMCTL_NO_X`** | `wwmctl.core` | do not open the X plane at all. The listing then carries compositor ids and no X enrichment — how the "no X server" path is exercised without taking one away |
+| **`WXPROP_NO_X`** | `wxprop.core` | the same for wxprop: never resolve an X plane, so `-root` answers from the compositor's synthesized set |
 | **`WXPROP_ARGV0`** | `wxprop` | the program name in usage and error lines, overriding `argv[0]`. Real xprop prints the name it was invoked under, and `python -m wxprop` has none to print |
 | **`WDOTOOL_UINPUT_PATH`** | `wdotool.uinput` | the device node to open, default `/dev/uinput` |
 | **`WDOTOOL_FAKE_UINPUT=1`** | `wdotool.uinput` | skip the ioctls, so a regular file can stand in for the device. This is what lets the daemon's event stream be asserted byte for byte in a container that has no `/dev/uinput` |
@@ -2079,9 +2083,12 @@ All but seven are also written down in the README, in a tool contract or in
 | `WDOTOOL_GNOME_AUTOLOAD=1` | `backend_gnome` | opt in to one `org.gnome.Shell.Eval` that tries to load the installed extension. Eval is a privileged interface and this is off by default |
 | **`XPROPFORMATS`** | `wxprop.cli` | a format file, exactly as real xprop's `-fs` and `$XPROPFORMATS` do |
 | **`DEBUG`** | `wdotool` | set to anything: print the traceback instead of the one-line error. Every `main()` catches broadly, which is right for users and wrong for whoever is debugging |
-
-`warandr` selects a child command and ignores `W11_PASSTHROUGH` when detecting
-the session. `wmirror` has no original tool to hand over to.
+| `W11_PROXY` | the four wrapped `main()`s, through `xw11.wrap` | `auto` (the default), `never`, `always`: whether a **Wayland** session runs the ORIGINAL against the proxy. `never` is our own code; `always` is the original or exit 127. `WDOTOOL_PROXY`, `WWMCTL_PROXY`, `WXPROP_PROXY` and `WXRANDR_PROXY` do the same per tool, and each beats it. The spellings are `W11_PASSTHROUGH`'s, and `W11_PASSTHROUGH=never` already means "no proxy either" |
+| `XW11_DISPLAY` | `xw11` | the display number to take, `:N`. Taken or nothing: there is no scan, and a proxy given one takes no session lock, which is what lets a second one run beside the session's |
+| `XW11_LOG` | `xw11` | where the log goes; default `/tmp/xw11-<uid>.log`, opened `O_NOFOLLOW` and refused when it is not ours. The proxy's log is where a refused write's diagnostic goes, because the wire has no error for one |
+| `XW11_DEBUG=1` | `xw11`, and `xw11.wrap` | one line per request and per packet down; and, in the wrapper, the one line that says why the clone ran instead of the original |
+| `W11_PARITY_PROXY`, `W11_PARITY_PROXY_DISPLAY` | `scripts/parity-oracle.sh` | run the whole oracle through a pass-through proxy on `:98`, which is the framing's regression test |
+| `WDOTOOL_BACKEND`, `WXRANDR_BACKEND` | also `xw11` | the proxy keeps both across its spawn, because a user who forces a backend for `wxrandr` means it for `xrandr` through the proxy too |
 
 `WARANDR_TEST_*`, `FAKE_XRANDR_*`, `FAKE_REAL_*`, `W11_SHIM_SEAMS`, `WD_TEST_*` and
 `SLOW_QUERY` are test seams and are documented where they are used, in
@@ -2090,7 +2097,7 @@ themselves. They are not part of the interface.
 
 ## 9. Module → test file → fake
 
-5146 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
+5172 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
 hold across all of them and are enforced by tests of their own:
 
 * **every `tests/test_*.py` sets `W11_PASSTHROUGH=never`**, or the suite
@@ -2107,7 +2114,7 @@ hold across all of them and are enforced by tests of their own:
   through `support.stop_daemons_under()`, registered before the spawn so it runs
   however the test ends and before the runtime directory goes away;
   `tests/test_zz_daemon_leak.py` runs last and fails the suite over anything still
-  alive that was not there when it started, the input daemons, the headless compositors,
+  alive that was not there when it started — the input daemons, the headless compositors,
   and this euid's processes holding a `wxrandr-gamma` memfd. The suite is how the rig came
   to have 161 of them.
 * **shared helpers live in `tests/support.py`**, deliberately not named `test_*.py`
@@ -2131,11 +2138,11 @@ hold across all of them and are enforced by tests of their own:
 something outside the development shell. It puts the pinned oracles on PATH (the flake's
 xdotool 4.20260303.1 and wmctrl 1.07 out of /nix/store, or `$W11_ORACLE_PATH`), starts an Xvfb
 if there is no usable DISPLAY, and runs `tests/test_cli_parity.py` and `tests/test_wwmctl_cli.py`
-against them, once against the nix wmctrl 1.07 and once against the distro's 1.07+git20240228.
+against them — once against the nix wmctrl 1.07 and once against the distro's 1.07+git20240228.
 It exits non-zero when either oracle is missing **and** when either unittest run is red (every
 run is captured, not piped: this is `/bin/sh` with no `pipefail`), so the skip `test_cli_parity`
 takes on a foreign xdotool cannot pass for a run. On Ubuntu 26.04, whose apt xdotool is
-3.20160805.1, that file is a printed SKIP, which is what the script exists to turn back into a
+3.20160805.1, that file is a printed SKIP — which is what the script exists to turn back into a
 real comparison.
 
 | what it covers | test files | what stands in for the world |
@@ -2143,21 +2150,21 @@ real comparison.
 | `cli.py`, `commands.py`, `misc_cmds.py` | `test_cli_chain`, `test_cli_misc`, `test_cli_script`, `test_cli_parity` | the real `xdotool` binary as the byte oracle (skipped outside `nix develop`) |
 | `window_cmds.py`, `desktop_cmds.py` | `test_windows_cmds`, `test_windows_sway` | `FakeBackend` in-memory; a real headless sway |
 | `input_cmds.py`, `daemon.py`, `uinput.py` | `test_input_cmds`, `test_input_daemon`, `test_input_uinput`, `test_daemon_lifetime`, `test_torture_regressions`, `test_hardening` | `FakeDaemon`, `RecorderDev`, and `WDOTOOL_FAKE_UINPUT=1` writing into a regular file |
-| `vkbd.py`, `vptr.py` | `test_vkbd`, `test_vptr`, `test_input_protocols_sway` | `wl_fake.Server`: a real unix socket speaking the Wayland wire format; then a real headless sway 1.11, which is the only thing that can say wlroots *accepts* those bytes, every group of requests there ends in the round trip that turns a protocol error into an exception, and one deliberately bad opcode per protocol proves the round trip really reports them |
+| `vkbd.py`, `vptr.py` | `test_vkbd`, `test_vptr`, `test_input_protocols_sway` | `wl_fake.Server`: a real unix socket speaking the Wayland wire format; then a real headless sway 1.11, which is the only thing that can say wlroots *accepts* those bytes — every group of requests there ends in the round trip that turns a protocol error into an exception, and one deliberately bad opcode per protocol proves the round trip really reports them |
 | `xkbmap.py`, `keymap.py`, `us_keymap.py` | `test_xkbmap`, `test_keymap`, `test_layout_flag` | `tests/fixtures/keymaps/*.xkb`, each a byte-for-byte capture of what a compositor handed a client, from GNOME, sway and KWin |
 | `layoutbox.py` | `test_scale_spaces` | a wl_output/xdg_output fake replaying one measured scaling state per test, and `FakeMutter` on the mock bus as the second source |
 | `keys_cmds.py` | `test_keys_cmds` | recorded evdev streams |
-| `backend_gnome.py` | `test_backend_gnome`, `test_wwmctl_gnome`, `test_wxprop_gnome` | `MockBridge` on `dbus_mini`'s in-process mock bus, and, since `tests/test_bridge_js.py`, no longer taken on trust: the extension's `METHODS` table, `org.w11.Bridge1.xml` and `MockBridge`'s own `m_<Name>` methods are checked against each other statically (names and out signatures), and ten methods are compared answer for answer with the shipped `extension.js` running under node |
-| `gnome/w11-bridge@w11/extension.js` (the shipped file, executed) | `test_bridge_js` | node 22 through `tests/fixtures/gjs/loader.mjs` (`support.js_harness`), which resolves every `gi://` namespace and every `resource:///org/gnome/shell/` import onto the recording doubles under `tests/fixtures/gjs/stubs/`; the world each case builds, `global.display`, `global.workspace_manager`, the window actors, is `test_backend_gnome.fixture_windows()` rows turned back into `Meta.Window` doubles, and the answers are compared against `MockBridge`'s for the same state |
+| `backend_gnome.py` | `test_backend_gnome`, `test_wwmctl_gnome`, `test_wxprop_gnome` | `MockBridge` on `dbus_mini`'s in-process mock bus — and, since `tests/test_bridge_js.py`, no longer taken on trust: the extension's `METHODS` table, `org.w11.Bridge1.xml` and `MockBridge`'s own `m_<Name>` methods are checked against each other statically (names and out signatures), and ten methods are compared answer for answer with the shipped `extension.js` running under node |
+| `gnome/w11-bridge@w11/extension.js` (the shipped file, executed) | `test_bridge_js` | node 22 through `tests/fixtures/gjs/loader.mjs` (`support.js_harness`), which resolves every `gi://` namespace and every `resource:///org/gnome/shell/` import onto the recording doubles under `tests/fixtures/gjs/stubs/`; the world each case builds — `global.display`, `global.workspace_manager`, the window actors — is `test_backend_gnome.fixture_windows()` rows turned back into `Meta.Window` doubles, and the answers are compared against `MockBridge`'s for the same state |
 | `backend_kwin.py`, `kwin_js.py` | `test_backend_kwin` | a fake KWin on the same mock bus, answering `loadScript`/`run`/`unloadScript` |
 | `backend_sway.py` | `test_windows_sway`, `test_wire_hardening` | real sway; `FakeSway` for the hostile cases |
-| `backend_wlr.py` | `test_backend_wlr`, `test_backend_wlr_workspaces`, `test_backend_wlr_rig`, `test_labwc_live`, `test_river_live` | a wire-level foreign-toplevel fake, an `ext_workspace_manager_v1` fake beside it, and real labwc and river sessions where a prepared image exists |
+| `backend_wlr.py` | `test_backend_wlr`, `test_backend_wlr_workspaces`, `test_backend_wlr_rig`, `test_labwc_live`, `test_river_live` | a wire-level foreign-toplevel fake, an `ext_workspace_manager_v1` fake beside it, and real labwc and river sessions where a golden exists |
 | `backend_hypr.py`, `hypr_ipc.py` | `test_backend_hypr` | `support.FakeHypr`: a real unix socket answering Hyprland's one-request-per-connection protocol, with `tests/fixtures/hypr/` as the recorded bytes |
 | `backend_wayfire.py` | `test_backend_wayfire`, `test_wayfire_live` | `support.WayfireDouble` over the int32-length + JSON framing; then a real headless `wayfire 0.10.0` (`support.HeadlessWayfire`), skipped where the binary is absent |
 | `backend_cinnamon.py`, `cinnamon_js.py` | `test_backend_cinnamon` | `MockCinnamon`, which parses the JS it is sent; the scripts themselves are asserted as text, because only integers are ever interpolated into one |
 | `backend_cosmic.py` | `test_backend_cosmic` | a wire-level fake speaking `ext_foreign_toplevel_list_v1`, `zcosmic_toplevel_info_v1` and `zcosmic_toplevel_manager_v1`, with the capability array as a parameter |
 | `xid_match.py` | `test_backend_kwin`'s `TheMatcherMoved` | the same fixtures the KWin matcher was written against, now shared by every backend whose compositor publishes no X ids |
-| `ext_workspace.py` | `test_backend_wlr_workspaces` | recorded COSMIC and labwc/Budgie workspace event streams, the first with `coordinates`, the second without |
+| `ext_workspace.py` | `test_backend_wlr_workspaces` | recorded COSMIC and labwc/Budgie workspace event streams — the first with `coordinates`, the second without |
 | `w11common/distro.py` | `test_distro`, `test_packaging_names` | `/etc/os-release` bodies for Debian, Fedora, Arch and NixOS through the `OS_RELEASE` and `NIXOS_MARKER` seams |
 | `x11_mini.py` | `test_wwmctl_x11`, `test_wxprop_x11`, `test_wwmctl_hardening` | `FakeXServer`, and `HostileXServer` subclassing it |
 | `w11common/session.py` | `test_session`, `test_session_discovery` | a temporary `/run/user` tree |
@@ -2167,17 +2174,26 @@ real comparison.
 | `wwmctl/` | `test_wwmctl_cli`, `test_wwmctl_live`, `test_wwmctl_hardening`, `test_wwmctl_gnome`, `test_wwmctl_kwin` | `FakeSwayBackend`, `FakeX11`; real sway with XWayland for the live file; the fake KWin of `test_backend_kwin` on the mock bus, with `_FakeX` as the Xwayland client list, for the Plasma file |
 | `wxprop/` | `test_wxprop_cli`, `test_wxprop_fmt`, `test_wxprop_live`, `test_wxprop_gnome`, `test_wxprop_x11`, `test_wxprop_kwin` | captured real-xprop bytes; a live XWayland server as the oracle; the same fake KWin, whose resident event script the test plays for `-spy`; `MockBus` (an empty session bus) in `test_wxprop_cli`, so the real `backend_detect.detect()` can be driven to its no-session error |
 | `wxrandr/hypr.py` | `test_wxrandr_hypr` | `support.FakeHypr` again, and `TheTwoClients`, which drives `wdotool/hypr_ipc.py` and `wxrandr/hypr.py`'s own copy of the reader against one double and insists on the same bytes and the same sentences |
-| `wxrandr/mutter.py` in its MUFFIN flavour | `test_wxrandr_cinnamon` | `FakeMutter` on a `MutterMockBus(flavor=MUFFIN)`, the same fake, three names swapped |
+| `wxrandr/mutter.py` in its MUFFIN flavour | `test_wxrandr_cinnamon` | `FakeMutter` on a `MutterMockBus(flavor=MUFFIN)` — the same fake, three names swapped |
 | `wxrandr/` | `test_wxrandr_unit`, `test_wxrandr_backend`, `test_wxrandr_mutter`, `test_wxrandr_kwin`, `test_wxrandr_live`, `test_wxrandr_hostile`, `test_wxrandr_gamma`, `test_wxrandr_wlr_apply`, `test_monitors_xml` | `FakeMutter` on the mock bus; a wire-level fake KWin; real sway with real `xrandr` through XWayland as the oracle; real `monitors.xml` files from both default installs; `FakeMutter`'s `emit_signal`/`swallow_apply`/`hangup_on_apply` and `KwinOutputServer.swallow_apply` for a compositor that half-answers |
-| `wxrandr/core.py`'s `SwayIPC` (the display half of the sway wire client) | `test_wxrandr_sway_wire` | `support.FakeSway` in its six modes, answering, gone mid-chain, badly framed JSON, wedged, refusing an `output` command in sway's words, and rows with no `rect`, driven through `cli.main --backend sway`, so what is asserted is the exit status and the one line the user gets |
-| `wxrandr/kwin.py` on a **real KWin** (Plasma 6.6, KWin 6.6.6): backend choice, the protocol and version `--print-backend --verbose` names, `--query` against `kscreen-doctor -o`, one `--right-of` apply and the restore line it prints, `--same-as` as a `replicationSource`, and F4.1's live twin (two same-title Xwayland xterms moved by X id) | `test_wxrandr_kwin_live` | nothing is faked: the QEMU rig (`vm/vmctl`, golden `resolute-kde`) with `kscreen-doctor` as the oracle. Opt-in twice, `VMCTL_LIVE=1 WXRANDR_LIVE_KWIN=1`, and skipped unless the named instance is already running, because this host runs one VM at a time |
-| `wxrandr/gnome_overlap.py` + `gnome/w11-overlap@w11/` | `test_gnome_overlap`, `test_overlap_consent`, `test_overlap_force` | the same mock bus with a mock `org.gnome.Shell` and a mock overlap extension on it, so a whole `--unsafe-gnome-overlap` run happens in-process; plain `node` running the extension's own `rules.js` against `monitors_xml.py`; and, for the shipped type descriptions, `g-ir-compiler` plus GIRepository in a subprocess per namespace, the shipped typelib and a fresh compile of the checked-in `.gir` are compared by *meaning* (namespace, no shared library, every function name and C symbol, every record's size and field offsets), because g-ir-compiler 1.86 writes 17 different reserved words per typelib than the compiler that produced the checked-in files. The consent file re-runs every refusal in the first with an agreement recorded, and asserts from the source that the agreement is read after the last one |
-| `wxrandr/gnome_overlap.py` + `gnome/w11-overlap@w11/` against a compositor that is really running | `test_gnome_overlap_live` | a private headless sway (`support.HeadlessSway`) as the negative, the flag has to be a refusal off GNOME before any bus call, and, gated on `WXRANDR_LIVE_GNOME=1` *and* an `org.gnome.Shell` that owns its name, a real gnome-shell on the rig: status, the agreement against `readelf -n` of the mapped libmutter, the apply and its printed undo, the forced-`--dryrun` refusal, and whether the moved-monitors.xml branch can be reached at all |
+| `wxrandr/core.py`'s `SwayIPC` (the display half of the sway wire client) | `test_wxrandr_sway_wire` | `support.FakeSway` in its six modes — answering, gone mid-chain, badly framed JSON, wedged, refusing an `output` command in sway's words, and rows with no `rect` — driven through `cli.main --backend sway`, so what is asserted is the exit status and the one line the user gets |
+| `wxrandr/kwin.py` on a **real KWin** (Plasma 6.6, KWin 6.6.6): backend choice, the protocol and version `--print-backend --verbose` names, `--query` against `kscreen-doctor -o`, one `--right-of` apply and the restore line it prints, `--same-as` as a `replicationSource`, and F4.1's live twin (two same-title Xwayland xterms moved by X id) | `test_wxrandr_kwin_live` | nothing is faked: the QEMU rig (`vm/vmctl`, golden `resolute-kde`) with `kscreen-doctor` as the oracle. Opt-in twice — `VMCTL_LIVE=1 WXRANDR_LIVE_KWIN=1` — and skipped unless the named instance is already running, because this host runs one VM at a time |
+| `wxrandr/gnome_overlap.py` + `gnome/w11-overlap@w11/` | `test_gnome_overlap`, `test_overlap_consent`, `test_overlap_force` | the same mock bus with a mock `org.gnome.Shell` and a mock overlap extension on it, so a whole `--unsafe-gnome-overlap` run happens in-process; plain `node` running the extension's own `rules.js` against `monitors_xml.py`; and, for the shipped type descriptions, `g-ir-compiler` plus GIRepository in a subprocess per namespace — the shipped typelib and a fresh compile of the checked-in `.gir` are compared by *meaning* (namespace, no shared library, every function name and C symbol, every record's size and field offsets), because g-ir-compiler 1.86 writes 17 different reserved words per typelib than the compiler that produced the checked-in files. The consent file re-runs every refusal in the first with an agreement recorded, and asserts from the source that the agreement is read after the last one |
+| `wxrandr/gnome_overlap.py` + `gnome/w11-overlap@w11/` against a compositor that is really running | `test_gnome_overlap_live` | a private headless sway (`support.HeadlessSway`) as the negative — the flag has to be a refusal off GNOME before any bus call — and, gated on `WXRANDR_LIVE_GNOME=1` *and* an `org.gnome.Shell` that owns its name, a real gnome-shell on the rig: status, the agreement against `readelf -n` of the mapped libmutter, the apply and its printed undo, the forced-`--dryrun` refusal, and whether the moved-monitors.xml branch can be reached at all |
 | `warandr/` | `test_warandr_model`, `test_warandr_parse`, `test_warandr_gui`, `test_overlap_consent` | `tests/fixtures/fake_xrandr.py`, a RandR simulator (which also simulates a GNOME with the overlap extension and its agreement); Xvfb plus xdotool driving the real editor, dialog included; the fake's `FAKE_XRANDR_OVERLAP_WITHDRAW_ON_APPLY` replays wxrandr withdrawing an agreement under the running window, with wxrandr's own `consent_drift()` sentence |
 | `wmirror/` | `test_wmirror_cli`, `test_wmirror_lifetime`, `test_wmirror_live` | a fake `wl-mirror` (`support.WL_MIRROR_STUB`), and the detach protocol driven for real; then a real headless sway (`swaymsg create_output` for the second head) with the same stub, where the supervisor's watch reads real zwlr_output_management events for the only time in the suite |
+| `xw11/wire.py`, `xw11/client.py` | `test_xw11_wire`, `test_xw11_client`, `test_xw11_read`, `test_xw11_write` | the layouts rendered out of `/usr/share/xcb/*.xml` and pinned as fixtures, so a locally built packet is compared byte for byte and never field by field; `support.ProxyRig`'s `raw()`, a bare socket with the setup done, for pipelined bytes |
+| `xw11/display.py`, `xw11/upstream.py` | `test_xw11_display`, `test_xw11_upstream` | `support.FakeUpstream`, a real AF_UNIX X server with a programmable `QueryExtension` table, per-connection resource-id bases stepping by `0x200000`, `hold_reply`/`release` to reorder deliberately and `close_when_idle` for Xwayland's `-terminate` shape; a real `/tmp/.X11-unix` for the socket-and-corpse rules, because a spawned child cannot be monkeypatched |
+| `xw11/server.py`, `xw11/policy.py`, `xw11/req_read.py`, `xw11/req_write.py` | `test_xw11_server`, `test_xw11_subst`, `test_xw11_read`, `test_xw11_write` | `support.ProxyRig` — the real `Server` on a thread in a temporary socket directory — against `FakeUpstream` and `support.FakeBackend`, whose `wedge(seconds)` is how the 10 s stall bound is measured without a compositor that hangs |
+| `xw11/shadow.py`, `xw11/ewmh.py` | `test_xw11_shadow`, `test_xw11_ewmh` | `FakeBackend` records every write as `(op, args)` and mutates its own list, so a routed `ClientMessage` is asserted as the backend call it became rather than as the bytes that went nowhere |
+| `xw11/events.py`, `xw11/pump.py` | `test_xw11_events`, `test_xw11_pump` | `support.FakeBackend` for the packets themselves, and `support.FakeBackendEvents`, which feeds `events()` from a queue, for the pump; `has_events=False` there drives the 250 ms poll path the wlr floor and COSMIC take |
+| `xw11/xtest.py` | `test_xw11_xtest` | `support.FakeDaemon`: the input daemon's line protocol on a temporary socket, every operation recorded, the pointer answering as configured, warnings settable, and a mode that refuses the connection outright |
+| `xw11/randr.py` | `test_xw11_randr` | `support.RandrTables` replaying a captured `GetScreenResources`/`GetOutputInfo`/`GetCrtcInfo` set, and `support.FakeRandrBackend` recording what one apply was handed |
+| `xw11/cli.py`, `xw11/wrap.py` | `test_xw11_wrap` | real forks and real `execve`s into `tests/fixtures/w11_shim.py` under an original's name, and `/proc/<pid>/cmdline` read back — which is the only way to say what argv a daemonised child was re-exec'd with |
+| the whole proxy against a real X server | `test_xw11_live`, `test_xw11_replay`, `test_xw11_parity` | nothing is faked: `support.HeadlessSway` with Xwayland, one `xterm` and one `foot`, the pinned `xdotool 4.20260303.1` and `wmctrl 1.07` on PATH. `test_xw11_replay` puts eleven captured command streams through it byte for byte; `test_xw11_parity` runs `scripts/parity-oracle.sh` twice, direct and with `W11_PARITY_PROXY=1`, and diffs the two with the timing lines normalised |
 | `procs.py`, `stdio.py` | `test_wmirror_lifetime`, `test_stdout_gone` | real forks; `>/dev/full`, `\| head -1`, `>&-` |
-| the no-dialog guarantee | `test_no_portal` | nothing, it is a static check that no package here names PolicyKit or any portal interface but `Settings`, the one read with no consent step |
-| what actually ships | `test_release_deb` | nothing, it unpacks the .deb committed in `release/` (with `unpack_deb()`, an `ar` + `compression.zstd` reader in the standard library, proved byte-identical to `dpkg-deb -x` wherever dpkg is installed) and compares its payload with the tree: every module, every non-Python file, both maintainer scripts, the typelib per generation in `generations.json`, the autostart symlink, and one version across `w11common`, pyproject, `debian/changelog`, `flake.nix` and the file name. It caught the v0.3 build still committed while 0.4 was being finished |
+| the no-dialog guarantee | `test_no_portal` | nothing — it is a static check that no package here names PolicyKit or any portal interface but `Settings`, the one read with no consent step |
+| what actually ships | `test_release_deb` | nothing — it unpacks the .deb committed in `release/` (with `unpack_deb()`, an `ar` + `compression.zstd` reader in the standard library, proved byte-identical to `dpkg-deb -x` wherever dpkg is installed) and compares its payload with the tree: every module, every non-Python file, both maintainer scripts, the typelib per generation in `generations.json`, the autostart symlink, and one version across `w11common`, pyproject, `debian/changelog`, `flake.nix` and the file name. It caught the v0.3 build still committed while 0.4 was being finished |
 | `packaging/common/enable-bridge`, `gnome/install-bridge.sh`, `gnome/install-overlap.sh` | `test_install_scripts` | `support.fake_gnome_bin()`: POSIX-sh `gsettings`, `gnome-extensions`, `gdbus`, `sudo`, `runuser`, `id`, `getent` and `dpkg` over one state file, on a PATH of their own, in a temporary HOME. The shipped scripts are run whole where they can be and sliced function by function (`support.sh_function`/`sh_block`) where they cannot, so nothing here is a copy of what ships |
 | `debian/w11.postinst`, `debian/w11.postrm` | `test_debian_scripts` | `DPKG_ROOT` pointing into a scratch tree, sh stubs for `modprobe`/`udevadm`/`setfacl`/`chown`/`chmod` that record and do nothing, the `os.pipe()`/`os.close(r)` broken-reader double from `test_stdout_gone`; then real `dpkg -i`/`-r`/`-P` into that tree with `--force-script-chrootless` and no-op `py3compile`/`py3clean` |
 | `scripts/build-pyz.sh`, `scripts/build-deb.sh` | `test_build_scripts` | a temporary copy of the tree (never `dist/` or `release/`); `zipfile` reading the six zipapps; `w11common.passthrough.is_us()` run over what was built; sh stubs for `sudo`/`apt-get`/`dpkg-query`/`dpkg-buildpackage` that record and are asserted never to be reached |
@@ -2188,7 +2204,7 @@ real comparison.
 | `scripts/check-docs.py` | `test_check_docs` | the script loaded as a module (`spec_from_file_location`) with `options_in_help`, `SILENT` and `ROOT` patched: a planted option nobody documents and a planted typo that is a prefix of a real option are the two blind spots it used to miss, and the unpatched tree is the positive control |
 | the documented numbers | `test_docs_numbers` | `unittest.defaultTestLoader.discover` in a subprocess for the test count; `wdotool.daemon`'s two constants; `_pass('…')` in the overlap extension for the check count; `wdotool.commands.REGISTRY` for the command count; the six tools run for README's "Check it worked" block |
 | cross-document links, and the rig's 38 flavor images | `test_docs_matrix` | GitHub's slug rules reimplemented and resolved against every heading; `vm/flavors/*.yaml` and `vm/vmctl`'s own `DESKTOPS` table as the fact behind vm/README's table and README's support matrix |
-| `tests/support.py`, `tests/fixtures/gjs/` | `test_support_helpers` | nothing, the shared doubles tested as themselves: the markdown walker against the one `scripts/check-docs.py` carries, the sliced installer functions handed to `sh -n`, the fake GNOME command line (`gsettings`, `gnome-extensions`, `gdbus`, `dpkg`, `sudo`, `id`) over one state file, the sway IPC double driven by wxrandr's own `SwayIPC`, and node 22 running both shipped `extension.js` files through `tests/fixtures/gjs/loader.mjs` |
+| `tests/support.py`, `tests/fixtures/gjs/` | `test_support_helpers` | nothing — the shared doubles tested as themselves: the markdown walker against the one `scripts/check-docs.py` carries, the sliced installer functions handed to `sh -n`, the fake GNOME command line (`gsettings`, `gnome-extensions`, `gdbus`, `dpkg`, `sudo`, `id`) over one state file, the sway IPC double driven by wxrandr's own `SwayIPC`, and node 22 running both shipped `extension.js` files through `tests/fixtures/gjs/loader.mjs` |
 
 Two environments run these. **In the development shell** (`nix develop`), a container
 with no `/dev/uinput`, `WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 sway` gives a
@@ -2211,28 +2227,28 @@ layout switching, display, `--persistent` and the bridge's `ConfirmDisplayChange
 route, `enable-bridge` under GDM, the udev rule, a root phase, the no-dialog bus recording and
 `apt-get remove`. Each step prints `PASS`/`FAIL <what>`, the exit status is the number of FAILs,
 and results plus a screenshot of every head per phase land in `vm/live-smoke.out/`. The steps
-live in `vm/live-smoke.d/<desktop>.sh`, one per `DESKTOPS` token: gnome, kde, sway, xfce,
+live in `vm/live-smoke.d/<desktop>.sh` — one per `DESKTOPS` token: gnome, kde, sway, xfce,
 kde-x11, hypr, wayfire, labwc, xfce-wayland, budgie, lxqt-wayland, cosmic, river, cinnamon,
-cinnamon-wayland, mate, i3, lxqt and gnome-x11, over `common.sh`, with `oracle.py` answering
+cinnamon-wayland, mate, i3, lxqt and gnome-x11 — over `common.sh`, with `oracle.py` answering
 as the desktop's own display tool. Three of them (`xfce-wayland.sh`, `budgie.sh`,
 `lxqt-wayland.sh`) source `labwc.sh` whole and add their desktop's own difference, because
 those three desktops *are* labwc; six X11 ones (`mate.sh`, `i3.sh`, `lxqt.sh`,
 `gnome-x11.sh`, `cinnamon.sh` and `kde-x11.sh`) source `xfce.sh`'s handover body for the
-same reason, on a plain X11 session every tool hands over, whichever desktop drew it.
+same reason — on a plain X11 session every tool hands over, whichever desktop drew it.
 
 **The smoke has a package axis per distribution.** `vm/live-smoke.sh --pkg` (with `--deb`
 kept as its alias) installs the flavor's own distribution package:
 `release/w11_<ver>_all.deb` on Ubuntu, `$LIVE_SMOKE_RPMS/*-<ver>-*.rpm` (default
 `dist/`, pinned to the version because `build-rpm.sh` never clears that directory) on Fedora,
 `$LIVE_SMOKE_PKG` (default `dist/w11-<ver>-1-any.pkg.tar.zst`) on Arch, and on NixOS
-nothing at all, the package is in the image, so `phase install` asserts instead that
+nothing at all — the package is in the image, so `phase install` asserts instead that
 `wdotool` resolves to a `/nix/store` path carrying `w11common.VERSION` and that
 `/run/current-system` is the default specialisation. `--remove` is the mirror:
 `apt-get remove` / `dnf remove` / `pacman -R` / a `switch-to-configuration test` into
 `without-w11`, and on NixOS the switch BACK goes through the store path read before
 the removal, because activation repoints `/run/current-system` at the specialisation it just
 activated. Two phases belong to a distribution rather than to a desktop and the driver
-appends them itself: `selinux` (Fedora, `getenforce` is `Enforcing` and no AVC names
+appends them itself: `selinux` (Fedora — `getenforce` is `Enforcing` and no AVC names
 `wdotool`, `python3` or `udevadm`) and `pkgverify` (Fedora `rpm -V`, Arch `pacman -Qkk`;
 both must print nothing). `pkgverify` says so and stops without `--pkg`, because a tree
 deploy writes the repo's extension over files the package owns and the verifier would report
@@ -2240,7 +2256,7 @@ a difference the smoke itself made. The "every path the package owned is gone" l
 entry per packaging and one line that differs, the helper directory: `/usr/lib/w11`
 under dpkg and pacman, `/usr/libexec/w11` under rpm,
 `/run/current-system/sw/share/gnome-shell/extensions/<uuid>` on NixOS. The `/dev/uinput`
-half, `root:root 0600`, no ACL entry, no `uaccess` tag, is identical everywhere and is the
+half — `root:root 0600`, no ACL entry, no `uaccess` tag — is identical everywhere and is the
 point of the phase. The first-install banner is **not** universal either: dpkg's postinst and
 pacman's `.install` print the same paragraph and the rpm prints none at all (Fedora
 discourages chatty scriptlets; the spec ships `README.Fedora` in `%doc` instead), so
@@ -2252,14 +2268,28 @@ is not.
 `window-rules/list-outputs` over its int32-LE + JSON IPC with `wlr-randr` as the fallback,
 `cosmic-randr list --kdl`, Muffin's `GetCurrentState` under
 `org.cinnamon.Muffin.DisplayConfig`, and `xrandr --query` for the X11 desktops. The two ways
-of having no answer both exit 2 and name what is missing, an unknown desktop token, and a
-desktop tool that is not installed on the guest, because an empty answer would otherwise
+of having no answer both exit 2 and name what is missing — an unknown desktop token, and a
+desktop tool that is not installed on the guest — because an empty answer would otherwise
 read as "no enabled output" and pass every display check by default.
+
+The smoke gained a **`proxy` phase** with the X11 proxy, appended after `wm` in every
+Wayland step file's `SMOKE_PHASES` and in no X11 one. It is the only place in the tree
+where the ORIGINAL `xdotool`, `wmctrl`, `xprop` and `xrandr` are driven through `xw11`
+against a real compositor: every golden installs the four as test-support packages, so
+the phase points them at the proxy's display and compares their answers with the ones the
+clones gave in `windows` and `wm`, ids tokenised. The X11 flavors' `passthrough` phase
+carries the mirror claim, read off the pid file rather than a process pattern: no
+`$XDG_RUNTIME_DIR/xw11/display` exists after the four tools have run, because on an X11
+session the handover happens one line above the wrapper's call. First run on
+**resolute-sway (sway 1.11, Xwayland 24.1.10) on 2026-09-11: 27 pass, 0 fail**, recorded
+as `tests/fixtures/live/resolute-sway-1.11-windows-wm-proxy-replay.txt`;
+`tests/fixtures/live/NOT-YET-RUN` carries a `proxy:<flavor>` line for each of the other
+28 Wayland flavors until their own run.
 
 That script has a regression of its own that needs no VM. `vm/live-smoke.d/selftest-offline.sh`
 runs the `windows` and `wm` phases against `vm/live-smoke.d/fake-vmctl`, which replays
 `tests/fixtures/live/noble-gnome-46.0-windows-wm-replay.txt` (recorded off GNOME 46.0), and
-asserts that 17 assertions pass on the recording and that exactly one, b7a60f0's, fails when the
+asserts that 17 assertions pass on the recording and that exactly one — b7a60f0's — fails when the
 pre-fix geometry is put back; two further passes do the same for the `busrec` phase (T65's
 session-bus recorder) against two hand-written transcripts, where it has to pass when a
 `dbus-monitor` process exists and the log grows, and fail when neither is true. Two seconds in
@@ -2269,9 +2299,9 @@ claim rests on it.
 ## 10. The VM rig
 
 `vm/` is where every "it works on GNOME" sentence in this repo comes from.
-`vm/vmctl` builds and runs **38 flavors** over four distributions, 25 Ubuntu, 6 Arch,
-5 Fedora, 2 NixOS, and there are three builders, not one: 34 are a *cloud* image plus a
-desktop metapackage, two, `resolute-gnome-iso` and `noble-gnome-iso`, are installed from
+`vm/vmctl` builds and runs **38 flavors** over four distributions — 25 Ubuntu, 6 Arch,
+5 Fedora, 2 NixOS — and there are three builders, not one: 34 are a *cloud* image plus a
+desktop metapackage, two — `resolute-gnome-iso` and `noble-gnome-iso` — are installed from
 `ubuntu-26.04.1-desktop-amd64.iso` and `ubuntu-24.04.4-desktop-amd64.iso` **by the Ubuntu
 installer itself**, unattended, with every question left alone, and two are NixOS
 configurations built with `nix build` out of `vm/nixos/`. CI builds 29 on every push and 9
@@ -2330,7 +2360,7 @@ for the colour scheme: read-only, answered with no permission check, and with no
 entry in the portal's permission store to allow or deny. Re-measured on GNOME 46.0
 and 50.1 with the same watchers on: the call answers in 1–3 ms, no window appears,
 and no `RemoteDesktop`, `InputCapture` or `impl.portal` traffic follows it. The
-static half is exempted at exactly that width, one interface, by name, and
+static half is exempted at exactly that width — one interface, by name — and
 `test_no_portal.py` has its own test for the width of the hole.
 
 ### The whole of it on every push
@@ -2341,7 +2371,7 @@ container built from `.github/ci/Dockerfile` and cached in GHCR by that file's h
 unprivileged user, with a real sway, GTK, Xvfb, node and g-ir-compiler present so nothing
 skips), the parity oracle under nix (`scripts/parity-oracle.sh`), the package built from the
 tree and `apt install`ed on each release, and one job per flavor of the rig: KVM is on the
-runner, the prepared VM image comes from a GHCR cache keyed by the recipe (`scripts/ci-golden.sh`,
+runner, the golden image comes from a GHCR cache keyed by the recipe (`scripts/ci-golden.sh`,
 which builds it there when the key is new, ISO installs included, and pushes it for the
 next run; bump `vm/golden-epoch` to force a rebuild), and `vm/live-smoke.sh --deb --remove`
 runs against it with its log and screenshots kept as the job's artifact. The 26.10 jobs may
@@ -2414,18 +2444,18 @@ extension and the rule are handled the way they are, is `debian/README.Debian`.
 `sh scripts/build-rpm.sh` produces **three** noarch packages into `dist/`, and nothing is
 committed, because the Python payload lands in `%{python3_sitelib}` and carries an
 auto-generated `Requires: python(abi) = 3.14`. Fedora 43 and 44 both ship python3 3.14.7, so
-one build covers both and rawhide (3.15) needs its own, which is what the `rpm-install`
+one build covers both and rawhide (3.15) needs its own — which is what the `rpm-install`
 matrix of three tags proves. The .deb's "one file for both supported releases" property has
 no counterpart here.
 
 The three are `w11`, `gnome-shell-extension-w11-bridge`
-(`Supplements: (w11 and gnome-shell)`, so dnf installs it wherever both packages are
-present; a sway or KDE installation without GNOME Shell does not satisfy this condition) and `gnome-shell-extension-w11-overlap` (no
+(`Supplements: (w11 and gnome-shell)`, so dnf installs it wherever both halves are
+present and on no sway or KDE box) and `gnome-shell-extension-w11-overlap` (no
 `Supplements` at all: nothing installs the one thing that can cost the session you are
 sitting in). That split is why the README's "the package carries a second, separate
 extension" is a sentence about dpkg: on Fedora it is a second, separate *package*. The GTK
-stack is `Recommends: python3-gobject gtk3` rather than a hard dependency, weak deps are on
-by default in dnf, which is a deliberate divergence from the .deb, and
+stack is `Recommends: python3-gobject gtk3` rather than a hard dependency — weak deps are on
+by default in dnf — which is a deliberate divergence from the .deb, and
 `tests/test_release_deb.py`'s `TheGtkDependency` still carries the deb half as an
 `expectedFailure`. `%post`/`%postun` are line for line
 `debian/w11.postinst`/`.postrm`, and the tests compare them phrase for phrase.
@@ -2437,15 +2467,15 @@ accepted findings, a sentence each.
 `sh scripts/build-pkgbuild.sh` produces one `.pkg.tar.zst` into `dist/`; it is a CI artefact
 and is never committed, because Arch's site-packages is version-pinned
 (`/usr/lib/python3.14`). `arch=('any')` holds only because `build()` regenerates the overlap
-extension's three type descriptions with gobject-introspection, the checked-in ones are LP64
-blobs (§ 6), measured working on Arch's g-ir-compiler 1.86.0, where `gen-gir.py --check`
+extension's three type descriptions with gobject-introspection — the checked-in ones are LP64
+blobs (§ 6) — measured working on Arch's g-ir-compiler 1.86.0, where `gen-gir.py --check`
 printed "3 compared, 0 skipped". `packaging/arch/w11.install` is the third copy of
 the udev procedure (`post_install`/`post_upgrade`/`post_remove`), and
 `packaging/arch/namcap.expected` is the accepted-findings list, one Python regular expression
 per line, three of them.
 
 Arch's `extra` carries xdotool 4.20260303.1, wmctrl 1.07, xorg-xprop 1.2.8 and xorg-xrandr
-1.5.4, the exact four versions these tools clone, so the README's footnote (b) about the
+1.5.4 — the exact four versions these tools clone — so the README's footnote (b) about the
 X11 handover landing on a tool with no `windowstate` is an Ubuntu fact and does not apply
 there.
 
@@ -2457,25 +2487,31 @@ any one of the three turns the other two red.
 Nothing is published to COPR, Fedora or the AUR yet, and that is the owner's call rather than
 a licence problem: the tree is BSD-2-Clause, the spec says `License: BSD-2-Clause` with
 `%license LICENSE` in `%files`, the PKGBUILD says `license=('BSD-2-Clause')` and `package()`
-installs the text under `/usr/share/licenses/w11/`, which is what namcap wants of a
-licence that is not one of `/usr/share/licenses/common/`, and both build scripts read the
+installs the text under `/usr/share/licenses/w11/` — which is what namcap wants of a
+licence that is not one of `/usr/share/licenses/common/` — and both build scripts read the
 identifier back out of `LICENSE` (an `SPDX-License-Identifier:` header verbatim, otherwise a
 heading table) and refuse the build if the spec or the recipe disagrees with it.
 
-The canonical repository is `https://github.com/fixing-wayland/w11`. Installation
-examples, package homepages and extension metadata use that address. The Arch
-recipe retains its existing release-archive checksum. Before publishing it to the
-AUR, verify the archive at the canonical address and update the tag and checksum
-together; the current CI build uses a local source archive instead.
+One thing the project has not settled and this file will not settle for it: the upstream URL
+is spelled **three** ways. `debian/copyright`'s `Source:` says github.com/zardus/w11;
+`README.md`'s install section, `debian/control`'s `Homepage:`, the spec's `URL:` and the
+PKGBUILD's `url=` say github.com/zardus/w11; and the flake's own invocation
+— `nix run github:emolabs/w11`, in `nix/package.nix`'s `meta.homepage`, in README.md's
+Nix bullet and in this file's own flake section — says emolabs. Whoever settles it should change
+every one of them in the same commit — `debian/copyright`, `debian/control`, `README.md` (which
+carries two of the three spellings), the spec, the PKGBUILD, `nix/package.nix` — and re-measure
+the PKGBUILD's pinned `sha256sums` against the tarball at whichever host wins (today's pin is
+the GitHub tarball, 3,952,338 bytes). CI never uses either line — `build-pkgbuild.sh`
+rewrites the `url=` and `nix build` here is always a local path — so nothing is red today.
 
 ### The flake, and the NixOS module
 
-`nix run github:fixing-wayland/w11 -- --version` runs the tools without installing anything.
+`nix run github:emolabs/w11 -- --version` runs the tools without installing anything.
 The flake is six packages rather than one: `w11` (five of the six tools, stdlib,
 216.0 MiB of closure), `warandr` (the one GTK program, 546.9 MiB), `gnome-bridge`,
 `gnome-overlap`, `udev-rules` and `x11-shadows`. The two installable ones have deliberately
-disjoint file sets, `w11` owns `bin/{wdotool,wwmctl,wxprop,wxrandr,wmirror}` and the
-Python tree, `warandr` owns `bin/warandr` and `share/applications` and nothing else, because
+disjoint file sets — `w11` owns `bin/{wdotool,wwmctl,wxprop,wxrandr,wmirror}` and the
+Python tree, `warandr` owns `bin/warandr` and `share/applications` and nothing else — because
 `buildEnv` resolves a collision silently in `environment.systemPackages` (first package in the
 list wins) and fatally in home-manager's `home.path`, which sets `ignoreCollisions = false`.
 
@@ -2483,25 +2519,25 @@ list wins) and fatally in home-manager's `home.path`, which sets `ignoreCollisio
 uinput.enable, gnomeBridge.enable, gnomeOverlap.enable, x11Tools.enable, shadowOriginals,
 wlMirror.enable}` plus one assertion refusing `hardware.uinput.enable` beside it. On a GNOME
 machine it installs the bridge and turns it on for every user through a system dconf profile,
-so it is enabled at the **first** login with no logout step, the one route in the tree where
+so it is enabled at the **first** login with no logout step — the one route in the tree where
 that sentence is true. `homeManagerModules.default` does the per-user half and warns, in the
 module itself, that home-manager cannot grant `/dev/uinput` at all.
 
 `programs.w11.shadowOriginals = true` puts `x11-shadows` over the real
 xdotool/wmctrl/xprop/xrandr/arandr with `lib.hiPrio`, which on NixOS is the only way to say
 "installed over the originals": without it the system path resolves the collision in the
-**originals'** favour, silently, measured, `/run/current-system/sw/bin/xdotool` was
+**originals'** favour, silently — measured, `/run/current-system/sw/bin/xdotool` was
 xdotool-3.20211022.1 on a Wayland session. And on NixOS `/dev/uinput` is `crw------- root
 root` with no rule at all until something sets one, so on GNOME and KDE the input commands
 need the module or root, while on sway, Hyprland, labwc, river, Wayfire and COSMIC nothing is
 needed at all, because the tools inject through the compositor's virtual-input protocols
 (measured both ways in NixOS VM tests).
 
-`nix flake check` no longer passes with nothing to run, there are five of them: `nixos-sway` (sway 1.12 with the module, every
+`nix flake check` no longer passes with nothing to run — there are five of them: `nixos-sway` (sway 1.12 with the module, every
 backend and input claim asserted), `nixos-gnome` (GNOME 50.4, the bridge on the bus, the
 uaccess ACL), `nixos-kde` (kwin 6.7.4, the registry-object discovery path), `module-eval`
 (every option on, `toplevel.drvPath` forced through `builtins.unsafeDiscardStringContext` so
-nothing is built, 8.6 s and two input derivations, where without the discard the check pulled
+nothing is built — 8.6 s and two input derivations, where without the discard the check pulled
 in 3993 and built the system) and `tools` (the unittest suite as a derivation, one file per
 `python3 tests/<f>.py` under `dbus-run-session`).
 
@@ -2660,3 +2696,105 @@ before they are believed, the daemon refuses to talk to a socket somebody else i
 listening on, a state file that is not ours is ignored rather than obeyed, the
 real-tool search never looks in the current directory, and a root run with no session
 never hands a planted X server another user's cookie.
+
+## 13. The X11 proxy
+
+`xw11/` is the one package here that is not a clone. It is an X11 **display**: it binds a
+display number, forwards every byte to the session's X server, and answers the requests
+that server has no answer for, because the windows they are about are native Wayland
+toplevels that were never X windows. The user-facing contract, every variable and the
+**What differs** table AGENTS.md asks for are [XW11.md](XW11.md); this section is the
+shape of the thing, for whoever changes it.
+
+**One process per session, one loop.** A single `selectors` loop owns every socket: the
+two listening sockets of its own display number (abstract name and filesystem path, the
+abstract one first, because libxcb tries that first and a proxy that owns only the path is
+silently bypassed), one upstream socket per client, one connection of the proxy's own, and
+one pipe the event pump writes a byte on. Reads are `recvmsg` with a 64-byte ancillary
+buffer, because a plain `recv()` takes the payload and drops any `SCM_RIGHTS` descriptor
+silently. Buffers are watermarked at 4 MiB and 1 MiB: a client that stops reading stops
+being read *from*, and nothing is dropped. An EOF on either side reaches the other side
+**after** the bytes that came before it — the read half is shut down, the write half keeps
+flushing, and the pair closes when both buffers are empty.
+
+**The proxy's own connection** is opened at the first client accept and never at startup.
+Its five steps cost **65 requests in two round trips, measured at 0.9-1.3 ms** against a
+live X server on this box: it selects `PropertyChange | SubstructureNotify` on the root,
+asks `QueryExtension` for eight extensions, interns 54 atom names, reads
+`GetKeyboardMapping(8, 248)` whole and reads the root's `_NET_SUPPORTED`. The first open of
+a *process*, with the imports in it, is 13.3 ms. That connection is what the shadow ids are
+minted out of, and it is held while any client is connected and for `_IDLE_SECONDS = 900.0`
+after the last one leaves, checked every `_CHECK_SECONDS = 15.0`.
+
+No extension major number is written down anywhere in `xw11`. They are per server — RANDR
+is 139 on Xwayland and 140 on Xvfb 21.1.22 — and the same proxy against a fake that answers
+152 for XTEST resolves 152. Atoms are interned once on that connection and never per
+client: they are server-global (the same name came back `0x187` on three independent
+connections), so `InternAtom` and `GetAtomName` are forwarded untouched and the ids in a
+synthesized property are the ids the client resolves.
+
+**Five classes.** Every request is PASS (forwarded, reply untouched), EDIT (forwarded,
+reply rewritten on the way back), CONSUME (nothing for the client), ANSWER (the proxy
+synthesizes the reply) or BATCH (a RandR write inside a grab, applied when the grab
+closes). The whole table is [XW11.md § The request policy](XW11.md#the-request-policy).
+
+**The sequence axiom**, which is why CONSUME and ANSWER send something upstream rather than
+nothing. X sequence numbers are the client's own request count, and the client is counting;
+so a request the proxy handles itself still has to consume exactly one sequence upstream.
+CONSUME sends `NoOperation` (opcode 127) and ANSWER sends `GetInputFocus` (opcode 43). The
+second is not only a counter: libxcb sets `request_completed = request_read - 1` on *any*
+packet it reads, so a locally written reply for request N+1 that goes out before the
+forwarded reply for N arrives makes the client read `NULL` for N. The `GetInputFocus`
+reply comes back **in stream order** carrying the substituted request's sequence, and the
+proxy writes the stored packet in its place — exact ordering with no opcode-has-reply
+table, no timer and 32 bytes of state. It costs one round trip, about **70 µs** on this box,
+per locally answered reply-bearing request: under 2 ms for a whole `xdotool search`.
+
+The same axiom runs backwards for events. An event stamped above a reply that has not gone
+out marks that request completed with no reply, and the reply arriving afterwards with a
+lower 16-bit sequence is widened by 65536 and the connection tears down. So an event
+carries not the client's request count but the count held back behind anything it is still
+owed. One half is open and is a known risk rather than a behaviour: a reply the proxy
+*forwarded* is invisible to that watermark, because knowing one is in flight needs the
+opcode-has-reply table the proxy does not keep. Nothing measured has hit it; the route if
+something does is that table, built from `/usr/share/xcb/*.xml`, which this tree already
+parses in its tests.
+
+**What it costs to forward.** A Python byte forwarder moved 549 MB/s on this box, a
+round trip through one is about 70 µs, and a 1 MB reply streams with a peak buffer under
+128 KiB. The whole parity oracle runs through a pass-through proxy and differs from a
+direct run only in the `Ran N tests in` lines — `W11_PARITY_PROXY=1 sh
+scripts/parity-oracle.sh` is that check, and `tests/test_xw11_parity.py` runs both and
+diffs them with the timing normalised.
+
+**Where the window answers come from.** The registry re-reads the compositor when its last
+read is older than **20 ms** or the event pump has invalidated it; `list()` is 0.08 ms on
+sway and `get_desktop()` 0.02 ms. Backend calls are made on the loop thread under one lock,
+so a compositor that hangs delays every other client by at most that backend's own timeout,
+10 s, and loses no byte. A write the proxy consumes arms a re-read at **+50 ms** and
+**+250 ms**, because sway sends no event at all for a floating `move position`: measured on
+headless sway 1.11, the new rect was in `get_tree` on the first 5 ms poll of all ten runs,
+0.9 to 3.6 ms after the IPC call returned, so the first poll is fourteen times the measured
+worst case and the second is the backstop for a compositor an order of magnitude slower.
+One RandR apply through the sway backend takes 1 to 44 ms over eleven invocations; Mutter's
+`ApplyMonitorsConfig` waits up to 5 s for `MonitorsChanged`, which is why the apply runs on
+a worker thread and only the applying client's reads are paused.
+
+**The wrapper.** `xw11/wrap.py` is the second hook every wrapped `main()` calls, right after
+`passthrough.maybe_exec_real()`: on a Wayland session with the original installed, the
+process is replaced by the original with `DISPLAY` pointing at the proxy. Six rules decide
+it and the first five cost no process at all; they are listed in
+[XW11.md § The wrapper rules](XW11.md#the-wrapper-rules). The import is *inside* `main()`
+and guarded with `try/except ImportError`, for two load-bearing reasons: on an X11 session
+`maybe_exec_real` has already replaced the process one line above, so the import never
+happens there; and the four zipapps carry no `xw11/` at all, so the guard is what keeps
+`dist/wdotool` working. `tests/test_passthrough.py` holds an AST scan that keeps it that
+way.
+
+The spawn is `wdotool/daemon.py`'s, not re-invented: fork, setsid, fork, stdio to the log,
+every inherited descriptor closed, out of the launcher's transient scope, cwd `/`, re-exec
+as `xw11 __serve`. The wrapper then polls the display file for two seconds at 50 ms;
+measured on 2026-09-11, six runs, **53, 105, 104, 105, 109 and 203 ms** from the fork to a
+display file a client can dial. Ten wrappers starting at once leave exactly one `__serve`,
+because the session lock is an abstract socket bind and a starter killed between the bind
+and the display file leaves nothing to recognise.

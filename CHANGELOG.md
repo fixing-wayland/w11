@@ -121,7 +121,42 @@ and the bytes are named wherever a number is.
   into a `without-w11` specialisation. Two phases belong to a distribution
   rather than to a desktop and the driver appends them itself: `selinux` on Fedora and
   `pkgverify` (`rpm -V`, `pacman -Qkk`) on both.
-- **5146 tests**, up from 4146, the new ones being the four new window and display
+- **An X11 proxy, so the originals work on Wayland.** `xw11` is a seventh command and it
+  is not a clone of anything: it binds a display number, forwards every byte to the
+  session's X server, and answers the requests that server has no answer for, because the
+  windows they are about are native Wayland toplevels that were never X windows.
+  Measured on headless sway with Xwayland 24.1.10 on 2026-09-11: the pinned, unmodified
+  `xdotool 4.20260303.1` printed `6291457` for `search --class footw` — a `foot` window
+  with no Xwayland window at all — and then `getwindowname` on that id printed its title.
+  `xdotool get_desktop`, `set_desktop`, `get_num_desktops` and `wmctrl -d` exited **1** on
+  sway with *Your windowmanager claims not to support `_NET_CURRENT_DESKTOP`* and exit
+  **0** through the proxy; `xprop -spy -id <window> WM_NAME`, `xprop -spy -root
+  _NET_ACTIVE_WINDOW` and `xdotool behave <window> mouse-enter` were RC 124 under a
+  timeout and now print their line; `xrandr --output HEADLESS-1 --mode 800x600` was
+  `BadMatch` and exit 1 and now moves sway's own output. `xrandr -q` through the proxy is
+  byte-identical to `xrandr -q` without one, and the whole parity oracle runs through a
+  pass-through proxy differing only in the `Ran N tests in` lines
+  (`W11_PARITY_PROXY=1 sh scripts/parity-oracle.sh`). What it does not do yet is a table
+  with a route and a cost per row, in [docs/XW11.md](docs/XW11.md). The rig has a `proxy`
+  phase of its own now, after `wm` on every Wayland flavor and on none of the X11 ones,
+  and its first run was **resolute-sway (sway 1.11, Xwayland 24.1.10) on 2026-09-11: 27
+  pass, 0 fail** -- the original xdotool, wmctrl and xprop answering about a `foot`
+  window with no X window behind it, and `xrandr --output Virtual-2 --pos 1920x200`
+  moving sway's own head and moving it back.
+- **On a Wayland session the four wrapped tools now run the originals.** `wdotool`,
+  `wwmctl`, `wxprop` and `wxrandr` hand over on Wayland the way they already did on X11,
+  with `DISPLAY` pointing at `xw11`, and the first call that needs a proxy starts one —
+  53 to 203 ms over six measured runs, 105 ms typical, then nothing until it idles out
+  fifteen minutes after its last client. Six rules decide it and the first five cost no
+  process at all; `W11_PROXY=never` (or `WDOTOOL_PROXY=never`, and the three siblings)
+  asks for our own code, `W11_PROXY=always` says the original's bytes or exit 127, and a
+  command carrying one of our own options — `--layout`, `--vkbd`, `wdotool keys`,
+  `--persistent`, `--backend`, the five `--*gnome-overlap*` flags — always runs the clone.
+  A help or version request runs the original and starts nothing, because a usage string
+  is not worth a process that outlives the command by fifteen minutes. The package now
+  **Recommends** `xdotool`, `wmctrl`, `x11-utils` and `x11-xserver-utils` rather than
+  suggesting them, on all three packagings.
+- **5172 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and
