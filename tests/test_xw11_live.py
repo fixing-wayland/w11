@@ -1136,7 +1136,7 @@ class WlrFloor(ProxyLive):
             # the floor knows the workspaces but the protocol carries no window ->
             # workspace mapping, so the answer is whatever the CLONE says for the
             # same window on the same backend: -1 there is 0xFFFFFFFF here
-            clone = self.tool(["wwmctl", "-l"], through=False, WDOTOOL_BACKEND="wlr")
+            clone = self.tool([sys.executable, "-m", "wwmctl", "-l"], through=False, WDOTOOL_BACKEND="wlr")
             self.assertEqual(clone.returncode, 0, clone.stderr)
             rows = [ln.split(None, 3) for ln in clone.stdout.splitlines()]
             desk = [r[1] for r in rows if len(r) == 4 and r[3].strip() == FOOT_TITLE]

@@ -79,6 +79,11 @@ oracle_outputs() { guest "python3 $ORACLE $DESKTOP" | grep -E '^[A-Za-z]' || tru
 # head_dark <connector>: the host-side screendump of that head is one flat colour
 # (the same test vm/selftest.sh uses for "painted": sampled standard deviation of
 # the pixels, 0.02 the line).  Virtual-N is QEMU head N-1.
+head_sd() {   # head_sd <name> -> the standard deviation of a shot of that head, or nothing
+    local n=${1##*-} f; f=$(mktemp -t smoke-head-XXXXXX.png)
+    "$VM" shot "$NAME" "$((n - 1))" "$f" >/dev/null 2>&1 || { rm -f "$f"; return 1; }
+    identify -format '%[fx:standard_deviation]' "$f" 2>/dev/null; rm -f "$f"
+}
 head_dark() {
     local n=${1##*-} f; f=$(mktemp -t smoke-head-XXXXXX.png)
     "$VM" shot "$NAME" "$((n - 1))" "$f" >/dev/null 2>&1 || { rm -f "$f"; return 1; }
@@ -456,6 +461,17 @@ phase_proxy() {
     # prints its `:N`; a second call must answer the SAME one, because a session
     # has one proxy and the display file under $XDG_RUNTIME_DIR is what the
     # loser of that race finds instead of starting a second.
+    # ...and it needs an X server to forward to.  A session whose Xwayland is down
+    # (cinnamon-wayland on this rig, until it has a render node: its own xwant in
+    # cinnamon-wayland.sh) has nothing behind the proxy, and the refusal is the
+    # proxy's own, measured on run 34567497131: "no proxy is running and none could
+    # be started".  That is the xwant, not a red.
+    if ! guest 'xprop -root >/dev/null 2>&1' >/dev/null 2>&1; then
+        xwant "xw11 --print-display starts a proxy and prints its display (until this session has an Xwayland to forward to)" \
+              '^:[0-9]+$' "$(guest 'xw11 --print-display' | tr -d ' \r\n' || true)"
+        note "no X server answers on this session's DISPLAY: the rest of the proxy phase has nothing to measure"
+        return 0
+    fi
     disp=$(guest 'xw11 --print-display' | tr -d ' \r\n' || true)
     want "xw11 --print-display starts a proxy and prints its display" '^:[0-9]+$' "$disp"
     case $disp in :[0-9]*) ;; *) fail "no display from xw11 --print-display [$(ev "$disp")]"; return 1 ;; esac
@@ -468,7 +484,8 @@ phase_proxy() {
     # string -- so the plain spelling counts itself and answers 1 with no proxy
     # running at all.  The bracket matches the same character and is not in the
     # text being matched.
-    n=$(guest 'pgrep -u $(id -u) -f "xw11 __[s]erve" | wc -l' | tr -d ' \r\n' || true)
+    # `xw11[^ ]*`: NixOS runs the console script as `.xw11-wrapped __serve` (run 34567497131)
+    n=$(guest 'pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l' | tr -d ' \r\n' || true)
     same "exactly one xw11 __serve, and ps can be grepped for that word" "1" "${n:-0}"
 
     # 2.  The originals, against that display.  getdisplaygeometry is the
@@ -635,7 +652,7 @@ printf '%s ms\\n' \$(( (\$(date +%s%N) - s) / 1000000 ))" || true)"
     guest 'xw11 --stop' >/dev/null 2>&1 || true
     sleep 1
     same "xw11 --stop leaves no proxy and no display file" "0 0" \
-         "$(guest 'printf "%s %s" "$(pgrep -u $(id -u) -f "xw11 __[s]erve" | wc -l)" \
+         "$(guest 'printf "%s %s" "$(pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l)" \
                   "$(test -e $XDG_RUNTIME_DIR/xw11/display && echo 1 || echo 0)"' | tr -d '\r' || true)"
 }
 

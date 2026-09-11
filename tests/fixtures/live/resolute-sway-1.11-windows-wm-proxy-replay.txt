@@ -66,7 +66,7 @@ _NET_WM_STATE(ATOM) =
 ### xw11 --print-display
 :20
 ### rc=0
-### pgrep -u $(id -u) -f "xw11 __[s]erve" | wc -l
+### pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l
 1
 ### rc=0
 ### DISPLAY=:20 xdotool getdisplaygeometry
@@ -209,6 +209,6 @@ Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480
 ### rc=0
 ### xw11 --stop
 ### rc=0
-### printf "%s %s" "$(pgrep -u $(id -u) -f "xw11 __[s]erve" | wc -l)" \                   "$(test -e $XDG_RUNTIME_DIR/xw11/display && echo 1 || echo 0)"
+### printf "%s %s" "$(pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l)" \                   "$(test -e $XDG_RUNTIME_DIR/xw11/display && echo 1 || echo 0)"
 0 0
 ### rc=0

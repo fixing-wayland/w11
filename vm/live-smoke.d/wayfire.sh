@@ -345,9 +345,19 @@ phase_mirror() {
         # a few seconds after the started line (CI run 34329371964 measured the target painted; run
         # 34336882062, same tree for this phase, took the one shot early and saw it flat): poll, and only
         # a head still flat after ten seconds is a mirror that delivered nothing.
-        local painted=false i
+        # Relative to the head's own reading before the mirror, not the rig's 0.02
+        # line: a region of wf-background is nearly one colour, and CI run
+        # 34567497131 read 0.016 during the mirror against exactly 0 before it --
+        # something arrived, and 0.02 was measured on a busier region.
+        local painted=false i before now
+        before=$(head_sd "$second" || echo 0)
+        note "head $second standard deviation before the mirror: ${before:-0}"
         for i in 1 2 3 4 5 6 7 8 9 10; do
-            if ! head_dark "$second"; then painted=true; break; fi
+            now=$(head_sd "$second" || echo 0)
+            note "head $second standard deviation $now"
+            if awk -v a="${now:-0}" -v b="${before:-0}" 'BEGIN { exit !(a + 0 > b + 0.005 || a + 0 >= 0.02) }'; then
+                painted=true; break
+            fi
             sleep 1
         done
         if $painted; then
