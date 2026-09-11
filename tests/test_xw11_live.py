@@ -1133,8 +1133,16 @@ class WlrFloor(ProxyLive):
              "print(' '.join(sorted(b.session_registry() or {})))"],
             env=self.env(through=False), capture_output=True, text=True, timeout=30)
         if "ext_workspace_manager_v1" in reg.stdout.split():
-            self.assertRegex(got.stdout.strip(), r"^_NET_WM_DESKTOP\(CARDINAL\) = \d+$")
-            self.assertNotEqual(got.stdout.strip(), "_NET_WM_DESKTOP(CARDINAL) = 4294967295")
+            # the floor knows the workspaces but the protocol carries no window ->
+            # workspace mapping, so the answer is whatever the CLONE says for the
+            # same window on the same backend: -1 there is 0xFFFFFFFF here
+            clone = self.tool(["wwmctl", "-l"], through=False, WDOTOOL_BACKEND="wlr")
+            self.assertEqual(clone.returncode, 0, clone.stderr)
+            rows = [ln.split(None, 3) for ln in clone.stdout.splitlines()]
+            desk = [r[1] for r in rows if len(r) == 4 and r[3].strip() == FOOT_TITLE]
+            self.assertEqual(len(desk), 1, clone.stdout)
+            want = "4294967295" if desk[0] == "-1" else desk[0]
+            self.assertEqual(got.stdout.strip(), "_NET_WM_DESKTOP(CARDINAL) = %s" % want)
         else:
             self.assertEqual(got.stdout.strip(),
                              "_NET_WM_DESKTOP(CARDINAL) = 4294967295")

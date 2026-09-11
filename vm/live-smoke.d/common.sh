@@ -497,6 +497,13 @@ phase_proxy() {
         # its NOT-YET-RUN line is waiting for, not a bug in the check.
         props="_NET_WM_NAME WM_NAME WM_CLASS _NET_WM_PID WM_CLIENT_MACHINE _NET_WM_DESKTOP"
         props="$props _NET_WM_STATE _NET_WM_WINDOW_TYPE WM_STATE _NET_FRAME_EXTENTS WM_PROTOCOLS"
+        case "$DESKTOP" in
+            # zwlr_foreign_toplevel carries no pid and cosmic's toplevel info answers 0 as
+            # a protocol fact (batches 8 and 14 of the desktops work), so the shadow has
+            # no _NET_WM_PID there: measured on resolute-labwc, CI run 34564610822
+            labwc|xfce-wayland|budgie|lxqt-wayland|river|cosmic)
+                props=$(printf '%s' "$props" | sed 's/ _NET_WM_PID//') ;;
+        esac
         same "the original xprop prints the shadow's eleven names in ListProperties order" \
              "$props" "$(guest "DISPLAY=$disp xprop -id $id" \
                           | awk -F'[(:]' '/^[A-Za-z_]/ { printf "%s ", $1 }' | sed 's/ *$//' || true)"

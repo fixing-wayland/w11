@@ -312,8 +312,11 @@ xwant()   { local w=$1 re=$2; shift 2
 # (measured by batch 9 of issue 1). phase_proxy names DISPLAY and W11_PROXY on its own
 # commands, and SMOKE_PROXY=always is the knob for a phase that wants the wrapper.
 guest()  { "$VM" user "$NAME" -- env W11_PROXY="${SMOKE_PROXY:-never}" sh -c "$1" 2>&1; }
-root()   { "$VM" ssh  "$NAME" -- sh -c "$1" 2>&1; }          # as root, no session env
-guestq() { "$VM" user "$NAME" -- sh -c "$1" >/dev/null 2>&1; }
+# as root, no session env -- and W11_PROXY pinned for the same reason as guest(): the root
+# phase measures the CLONES finding the seated session, not the wrapper (which, as root with
+# no cookie of its own for the proxy, is a NOT YET of its own: docs/XW11.md, What differs)
+root()   { "$VM" ssh  "$NAME" -- env W11_PROXY="${SMOKE_PROXY:-never}" sh -c "$1" 2>&1; }
+guestq() { "$VM" user "$NAME" -- env W11_PROXY="${SMOKE_PROXY:-never}" sh -c "$1" >/dev/null 2>&1; }   # guest(), quiet
 shot()   { "$VM" shot "$NAME" --all "$SHOTDIR/$1" >/dev/null 2>&1 && note "shots: $SHOTDIR/$1-*.png" || true; }
 
 # ---------------------------------------------------------------- steps
