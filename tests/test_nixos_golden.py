@@ -321,7 +321,7 @@ class TheTwoFlavors(unittest.TestCase):
         self.assertEqual(self.mod.flavor_desktop("nixos-sway"), "sway")
         self.assertEqual(self.mod.flavor_desktop("nixos-gnome"), "gnome")
         self.assertEqual(self.mod.flavor_ci("nixos-sway"), "push")
-        self.assertEqual(self.mod.flavor_ci("nixos-gnome"), "on-demand")
+        self.assertEqual(self.mod.flavor_ci("nixos-gnome"), "push")
 
     def test_each_flavor_has_a_module_beside_the_flake(self):
         for name in NIX_FLAVORS:
