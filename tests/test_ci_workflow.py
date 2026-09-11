@@ -583,27 +583,27 @@ class EveryPushFlavorGetsAJob(unittest.TestCase):
     def push_flavors(self):
         return sorted(f for f, ci in self.flavors_by_ci().items() if ci == "push")
 
-    def test_every_flavor_is_in_exactly_one_of_the_two_sets(self):
+    def test_every_flavor_is_in_the_push_set(self):
         """Not a count: the numbers are derived and pinned once, in
-        tests/test_docs_matrix.py.  What this asserts is that the split is
+        tests/test_docs_matrix.py.  What this asserts is that the set is
         total -- a yaml with a header the plan step's grep does not match is a
-        flavor CI never builds and nobody is told about."""
+        flavor CI never builds and nobody is told about -- and that nothing is
+        on demand."""
         by_ci = self.flavors_by_ci()
-        self.assertEqual(set(by_ci.values()), {"push", "on-demand"})
-        on_demand = [f for f, ci in by_ci.items() if ci == "on-demand"]
-        self.assertEqual(len(self.push_flavors()) + len(on_demand), len(by_ci))
-        self.assertTrue(on_demand, "nothing is on demand any more")
+        self.assertEqual(set(by_ci.values()), {"push"}, "a flavor is on demand: the owner's rule "
+                         "of 2026-09-11 is that every flavor runs on every push")
+        self.assertEqual(len(self.push_flavors()), len(by_ci))
 
-    def test_the_foreign_flavors_of_the_push_set_are_the_four_that_were_red(self):
-        """fedora44-gnome, fedora44-sway, arch-sway, arch-hypr and nixos-sway
-        were the five rig jobs that ended in `no download rule` on run
-        34340513060; four are in the push set and must build now.  arch-hypr
-        went on demand on 2026-09-09 until Hyprland 0.56's windowmove lands
-        where it is asked (run 34390127394)."""
+    def test_every_foreign_flavor_is_in_the_push_set(self):
+        """Every flavor runs on every push (the owner's rule of 2026-09-11: nothing
+        is on demand), so every foreign flavor is in the push set and builds
+        on every run."""
         foreign = [f for f in self.push_flavors()
                    if f.startswith(("fedora", "arch-", "nixos-"))]
         self.assertEqual(sorted(foreign),
-                         ["arch-sway", "fedora44-gnome", "fedora44-sway", "nixos-sway"])
+                         ["arch-cosmic", "arch-gnome", "arch-hypr", "arch-kde", "arch-river", "arch-sway",
+                          "fedora43-gnome", "fedora44-cosmic", "fedora44-gnome", "fedora44-kde",
+                          "fedora44-sway", "nixos-gnome", "nixos-sway"])
 
 
 if __name__ == "__main__":

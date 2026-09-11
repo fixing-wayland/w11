@@ -1084,7 +1084,7 @@ what it is waiting for.
 [docs/Technical.md § 10](docs/Technical.md#10-the-vm-rig) is what the images are and
 where a cloud flavor is measurably not a desktop install. The last whole-rig measurement
 is CI run **34340513060** (commit `a544dec`, the rig installing the `.deb` built from the
-tree): of its 29 jobs, 25 ran the smoke and every one of them was green with no FAIL
+tree): of its 38 jobs, 25 ran the smoke and every one of them was green with no FAIL
 anywhere — `noble-gnome` and `resolute-gnome` printing `90 pass, 0 fail` apiece, the X11
 handovers `19 pass, 0 fail` — while five ended before the smoke started, because CI has
 no golden-fetch rule for a Fedora, Arch or NixOS image yet. The per-flavor tallies are

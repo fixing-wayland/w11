@@ -20,7 +20,7 @@
 # vmctl-base: Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2
 # vmctl-desktop: gnome
 # vmctl-distro: fedora
-# vmctl-ci: on-demand
+# vmctl-ci: push
 hostname: fedora43-gnome
 manage_etc_hosts: true
 disable_root: false

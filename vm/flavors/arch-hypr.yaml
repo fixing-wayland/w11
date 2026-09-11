@@ -52,7 +52,7 @@
 # vmctl-base: Arch-Linux-x86_64-cloudimg-20260901.583572.qcow2
 # vmctl-desktop: hypr
 # vmctl-distro: arch
-# vmctl-ci: on-demand
+# vmctl-ci: push
 # (on demand until Hyprland 0.56's windowmove lands where it is asked: CI run 34390127394 measured
 #  `windowmove 100 100` answering 660,340 on 0.56.2 where 0.53.3 answers 100,100; 67 pass, 2 fail)
 hostname: arch-hypr

@@ -29,4 +29,4 @@
 # vmctl-nix: nixos-gnome
 # vmctl-desktop: gnome
 # vmctl-distro: nixos
-# vmctl-ci: on-demand
+# vmctl-ci: push

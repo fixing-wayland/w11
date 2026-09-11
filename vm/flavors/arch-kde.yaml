@@ -19,7 +19,7 @@
 # vmctl-base: Arch-Linux-x86_64-cloudimg-20260901.583572.qcow2
 # vmctl-desktop: kde
 # vmctl-distro: arch
-# vmctl-ci: on-demand
+# vmctl-ci: push
 hostname: arch-kde
 manage_etc_hosts: true
 disable_root: false
