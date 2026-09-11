@@ -1125,9 +1125,20 @@ class WlrFloor(ProxyLive):
         shadow = self.shadow_id()
         got = self.tool(["xprop", "-id", str(shadow), "_NET_WM_DESKTOP"])
         self.assertEqual(got.returncode, 0, got.stderr)
-        self.assertEqual(got.stdout.strip(),
-                         "_NET_WM_DESKTOP(CARDINAL) = 4294967295")
-        self.assertIn("ext_workspace_manager_v1", self.proxy_log())
+        # the floor's desktops come from ext_workspace_manager_v1, which sway 1.11
+        # publishes on some builds (Arch's, Ubuntu 26.10's) and not on others
+        # (Ubuntu 26.04's) -- CI run 34563917823 measured both; the registry decides
+        reg = subprocess.run(
+            [sys.executable, "-c", "from wdotool import backend_detect as b; "
+             "print(' '.join(sorted(b.session_registry() or {})))"],
+            env=self.env(through=False), capture_output=True, text=True, timeout=30)
+        if "ext_workspace_manager_v1" in reg.stdout.split():
+            self.assertRegex(got.stdout.strip(), r"^_NET_WM_DESKTOP\(CARDINAL\) = \d+$")
+            self.assertNotEqual(got.stdout.strip(), "_NET_WM_DESKTOP(CARDINAL) = 4294967295")
+        else:
+            self.assertEqual(got.stdout.strip(),
+                             "_NET_WM_DESKTOP(CARDINAL) = 4294967295")
+            self.assertIn("ext_workspace_manager_v1", self.proxy_log())
 
     def test_the_proxys_own_environment_points_at_xwayland(self):
         """R15 in the log: the proxy says which upstream its own connection

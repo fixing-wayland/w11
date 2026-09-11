@@ -707,7 +707,6 @@ class TheThreePackagingsAgree(unittest.TestCase):
         self.assertEqual(phrases("# modprobe uinput is what this does\n"), [])
         self.assertEqual(phrases("    modprobe uinput\n"), ["modprobe uinput"])
 
-    @unittest.expectedFailure
     def test_namcap_expected_names_our_own_modules_and_only_ours(self):
         """`python -m installer` writes the console scripts out of the wheel,
         so the recipe never names them; the one file in packaging/arch/ that
@@ -718,12 +717,8 @@ class TheThreePackagingsAgree(unittest.TestCase):
         reason nobody would find; an alternation that grew a name this tree
         does not ship would hide a real finding.
 
-        Expected-failure while the proxy lands: `xw11` is the eighth name in
-        `[project.scripts]`, and `packaging/arch/namcap.expected` is not this
-        batch's file to edit (scratchpad/xw11/requests-batch-8.md item 4).  The
-        fix is one word -- `|xw11` inside that alternation, and "seven" ->
-        "eight" in the comment above it -- and the day it lands this marker
-        reports an unexpected success and comes off."""
+        `xw11` is the eighth name in `[project.scripts]` and the alternation
+        carries it (it landed with the proxy's CI fixes, one word)."""
         with open(os.path.join(ROOT, "pyproject.toml"), "rb") as fh:
             project = tomllib.load(fh)["project"]
         mine = {v.split(":")[0].split(".")[0] for v in project["scripts"].values()}
