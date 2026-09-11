@@ -17,6 +17,12 @@ That last line is what this file is: `keyword monitor NAME,WxH@Hz,XxY,SCALE` app
 on a session that had never touched the protocol. So the route is Hyprland's own IPC, and the wlr path is left
 for `--backend wlr` and told what it is walking into (wxrandr/core.py's timeout carries a Hyprland clause).
 
+And when the keyword is the one doing nothing -- which is a state, not a version: a fresh 0.56.2 session took
+none of three modes or a scale [M goal2/recon/flavors.md 3b] while the arch-hypr golden took every one of them
+on 2026-09-11 and then stopped later in the same session -- there is a second route under it, and it is route
+2 rather than 6: the same rules written into a file `hyprland.conf` sources, plus `hyprctl reload`. That is
+`HyprOutputs.apply`'s fallback, and the block above it carries what it costs.
+
 The transform numbering here is wlroots', not the spec-as-Mutter-reads-it: `--rotate left` over the protocol
 put sway transform "270" on the wire and `hyprctl` reported `transform: 3` [M recon2/hyprland.md §4], which is
 `core.WL_TRANSFORM`'s numbering (3 == 270 == xrandr `left`) and not `core.from_wl_spec_transform`'s (where 3 is
@@ -144,7 +150,17 @@ class HyprIPC:
     def keyword(self, text: str) -> str:
         """`keyword <text>` -- a live config assignment, which is how a layout is applied. Hyprland answers
         `ok`, or its own words, which are relayed whole and in its name."""
-        reply = self.request("keyword " + text).decode("utf-8", "replace").strip()
+        return self._ok("keyword " + text)
+
+    def reload(self) -> str:
+        """`reload` -- re-read hyprland.conf and everything it sources, and apply what it says.
+
+        This is the request `hyprctl reload` sends, and it is the half of the route-2 apply that makes a
+        written `monitor =` rule take effect [M arch-hypr golden, Hyprland 0.56.2, 2026-09-11]."""
+        return self._ok("reload")
+
+    def _ok(self, text: str) -> str:
+        reply = self.request(text).decode("utf-8", "replace").strip()
         if reply != "ok":
             raise Fatal("hypr: %s\n" % reply)
         return reply
@@ -153,10 +169,59 @@ class HyprIPC:
 #: `mirrorOf` when an output mirrors nothing
 NO_MIRROR = "none"
 
-PERSIST_NOTE = ("--persistent: Hyprland keeps its layout in hyprland.conf; saving there is not done yet "
-                "-- the route is a `monitor=` line in a snippet that file sources (AGENTS.md route 2), at "
-                "the cost of owning a file the user hand-edits; this layout lasts as long as the "
-                "session\n")
+#: The w11-owned file the route-2 apply writes its `monitor =` rules into, in Hyprland's own config
+#: directory beside hyprland.conf.
+W11_CONF_NAME = "w11-monitors.conf"
+
+#: The header that file is rewritten with every time, so whoever opens it knows who wrote it and what
+#: removing it does.
+W11_CONF_HEADER = (
+    "# Written by wxrandr (w11) -- one `monitor =` rule per output it applied.\n"
+    "# Some Hyprland 0.56.2 sessions store `hyprctl keyword monitor` and never apply it (measured on\n"
+    "# a fresh one, 2026-09-11: three modes out of the head's own availableModes and a scale, every\n"
+    "# one answered ok and none applied -- while on another session the same day every one applied).\n"
+    "# These rules apply on either: Hyprland re-reads a file it sources, and mode, position, scale,\n"
+    "# transform and disable were all measured landing that way.  Delete this file, and the\n"
+    "# `source =` line hyprland.conf carries for it, to be rid of both.\n"
+)
+
+#: One rule line: `monitor = NAME,...`, with the spacing Hyprland's own parser accepts either way.
+_RULE_RE = re.compile(r"^\s*monitor\s*=\s*([^,#]+,[^#]*?)\s*$")
+
+#: A `source =` line, for finding the one that already points at our file.
+_SOURCE_RE = re.compile(r"^\s*source\s*=\s*(.+?)\s*$")
+
+#: What the file costs, on either path, said out loud rather than hidden: a re-read is of the WHOLE
+#: config, so every runtime `hyprctl keyword` since login goes back to what the files say --
+#: `general:gaps_out 40` read back `40 40 40 40, set: true` and was `20 20 20 20, set: false` after one
+#: [M arch-hypr golden, 0.56.2, 2026-09-11].  And the re-read is not the `reload` request's alone: on the
+#: same golden a bare rewrite of the sourced file, with no `hyprctl reload` sent at all, applied the new
+#: mode AND reset that same keyword the same way, as did appending one comment line to hyprland.conf.
+#: Hyprland watches the files it sources; writing one IS a reload.
+RELOAD_COST = "the whole config is re-read: runtime `hyprctl keyword`s set since login are reset"
+
+WROTE_CONF_NOTE = ("Hyprland accepted the live `keyword monitor` and did not apply it, so the layout went "
+                   "into %s and the config was reloaded (" + RELOAD_COST + ")\n")
+
+PERSIST_CONF_NOTE = ("--persistent: the layout is in %s for the next session too, and writing that file is "
+                     "itself a reload, no `hyprctl reload` needed (" + RELOAD_COST + ")\n")
+
+KEPT_CONF_NOTE = ("those rules stay in %s, with or without --persistent: Hyprland re-reads a file it "
+                  "sources as soon as it changes, so taking them back out puts the head straight back at "
+                  "its preferred mode (measured on Hyprland 0.56.2, 2026-09-11). Delete that file, or the "
+                  "`source =` line hyprland.conf carries for it, to undo this layout\n")
+
+SOURCED_CONF_NOTE = "added a `source = %s` line to %s\n"
+
+NO_CONF_NOTE = ("there is no %s to source the rules from, and a config file written by this tool would be "
+                "the whole of the next session's config, so none was: add `source = %s` to the config this "
+                "session started with\n")
+
+
+def hypr_config_dir() -> str:
+    """Where Hyprland looks for hyprland.conf: `$XDG_CONFIG_HOME/hypr`, else `~/.config/hypr`."""
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "hypr")
 
 
 def _mode_of(text: str) -> "Mode | None":
@@ -185,14 +250,16 @@ class HyprOutputs:
 
     name = "hypr"
 
-    def __init__(self, sock: "str | None" = None, ipc: "HyprIPC | None" = None):
+    def __init__(self, sock: "str | None" = None, ipc: "HyprIPC | None" = None,
+                 conf_dir: "str | None" = None):
         self.ipc = ipc if ipc is not None else HyprIPC(sock)
         #: {name: the output it mirrors}, from the last snapshot, so an apply that does not mention a mirror
         #: does not silently break one -- a `keyword monitor` line with no `mirror` field clears it.
         self.mirrors: "dict[str, str]" = {}
         #: {name: the row j/monitors gave}, for the verify step's error line
         self.rows: "dict[str, dict]" = {}
-        self._said_persistent = False
+        #: Hyprland's config directory, resolved once per run (a test points it at its own).
+        self.conf_dir = conf_dir or hypr_config_dir()
 
     @property
     def sockpath(self) -> str:
@@ -346,16 +413,152 @@ class HyprOutputs:
             return other if kind == "same-as" else ""
         return self.mirrors.get(t.name, "")
 
-    def apply(self, state: "core.State", targets: list, persistent: bool = False) -> list:
-        """One `keyword monitor` per touched output, then a `j/monitors` re-read that has to agree.
+    # -- route 2: the rules file hyprland.conf sources -----------------------
+    #
+    # `hyprctl keyword monitor` is stored and not applied on SOME Hyprland 0.56.2 sessions: on a fresh one,
+    # three modes from the head's own `availableModes` and a scale all answered `ok` in 4 ms and changed
+    # nothing, while `keyword general:gaps_out 40` on that session took effect and read back
+    # [M goal2/recon/flavors.md 3b, arch-hypr golden, 2026-09-11].  It is not every session and not a
+    # version rule: on the arch-hypr golden later the same day the same keyword applied 1280x1024,
+    # 1024x768, 1680x1050, 5120x2160 and a `--pos 3840x200` that CI had seen land at 3840,0, and went on
+    # applying them after a wlr apply had timed out at 10 s [M, this file's batch, 2026-09-11].  Which is
+    # why neither path is a promise here: the keyword is the fast one, the re-read is what says whether it
+    # did anything, and the file below is what lands the layout when it did not.  The same golden applied
+    # mode, scale, transform AND disable from a `source =`d file plus `hyprctl reload`, all four measured,
+    # on the session where `gaps_out` proved a reload's cost.  AGENTS.md route 2, the compositor's own
+    # config surface, and not route 6.
+    #
+    # The costs are measured and they are paid here rather than hidden.  A re-read is of the whole config,
+    # so runtime `keyword`s set since login go back to what the files say -- `keyword general:gaps_out 40`
+    # read back `40 40 40 40, set: true` and was `20 20 20 20, set: false` after one [M arch-hypr golden,
+    # 0.56.2, 2026-09-11].  That cost belongs to the FILE and not to the `reload` request: Hyprland watches
+    # the files it sources (`misc:disable_autoreload` is off by default), so on the same golden the rule
+    # applied on the WRITE, before `hyprctl reload` was sent; a bare rewrite of the sourced file with no
+    # reload request anywhere reset that same keyword and moved the head; and appending one comment line to
+    # hyprland.conf did it too.  Writing the file IS a reload, which is why `--persistent`'s fast path says
+    # the same sentence this one does.  It is also why a non-persistent run cannot take its rules out again
+    # without undoing its own apply (writing the file back empty put the head at 1920x1080 before the next
+    # read), and is told so instead.  And a hyprland.conf with no `source =` for our file gains one appended
+    # line, in a user-owned file, so that is said out loud too.
+    #
+    # X's `xrandr` is one-shot -- a mode dies with the session unless something replays it -- and this file
+    # does not, which is the one place the route is louder than the original.  NOT YET, and the route is the
+    # same rung 2 and measured on the same golden: `hyprctl keyword misc:disable_autoreload true` takes
+    # (`int: 1, set: true`), and with it set the write is not read at all (the rules file rewritten to
+    # 1024x768 left the head at 1680x1050 and `gaps_out` at 40) while an explicit `hyprctl reload` still
+    # applies it.  So disable / write / reload / verify / disable again / write the rules back out would
+    # land the layout and leave the file clean.  The cost is what stopped it here: `reload` resets
+    # `disable_autoreload` itself (`int: 0, set: false` after it), so the window between the reload and the
+    # second disable is one where any other config write lands, and a run that dies in the middle leaves a
+    # session whose config edits are silently ignored until something reloads.  Two writes and two keywords
+    # per apply, for a file the run already names in a line the user can delete.
 
-        The re-read is not decoration. Hyprland answers `ok` to a `keyword monitor` it then ignores -- measured
-        three times in a row on a session whose protocol apply had wedged [M recon2/hyprland.md §4] -- so a
-        run that only trusted the `ok` would report a layout that is not on the screen. `--persistent` is said
-        once and does nothing: the file that would keep this is hyprland.conf."""
-        if persistent and not self._said_persistent:
-            self._said_persistent = True
-            core.warn(PERSIST_NOTE)
+    def rules_path(self) -> str:
+        return os.path.join(self.conf_dir, W11_CONF_NAME)
+
+    def read_rules(self) -> dict:
+        """{output: the whole `monitor =` argument} our file already holds, in file order."""
+        out = {}
+        try:
+            with open(self.rules_path(), encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError:
+            return out
+        for line in text.splitlines():
+            m = _RULE_RE.match(line)
+            if m:
+                out[m.group(1).split(",")[0].strip()] = m.group(1)
+        return out
+
+    def write_rules(self, lines: dict) -> str:
+        """Merge `lines` ({output: monitor line}) into our file and return its path.
+
+        Merged rather than replaced: two `wxrandr --output A ...` runs in a row must not take B's rule out
+        with them, which is the whole difference between this file and the one-shot keyword."""
+        rules = self.read_rules()
+        rules.update(lines)
+        return self._write_file(rules)
+
+    def restore_rules(self, rules: dict) -> str:
+        """Put the file back exactly as `rules` -- what a route-2 apply that did not land owes.
+
+        The whole map, not a pop of the names this run touched: an earlier `--persistent` run may hold a
+        rule for the SAME output, and popping by name would take that one out with ours, changing a layout
+        this run never applied.  What was there before the write is what is there after it.
+
+        The file itself stays, header and all (empty when it held nothing before), because the `source =`
+        line in hyprland.conf has to keep naming a file that exists: Hyprland refuses to parse a `source =`
+        whose target is missing, and the next apply would then be arguing with a config error of ours."""
+        return self._write_file(rules)
+
+    def _write_file(self, rules: dict) -> str:
+        """`rules` ({output: monitor line}) as the whole file, written and renamed into place so a
+        `hyprctl reload` racing the write cannot read half a rule."""
+        path = self.rules_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        body = W11_CONF_HEADER + "".join("monitor = %s\n" % rules[k] for k in rules)
+        tmp = path + ".new"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        os.replace(tmp, path)
+        return path
+
+    def conf_path(self) -> str:
+        return os.path.join(self.conf_dir, "hyprland.conf")
+
+    def ensure_source(self, path: str) -> str:
+        """Make hyprland.conf source our rules file: `"present"`, `"added"` or `"missing"`.
+
+        Appended, so our rules are the LAST matching ones Hyprland reads: the rig's own config carries
+        `monitor = Virtual-1,preferred,0x0,1` lines (vm/build-image.sh desktop_hypr) and a rule sourced
+        before them would be the one that lost.
+
+        A hyprland.conf that is not there is left not there.  Creating it would not be adding a line to a
+        user's config, it would be REPLACING the config the running session has -- Hyprland writes a default
+        one with the keybinds in it on first run, and a file of ours holding a single `source =` would be
+        all the next session read.  That case is said out loud instead (`NO_CONF_NOTE`), with the line to
+        add, and the apply then fails the way any other unapplied layout does."""
+        conf = self.conf_path()
+        try:
+            with open(conf, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError:
+            return "missing"
+        for line in text.splitlines():
+            m = _SOURCE_RE.match(line)
+            if m and os.path.basename(m.group(1).strip().strip('"')) == W11_CONF_NAME:
+                return "present"
+        with open(conf, "a", encoding="utf-8") as fh:
+            if text and not text.endswith("\n"):
+                fh.write("\n")
+            fh.write("\n# w11: wxrandr writes the layout it applies here (AGENTS.md route 2).\n"
+                     "source = %s\n" % path)
+        return "added"
+
+    def _say_source(self, path: str, how: str):
+        if how == "added":
+            core.warn(SOURCED_CONF_NOTE % (path, self.conf_path()))
+        elif how == "missing":
+            core.warn(NO_CONF_NOTE % (self.conf_path(), path))
+
+    def apply(self, state: "core.State", targets: list, persistent: bool = False) -> list:
+        """One `keyword monitor` per touched output, then a `j/monitors` re-read that has to agree -- and,
+        when it does not, the same rules through the file Hyprland sources plus a `reload`.
+
+        The re-read is not decoration. Hyprland answers `ok` to a `keyword monitor` it then ignores --
+        measured three times in a row on a session whose protocol apply had wedged [M recon2/hyprland.md
+        §4], and on every apply of a FRESH 0.56.2 session [M goal2/recon/flavors.md 3b] -- so a run that
+        only trusted the `ok` would report a layout that is not on the screen.  What follows a caught
+        mismatch is the route-2 apply above.
+
+        `--persistent` is the flag the original never had, and here it decides one thing: whether the file
+        is written on the path where it was not NEEDED.  Where it was -- where the live keyword did
+        nothing -- the rules stay either way, and the plan's "a non-persistent apply takes its own line out
+        again" did not survive the measurement: Hyprland watches the files it sources, so removing the rule
+        applied the removal within a second and put the head back at its preferred mode, with no `reload`
+        sent at all (arch-hypr golden, 0.56.2, 2026-09-11: write the rule and the mode changes before the
+        `hyprctl reload` is sent; write the file back empty and the mode is back before the next read).
+        A non-persistent run is told that, and what to delete."""
         core.record_lastmodes(state, targets)
         dims = {}
         for t in targets:
@@ -363,14 +566,80 @@ class HyprOutputs:
                 dims[t.name] = self.predicted_dims(t, state)
         pos = core.resolve_positions(targets, dims)
         touched = [t for t in targets if t.changed]
+        lines = {}
         for t in touched:
-            self.ipc.keyword("monitor " + self.monitor_line(t, pos))
+            lines[t.name] = self.monitor_line(t, pos)
+            self.ipc.keyword("monitor " + lines[t.name])
         fresh = self.snapshot(state)
-        self._verify_applied(touched, pos, {o.name: o for o in fresh})
-        return fresh
+        bad = self._first_mismatch(touched, pos, {o.name: o for o in fresh})
+        if bad is None:
+            if persistent and lines:
+                self._persist(lines)
+            return fresh
+        return self._apply_by_reload(state, touched, pos, lines, persistent)
+
+    def _persist(self, lines: dict):
+        """`--persistent` on a session where the live keyword DID land: the layout is already on the screen
+        and the rule goes into the file for the next session.
+
+        No `hyprctl reload` is SENT here, and that is not the same as no reload happening: Hyprland watches
+        the files it sources, so the write itself is one (measured on the arch-hypr golden, 0.56.2,
+        2026-09-11: a bare rewrite of the sourced file, no reload request anywhere, applied the new mode and
+        put `general:gaps_out` from `40, set: true` back to `20, set: false`; appending a line to
+        hyprland.conf, which is what the FIRST persistent run does, did the same).  So this path pays
+        `RELOAD_COST` like the other one and says so -- the flag buys the next session's layout, not a
+        cheaper apply.  `monitor` is a runtime keyword like `gaps_out`, so an untouched output that an
+        earlier run had moved with the live keyword alone goes back to what the config says along with the
+        rest [R: that a reload resets `gaps_out` is measured, that it resets a live `keyword monitor` is
+        the same sentence read twice and was not measured on its own -- the session it would have been
+        measured on was one where the keyword applied nothing]."""
+        path = self.write_rules(lines)
+        self._say_source(path, self.ensure_source(path))
+        core.warn(PERSIST_CONF_NOTE % path)
+
+    def _apply_by_reload(self, state, touched: list, pos: dict, lines: dict, persistent: bool) -> list:
+        """The route-2 apply: write the rules, make sure hyprland.conf sources them, reload, re-read.
+
+        The file is restored to what it held BEFORE this run when the layout did not land: a layout the
+        compositor would not take is not one to leave in a file that the next login reads, and restoring
+        the whole map rather than popping our names keeps an earlier `--persistent` run's rule for the same
+        output.  Rules that did land stay, because removing them is itself an apply here (see `apply`), and
+        a run that was not asked for `--persistent` says so and names the file to delete.
+
+        The note claiming the reload is printed after the reload has returned and the re-read has agreed,
+        because until then there is no reload and no layout to claim -- and it is not printed at all on the
+        path where nothing sources our file, which is the path that sends no reload."""
+        before = self.read_rules()
+        path = self.write_rules(lines)
+        sourced = self.ensure_source(path)
+        self._say_source(path, sourced)
+        landed = False
+        try:
+            if sourced != "missing":
+                # Nothing sources our file, so a reload would re-read a config that does not mention it:
+                # the whole cost of a reload (every runtime `keyword` since login) for none of its effect.
+                # The apply then fails on the re-read below, which is what NO_CONF_NOTE says it will.
+                self.ipc.reload()
+            fresh = self.snapshot(state)
+            self._verify_applied(touched, pos, {o.name: o for o in fresh})
+            landed = True
+            core.warn(WROTE_CONF_NOTE % path)
+            if not persistent:
+                core.warn(KEPT_CONF_NOTE % path)
+            return fresh
+        finally:
+            if not landed:
+                self.restore_rules(before)
 
     def _verify_applied(self, touched: list, pos: dict, fresh: dict):
-        """One line naming the first output Hyprland accepted and did not change.
+        """`_first_mismatch` as a refusal: one line naming the first output Hyprland accepted and did not
+        change."""
+        bad = self._first_mismatch(touched, pos, fresh)
+        if bad is not None:
+            raise Fatal(bad)
+
+    def _first_mismatch(self, touched: list, pos: dict, fresh: dict) -> "str | None":
+        """The sentence for the first output Hyprland accepted and did not change, or None.
 
         Position, mode size and transform are checked and the scale is not: those three are what §4 measured
         standing still, and Hyprland adjusts a scale it cannot divide the head by (so a mismatch there would
@@ -378,25 +647,24 @@ class HyprOutputs:
         for t in touched:
             o = fresh.get(t.name)
             if o is None:
-                raise Fatal("Hyprland accepted the configuration for %s and then stopped listing it\n" % t.name)
+                return "Hyprland accepted the configuration for %s and then stopped listing it\n" % t.name
             if o.active != t.enabled:
-                raise Fatal("Hyprland accepted %s %s and did not apply it (it is still %s)\n"
-                            % (t.name, "on" if t.enabled else "off",
-                               "on" if o.active else "off"))
+                return ("Hyprland accepted %s %s and did not apply it (it is still %s)\n"
+                        % (t.name, "on" if t.enabled else "off", "on" if o.active else "off"))
             if not t.enabled:
                 continue
             want_pos = pos.get(t.name)
             if want_pos is not None and (o.x, o.y) != tuple(want_pos):
-                raise Fatal("Hyprland accepted the position %dx%d for %s and did not apply it "
-                            "(it reports %dx%d)\n" % (want_pos[0], want_pos[1], t.name, o.x, o.y))
+                return ("Hyprland accepted the position %dx%d for %s and did not apply it "
+                        "(it reports %dx%d)\n" % (want_pos[0], want_pos[1], t.name, o.x, o.y))
             cur = o.current
             if t.mode is not None and cur is not None and (cur.w, cur.h) != (t.mode.w, t.mode.h):
-                raise Fatal("Hyprland accepted the mode %dx%d for %s and did not apply it "
-                            "(it reports %dx%d)\n"
-                            % (t.mode.w, t.mode.h, t.name, cur.w, cur.h))
+                return ("Hyprland accepted the mode %dx%d for %s and did not apply it "
+                        "(it reports %dx%d)\n" % (t.mode.w, t.mode.h, t.name, cur.w, cur.h))
             if o.transform != t.sway_tf:
-                raise Fatal("Hyprland accepted the transform %s for %s and did not apply it "
-                            "(it reports %s)\n" % (t.sway_tf, t.name, o.transform))
+                return ("Hyprland accepted the transform %s for %s and did not apply it "
+                        "(it reports %s)\n" % (t.sway_tf, t.name, o.transform))
+        return None
 
 
 def probe(sock: str, verbose: bool = False):

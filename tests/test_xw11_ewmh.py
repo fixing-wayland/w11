@@ -583,6 +583,26 @@ class TheTableItself(unittest.TestCase):
                 continue
             self.assertIn(name, policy.SUPPORTED, name)
 
+    def test_every_root_name_the_proxy_answers_is_interned_and_advertised(self):
+        """A name in `OVERRIDES` is answered from the compositor whether or not
+        upstream has it (design section 4.6), and that answer is only reachable
+        if the proxy interned the atom at open -- `shadow.root_props` drops a
+        name whose `atom_id` is 0 -- and only honest if `_NET_SUPPORTED` says
+        the name is there. The three tables are edited one at a time, which is
+        the drift this catches."""
+        for name in policy.OVERRIDES:
+            self.assertIn(name, policy.ATOMS, name)
+            self.assertIn(name, policy.SUPPORTED, name)
+
+    def test_the_desktop_viewport_is_in_all_three_tables(self):
+        """The root property real `wmctrl -d` prints its `VP:` column from.
+        Without it wmctrl prints `VP: N/A` on every row while `wwmctl -d`
+        prints `0,0` on the current one [M goal2/recon/gaps.md 3a, Xvfb :77,
+        2026-09-11]; X is the oracle and an X WM with viewports publishes an
+        origin per desktop, so the name is interned, answered and advertised."""
+        for table in (policy.ATOMS, policy.OVERRIDES, policy.SUPPORTED):
+            self.assertIn("_NET_DESKTOP_VIEWPORT", table)
+
 
 if __name__ == "__main__":
     unittest.main()

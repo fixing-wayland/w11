@@ -48,7 +48,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ["W11_PASSTHROUGH"] = "never"
 
 import support                                                     # noqa: E402
+from support import write_xauth                                    # noqa: E402
 from w11common import passthrough                                  # noqa: E402
+from w11common import session                                      # noqa: E402
+from w11common.errors import CmdError                              # noqa: E402
+from wdotool import x11_mini                                       # noqa: E402
 from xw11 import cli as cli_mod                                    # noqa: E402
 from xw11 import display as display_mod                            # noqa: E402
 from xw11 import wrap                                              # noqa: E402
@@ -165,7 +169,10 @@ class WrapCase(unittest.TestCase):
             self.calls.append("ensure_proxy")
             return display
         for name, fn in (("ensure_proxy", fake),
-                         ("proxy_xauthority", lambda: auth)):
+                         # the uid is the seated user's and None for everyone
+                         # inside the session (wrap._seated_uid), which every
+                         # test in this class is
+                         ("proxy_xauthority", lambda uid=None: auth)):
             p = mock.patch.object(wrap, name, fn)
             p.start()
             self.addCleanup(p.stop)
@@ -714,6 +721,152 @@ class X11NeverImportsTheProxy(unittest.TestCase):
 
 
 # -- the spawn, against a real upstream ---------------------------------------
+
+class RootAttachesAndStartsNothing(WrapCase):
+    """Gap (d), `ssh root@box wmctrl -l`: the wrapper takes the SEATED user's
+    proxy and starts none of its own.
+
+    Measured before the change (goal2/recon/gaps.md §3d): the display-file
+    lookup takes `$XDG_RUNTIME_DIR` or `/tmp/wdotool-<os.getuid()>` and the
+    cookie lookup `$XAUTHORITY` or `~/.Xauthority`, both of the CALLING process
+    -- as root, `/run/user/0` (which pam_systemd hands an `ssh root@` login,
+    empty) and `/root/.Xauthority` (which authorises nothing on the session's
+    Xwayland). A proxy started from there would sit in root's own runtime
+    directory with no $WAYLAND_DISPLAY to connect to, and nothing in the
+    session would ever find it, so root attaches or runs the clone.
+
+    The seated user is whoever runs the suite -- a test cannot make a second
+    uid -- and the process is made to look like uid 0 to the calls that used to
+    answer for root. logind is a record in the temporary `_LOGIND_DIR`, because
+    `session_uid()` is what has to answer without a `SUDO_UID` anywhere
+    (w11common/passthrough.py:312) and `SUDO_UID` is exactly what an `ssh
+    root@box` login has not got."""
+
+    def setUp(self):
+        super().setUp()
+        self.spawns = []
+        self.seat = self.mkdir("run-user", str(self.uid))
+        # the graphical session's dir is the one with a wayland socket in it
+        self.touch(os.path.join(self.seat, "wayland-0"))
+        self.roothome = self.mkdir("root")
+        for obj, name, value in (
+                (session, "RUN_USER_DIR", self.runuser),
+                # never the box's own /tmp/wdotool-0: root's answer has to land
+                # inside the test's tree
+                (session, "FALLBACK_RUNTIME_DIR", os.path.join(self.tmp, "wdotool-%d")),
+                (session, "_shell_environ", lambda uid: {}),
+                (x11_mini, "_SOCK_DIR", self.mkdir("xsock")),
+                (display_mod, "_LOCK_DIR", self.mkdir("xlock")),
+                (wrap, "_spawn", lambda env, extra=(): self.spawns.append(env))):
+            p = mock.patch.object(obj, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        self.logind_file("1")
+        passthrough.reset_cache()
+        # runtime_dir_candidates() reads the PROCESS environment, so a
+        # developer's own $XDG_RUNTIME_DIR would answer for the seated user
+        self._env = support.env(XDG_RUNTIME_DIR=None, XAUTHORITY=None,
+                                XW11_DEBUG=None, HOME=self.roothome)
+        self._env.__enter__()
+        self.addCleanup(self._env.__exit__, None, None, None)
+
+    def logind_file(self, sid="1", **fields):
+        """One `/run/systemd/sessions/<id>` record for the seated session --
+        tests/test_passthrough.py:106's fixture, which this file has no other
+        copy of."""
+        rec = {"UID": str(self.uid), "USER": "test", "ACTIVE": "1",
+               "STATE": "active", "REMOTE": "0", "CLASS": "user",
+               "TYPE": "wayland"}
+        rec.update({k: str(v) for k, v in fields.items()})
+        body = "# This is private data. Do not parse.\n" + \
+            "".join("%s=%s\n" % kv for kv in rec.items())
+        self.touch(os.path.join(self.logind, sid), body)
+        return rec
+
+    def root_env(self, **extra):
+        """`ssh root@box`: no XDG_RUNTIME_DIR, no WAYLAND_DISPLAY, no SUDO_UID,
+        and a HOME that is not the seated user's."""
+        e = {"PATH": self.bin, "HOME": self.roothome}
+        e.update({k: v for k, v in extra.items() if v is not None})
+        return e
+
+    def as_root(self):
+        return mock.patch.multiple(os, getuid=lambda: 0, geteuid=lambda: 0)
+
+    def seated_proxy(self, upstream=":7"):
+        """A real listening proxy socket plus the display file the seated
+        user's session would have, in that user's runtime directory."""
+        got = display_mod.allocate()
+        self.addCleanup(got.release)
+        with support.env(XDG_RUNTIME_DIR=self.seat):
+            got.write_display_file(upstream)
+        return got
+
+    def test_root_attaches_to_the_seated_users_proxy(self):
+        """The one :N the desktop is already using, found from an environment
+        that names nothing."""
+        got = self.seated_proxy()
+        with self.as_root():
+            self.assertEqual(wrap.ensure_proxy(self.root_env()), got.name)
+        self.assertEqual(self.spawns, [], "root started a proxy of its own")
+
+    def test_root_with_no_proxy_to_attach_to_starts_none(self):
+        """A session that has never run one: the clone runs and says why under
+        XW11_DEBUG. A proxy in root's runtime directory would be a process
+        nobody in the session can reach."""
+        with self.as_root(), _Sink() as err:
+            with mock.patch.object(sys, "stderr", err):
+                self.assertIsNone(wrap.ensure_proxy(
+                    self.root_env(XW11_DEBUG="1")))
+        self.assertEqual(self.spawns, [], "root started a proxy of its own")
+        self.assertIn("uid %d" % self.uid, err.getvalue())
+
+    def test_in_the_session_the_same_call_still_starts_one(self):
+        """The control, and the reason the guard above is a guard and not the
+        fixture: the ordinary in-session caller with no proxy running spawns
+        one, exactly as it did before any of this."""
+        self.assertIsNone(wrap.ensure_proxy(self.wayland(), timeout=0.0))
+        self.assertEqual(len(self.spawns), 1, "the in-session spawn was lost")
+
+    def test_the_cookie_root_hands_the_original_is_the_seated_users(self):
+        """`proxy_xauthority()` recomputed for the seated user: Mutter's own
+        `-auth` file in that user's runtime directory, and not the
+        `/root/.Xauthority` that was measured to authorise nothing."""
+        self.seated_proxy(":7")
+        seated = os.path.join(self.seat, ".mutter-Xwaylandauth.QWERTY")
+        write_xauth(seated, [(256, x11_mini.hostname().encode(), b"7",
+                              b"MIT-MAGIC-COOKIE-1", b"S" * 16)])
+        write_xauth(os.path.join(self.roothome, ".Xauthority"),
+                    [(256, x11_mini.hostname().encode(), b"7",
+                      b"MIT-MAGIC-COOKIE-1", b"R" * 16)])
+        with self.as_root():
+            self.assertEqual(wrap.proxy_xauthority(wrap._seated_uid(self.root_env())),
+                             seated)
+            # the unqualified lookup goes to root's OWN runtime directory --
+            # the answer measured in gaps.md §3d -- and in this tree that
+            # directory is not root's, so the refusal naming it is what comes
+            # back. It PROPAGATES on the own-uid path, unchanged by this batch:
+            # only the uid'd lookup reads a refusal as "no proxy"
+            with self.assertRaises(CmdError) as caught:
+                wrap.proxy_xauthority()
+        self.assertIn(os.path.join(self.tmp, "wdotool-0"), str(caught.exception))
+
+    def test_the_original_is_handed_the_sessions_display_and_cookie(self):
+        """The whole of gap (d) in one call: `ssh root@box wmctrl -l` execs the
+        distribution's wmctrl against the seated user's proxy, with the cookie
+        that opens it."""
+        self.original()
+        got = self.seated_proxy(":7")
+        seated = os.path.join(self.seat, ".mutter-Xwaylandauth.QWERTY")
+        write_xauth(seated, [(256, x11_mini.hostname().encode(), b"7",
+                              b"MIT-MAGIC-COOKIE-1", b"S" * 16)])
+        with self.as_root():
+            _rc, execed = self.run_hook("wmctrl", ["-l"], env=self.root_env())
+        self.assertIsNotNone(execed, "the original never ran")
+        self.assertEqual(execed.env.get("DISPLAY"), got.name)
+        self.assertEqual(execed.env.get("XAUTHORITY"), seated)
+        self.assertEqual(self.spawns, [])
+
 
 class SpawnCase(unittest.TestCase):
     """A real `FakeUpstream` on a real socket, a real daemonised proxy.

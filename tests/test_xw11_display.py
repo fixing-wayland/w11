@@ -33,6 +33,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -41,6 +42,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import support                                                     # noqa: E402
 from support import write_xauth                                    # noqa: E402
+from w11common import passthrough                                  # noqa: E402
+from w11common.errors import CmdError                              # noqa: E402
+from w11common import session                                      # noqa: E402
 from wdotool import x11_mini                                       # noqa: E402
 from xw11 import cli as cli_mod                                     # noqa: E402
 from xw11 import display as display_mod                            # noqa: E402
@@ -532,6 +536,164 @@ class DisplayFileVerified(RuntimeDirCase):
         path = got.write_display_file(":7")
         got.release()
         self.assertFalse(os.path.exists(path))
+
+    def test_a_planted_dir_of_our_own_refuses_here_and_does_not_read_as_no_proxy(self):
+        """The `uid` lookup turns `runtime_dir()`'s refusal into None -- root
+        looking into a session that has a planted `/tmp/wdotool-<uid>` has "no
+        proxy" as its answer and runs the clone. The lookup WITHOUT a uid does
+        not: that refusal names a planted directory in the caller's own session
+        and it comes out of here exactly as it did before the parameter
+        existed, because swallowing it would mean spawning a proxy that hits
+        the same refusal and then waiting POLL_SECONDS for it."""
+        planted = os.path.join(self.dir, "wdotool-%d" % os.getuid())
+        os.mkdir(planted, 0o755)                     # group and other may enter
+        stranger = os.getuid() + 7
+        # owned by us, so it is not that uid's either: the same refusal, raised
+        # inside the uid'd lookup, where it IS one of the Nones
+        os.mkdir(os.path.join(self.dir, "wdotool-%d" % stranger), 0o700)
+        with support.env(XDG_RUNTIME_DIR=None), \
+                mock.patch.object(session, "FALLBACK_RUNTIME_DIR",
+                                  os.path.join(self.dir, "wdotool-%d")):
+            with self.assertRaises(CmdError) as caught:
+                display_mod.read_display_file()
+            with self.assertRaises(CmdError):
+                display_mod.read_display()
+            self.assertIsNone(display_mod.read_display_file(uid=stranger))
+        self.assertIn(planted, str(caught.exception))
+
+
+class RootLooksInTheSeatedUsersSession(DisplayCase):
+    """`ssh root@box wmctrl -l`: both lookups take the SEATED user's session.
+
+    Measured before the change (goal2/recon/gaps.md §3d): `runtime_dir()` with
+    $XDG_RUNTIME_DIR unset answers `/tmp/wdotool-1000` for uid 1000 and
+    `/tmp/wdotool-0` (or pam_systemd's empty `/run/user/0`) for root, and
+    `find_cookie()` reads `$XAUTHORITY`, else `~/.Xauthority` -- as root that is
+    `/root/.Xauthority`, which authorises nothing on the session's Xwayland. So
+    root never found the proxy the desktop is already running, and the cookie it
+    did find was the wrong one.
+
+    The seated user here is whoever runs the suite, because a test cannot make a
+    second uid: the session lives in a fake `/run/user/<our uid>` (`RUN_USER_DIR`
+    and `_RUN_USER_DIR`, the two modules' own seams) and the process is made to
+    look like uid 0 to the lookups under test, which is exactly the pair of
+    `os.getuid()`/`os.geteuid()` calls that used to answer for root."""
+
+    def setUp(self):
+        super().setUp()
+        self.uid = os.getuid()
+        self.runuser = os.path.join(self.dir, "run-user")
+        self.seat = os.path.join(self.runuser, str(self.uid))
+        os.makedirs(self.seat, 0o700)
+        # the graphical session's own dir is the one with a wayland socket in
+        # it: runtime_dir_candidates() sorts on that before anything else
+        open(os.path.join(self.seat, "wayland-0"), "w").close()
+        self.roothome = os.path.join(self.dir, "root")
+        os.makedirs(self.roothome, 0o700)
+        self.patch(session, "RUN_USER_DIR", self.runuser)
+        self.patch(passthrough, "_RUN_USER_DIR", self.runuser)
+        # never the real /tmp/wdotool-0: the root answer has to land inside the
+        # test's own tree, and a root-owned /tmp/wdotool-<uid> left on the box
+        # is a directory the user's own runtime_dir() would refuse afterwards
+        self.patch(session, "FALLBACK_RUNTIME_DIR",
+                   os.path.join(self.dir, "wdotool-%d"))
+        self.patch(session, "_shell_environ", lambda uid: {})
+        passthrough.reset_cache()
+        self.addCleanup(passthrough.reset_cache)
+        self._env = support.env(XDG_RUNTIME_DIR=None, XAUTHORITY=None,
+                                HOME=self.roothome)
+        self._env.__enter__()
+        self.addCleanup(self._env.__exit__, None, None, None)
+
+    def patch(self, obj, name, value):
+        p = mock.patch.object(obj, name, value)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def as_root(self):
+        """This process as the two lookups see root: `os.getuid()` is what
+        `session.runtime_dir()` compares the wanted uid against and
+        `os.geteuid()` is what `find_cookie`/`read_display` ask."""
+        return mock.patch.multiple(os, getuid=lambda: 0, geteuid=lambda: 0)
+
+    def test_the_display_file_of_the_seated_uid_is_found_from_uid_0(self):
+        """`display_file_path(uid)` resolves into that user's runtime directory
+        with no $XDG_RUNTIME_DIR of our own -- and the unqualified call, which
+        is the one root made before, names root's own directory instead.
+
+        The second half is asserted through the refusal because a test cannot
+        own a directory as uid 0: what it pins is the PATH the unqualified
+        lookup went to, `/tmp/wdotool-0` (here inside the test's tree), which is
+        not the session's and holds nothing."""
+        want = os.path.join(self.seat, display_mod.DIR_NAME, display_mod.FILE_NAME)
+        with self.as_root():
+            self.assertEqual(display_mod.display_file_path(self.uid), want)
+            with self.assertRaises(CmdError) as caught:
+                display_mod.display_file_path()
+        self.assertIn(os.path.join(self.dir, "wdotool-0"), str(caught.exception))
+
+    def test_the_seated_users_runtime_dir_is_never_created_for_them(self):
+        """Root looking for a session that has no runtime directory gets the
+        path and nothing on the disk: a root-owned `/tmp/wdotool-<uid>` is a
+        directory that user's own `runtime_dir()` refuses for the rest of the
+        box's uptime ("not a private directory owned by uid ...")."""
+        stranger = 4242
+        with self.as_root():
+            got = display_mod.display_file_path(stranger)
+        self.assertEqual(got, os.path.join(self.dir, "wdotool-4242",
+                                           display_mod.DIR_NAME, display_mod.FILE_NAME))
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "wdotool-4242")))
+
+    def test_find_cookie_answers_with_the_seated_users_file_not_roots(self):
+        """Mutter's own `-auth` cookie, in the seated user's runtime directory,
+        against a `/root/.Xauthority` holding a cookie for the same display.
+        The uid'd call takes the session's; the call without one takes root's,
+        which is the answer that was measured to authorise nothing."""
+        seated = os.path.join(self.seat, ".mutter-Xwaylandauth.QWERTY")
+        write_xauth(seated, [(256, x11_mini.hostname().encode(), b"66",
+                              b"MIT-MAGIC-COOKIE-1", b"S" * 16)])
+        root_file = os.path.join(self.roothome, ".Xauthority")
+        write_xauth(root_file, [(256, x11_mini.hostname().encode(), b"66",
+                                 b"MIT-MAGIC-COOKIE-1", b"R" * 16)])
+        with self.as_root():
+            self.assertEqual(display_mod.find_cookie(66, self.uid),
+                             (seated, b"S" * 16))
+            self.assertEqual(display_mod.find_cookie(66), (root_file, b"R" * 16))
+
+    def test_a_live_proxy_of_the_seated_user_is_accepted_from_uid_0(self):
+        """The file is still a hint and the socket still the proof: root dials
+        the abstract name the seated user's file gives and accepts the peer
+        because it is that user, running the pid the file claims.
+
+        The same call without the uid never reaches that socket: it looks in
+        root's OWN runtime directory, the answer measured in gaps.md §3d. In
+        this tree that directory is not root's either, so what comes back is
+        the refusal naming it -- and that refusal propagating (rather than
+        reading as "no proxy") is the own-uid behaviour
+        `read_display_file()` keeps unchanged; the peer half of the rule is
+        pinned by the next test, which hands the path over directly."""
+        got = self.allocate()
+        with support.env(XDG_RUNTIME_DIR=self.seat):
+            got.write_display_file(":7")
+        with self.as_root():
+            self.assertEqual(display_mod.read_display(uid=self.uid), got.name)
+            with self.assertRaises(CmdError) as caught:
+                display_mod.read_display()
+        self.assertIn(os.path.join(self.dir, "wdotool-0"), str(caught.exception))
+
+    def test_only_the_uid_root_asked_for_is_an_acceptable_peer(self):
+        """The peer rule is relaxed for exactly one uid -- the one root asked
+        for -- and for nobody else: a socket answered by a third user is refused
+        as it always was. The file is handed over by path here, so what refuses
+        is SO_PEERCRED and not the runtime-directory lookup."""
+        got = self.allocate()
+        with support.env(XDG_RUNTIME_DIR=self.seat):
+            path = got.write_display_file(":7")
+        with self.as_root():
+            self.assertIsNone(display_mod.read_display(path=path))
+            self.assertIsNone(display_mod.read_display(path=path, uid=self.uid + 7))
+            self.assertEqual(display_mod.read_display(path=path, uid=self.uid),
+                             got.name)
 
 
 class PeerCredentials(DisplayCase):

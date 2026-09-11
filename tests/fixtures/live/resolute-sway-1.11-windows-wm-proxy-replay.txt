@@ -114,8 +114,8 @@ WM_PROTOCOLS(ATOM): protocols  WM_DELETE_WINDOW
 0
 ### rc=0
 ### DISPLAY=:20 wmctrl -d
-0  * DG: 3840x1080  VP: N/A  WA: N/A  1
-1  - DG: 3840x1080  VP: N/A  WA: N/A  2
+0  * DG: 3840x1080  VP: 0,0  WA: N/A  1
+1  - DG: 3840x1080  VP: 0,0  WA: N/A  2
 ### rc=0
 ### DISPLAY=:20 xprop -root _NET_CLIENT_LIST
 _NET_CLIENT_LIST(WINDOW): window id # 0x400001, 0x400002

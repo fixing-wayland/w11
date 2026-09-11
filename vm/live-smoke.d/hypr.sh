@@ -379,7 +379,9 @@ def" "$(editor_text)"
 # is kept PER DEVICE, so switching the physical keyboard's group leaves the injected device on
 # its own.  `HyprLayouts` reads the physical keyboard's index off `j/devices`; whether the
 # keystrokes then land in that group was the open question this phase existed to record, and the
-# 2026-09-09 run on resolute-hypr answered it: they do not.  See the xwant at the end.
+# 2026-09-09 run on resolute-hypr answered it: they did not, until the fourth rule put our own
+# device in the group we encode for.  The two halves are checked apart below -- `keys explain`
+# about the session, the typed bytes about the device -- because they are two questions.
 #
 # One more thing that run measured, and that `_hypr_keyboard`'s clauses had better not lean on:
 # `main` MOVES.  With three keyboards (`power-button`, `at-translated-set-2-keyboard`,
@@ -407,8 +409,8 @@ layout_phase() {
     local got; got=$(type_and_read 'yz@ Straße')
     note "typed through /dev/uinput with the session in group 2: $(ev "$got")"
     note "$(guest 'hyprctl -j devices' || true)"
-    # ANSWERED, 2026-09-09, on this flavor: the injected device does NOT follow the session's group, and
-    # a reader that is right about the session is what makes `type` wrong.  With
+    # ANSWERED, 2026-09-09, on this flavor, and FIXED 2026-09-11: the injected device does NOT follow the
+    # session's group, and a reader that is right about the session is what made `type` wrong.  With
     # `at-translated-set-2-keyboard` switched to group 1 (German) `hyprctl -j devices` still reported
     # `wdotool-virtual-keyboard` at `active_layout_index: 0`, `keys explain` correctly said
     # `layout: German -- group 2 of 2, from wayland + hyprland devices`, and `wdotool type "zy@ Strasse"`
@@ -416,14 +418,18 @@ layout_phase() {
     # the US group as a plain `q`.  Before HyprLayouts, wdotool admitted it was guessing and typed
     # CORRECTLY, because the guess (US) was what the injected device really was [recon2/hyprland 3].
     #
-    # NOT YET, and the route is ours and not a rung of the ladder: the uinput path must encode for the
-    # group ITS OWN device is in, which is a second question from the one `keys explain` answers about the
-    # session -- `xkbmap.HyprLayouts`' "fourth rule", named as open in `_hypr_keyboard`'s docstring
-    # (requests-batch-12.md item 2, from batch 10).  Below that, route 2: `hyprctl switchxkblayout
-    # wdotool-virtual-keyboard <n>` before the injection, which moves the session's own state and would
-    # have to be put back.
-    xwant "German types byte-exact after a switch on the physical keyboard (fix xkbmap.HyprLayouts: the \
-injected device keeps its own group; measured 2026-09-09, zy@ typed as zyq)" "yz@ Straße" "$got"
+    # The fix is `xkbmap.HyprLayouts`' fourth rule (`_group_of_our_device`): the process that holds
+    # /dev/uinput open -- the daemon, and nothing else in this tree -- puts ITS OWN device in the group it
+    # is about to encode for, over the socket it is already holding (AGENTS.md route 2, our device alone,
+    # so there is nothing of the session's to put back).  The request is the bare `switchxkblayout
+    # wdotool-virtual-keyboard <n>` and NOT a dispatcher: the `dispatch` spelling shipped first and
+    # answered `Invalid dispatcher`, which typed `yz@ Strae` here on 2026-09-11 -- the ASCII right (the
+    # fallback below), the sharp s dropped -- and the bare form answers `ok` with the new index in the
+    # very next `j/devices`.  A switch that does not take falls back to the group our device really is in,
+    # which is what wdotool typed correctly with before any of this existed.  `keys explain` still answers
+    # about the SESSION, which is what the three checks above assert.  Measured green on arch-hypr
+    # (Hyprland 0.56.2) 2026-09-11: `yz@ Straße` byte-exact, and our device at index 1 afterwards.
+    want "German types byte-exact after a switch on the physical keyboard" "yz@ Straße" "$got"
     guest "hyprctl switchxkblayout $kb 0" >/dev/null 2>&1 || true
     sleep 1
     same "back in group 1, US types byte-exact again" "us: yz@" "$(type_and_read 'us: yz@')"
@@ -447,14 +453,18 @@ injected device keeps its own group; measured 2026-09-09, zy@ typed as zyq)" "yz
 # changed nothing.  Both measurements are checks in this phase.
 #
 # What 0.56.2 differs in, measured: the first wlr apply of a FRESH single-head session already
-# times out, where 0.53.3's worked [recon2/arch 3.4].  `hyprctl keyword monitor` was tried in that
-# same session and answered ok changing nothing -- but only after three wxrandr applies and two
-# wlr-randr attempts had timed out first, which is exactly the state 0.53.3 was measured to stop
-# taking `keyword monitor` in.  So whether a fresh 0.56.2 session takes it -- the route this
-# backend uses, AGENTS.md route 2 -- is UNMEASURED, and settling it is what arch-hypr exists for.
-# Until that run the applies are `xwant` on Arch; if they go red there, the next route down the
-# ladder is a patched Hyprland (route 6), a package to build and carry that nobody has costed.
-# Reading is right on both versions and is checked on both.
+# times out, where 0.53.3's worked [recon2/arch 3.4] -- and `hyprctl keyword monitor` is stored and
+# never applied on SOME 0.56.2 sessions, which is the question this flavor was built to settle.
+# It is settled, and the answer is not a version rule: a fresh session took none of three modes or
+# a scale [goal2/recon/flavors.md 3b], and this flavor's own session on 2026-09-11 took every one
+# of them until, later in the same session, it stopped.  The answer was NOT a patched Hyprland
+# either: rules in a `source =`d config file plus `hyprctl reload` applied mode, position, scale,
+# transform and disable on both states, so `wxrandr/hypr.py` keeps the live keyword as its fast
+# path and falls back to that file when its own re-read catches the keyword doing nothing
+# (AGENTS.md route 2).  Both applies below are plain checks on both versions now, and both were
+# measured green on arch-hypr through the fast path AND through the fallback (2026-09-11: `xrandr:
+# Hyprland accepted the live keyword monitor and did not apply it, so the layout went into
+# ~/.config/hypr/w11-monitors.conf and the config was reloaded`, rc 0, the mode on the screen).
 phase_display() {
     want "wxrandr --print-backend is hypr and not the wlr floor" "^hypr$" \
          "$(guest 'wxrandr --print-backend' | tr -d ' \r' || true)"
@@ -529,15 +539,24 @@ phase_display() {
     guest "wxrandr --output $first --mode 1280x1024" >/dev/null 2>&1 || true
     sleep 2; two=$(hypr_mode "$first")
     if [ "$DISTRO" = arch ]; then
-        xwant "the first apply of a session lands on Hyprland 0.56.2 (until arch-hypr's first run \
-says whether a fresh 0.56.2 session takes keyword monitor)" "^1680x1050$" "$one"
-        xwant "the second apply of a session lands too on 0.56.2 (until the same run)" "^1280x1024$" "$two"
-        note "0.56.2 is the bracket, and the two lines above are the whole measurement: the wlr apply"
-        note "was dead from the first request of a fresh session [recon2/arch 3.4], while the only"
-        note "keyword monitor tried there came after five timed-out wlr applies -- the state 0.53.3"
-        note "stops taking it in too [recon2/hyprland 4].  The off/auto/right-of/below dance is not"
-        note "run until they answer: every step of it is an apply, and each would put a question about"
-        note "the compositor in the log as a failure of ours.  resolute-hypr runs the dance."
+        same "the first apply of a session lands on Hyprland 0.56.2" "1680x1050" "$one"
+        same "the second apply of a session lands too on 0.56.2" "1280x1024" "$two"
+        note "0.56.2 ANSWERED arch-hypr's question, 2026-09-11, and the answer is a session and not a"
+        note "version: one session stored hyprctl keyword monitor and applied none of it (three modes"
+        note "out of the head's own availableModes and a scale, all ok in 4 ms, all ignored, while"
+        note "keyword general:gaps_out 40 on it took effect [goal2/recon/flavors.md 3b]) and another"
+        note "the same day applied every one until, later in that session, it stopped.  So the two"
+        note "lines above went through whichever path wxrandr's own re-read picked -- the live keyword"
+        note "when it lands, the route-2 file when it does not.  The fallback was measured on its own"
+        note "(2026-09-11, on the session where the keyword was dead: xrandr: Hyprland accepted the"
+        note "live keyword monitor and did not apply it, so the layout went into"
+        note "~/.config/hypr/w11-monitors.conf and the config was reloaded -- rc 0, mode on the screen,"
+        note "and mode, position, scale, transform and disable all measured landing that way)."
+        note "Not route 6: no patched Hyprland.  The cost of that file is a config re-read, which"
+        note "resets every runtime hyprctl keyword: gaps_out 40/set:true read back 20/set:false after"
+        note "it, and the WRITE alone does it -- Hyprland watches the files it sources."
+        note "The off/auto/right-of/below dance stays resolute-hypr's: every step of it is an apply, and"
+        note "a reload-per-apply on three heads is a different measurement from the one this arm makes."
     else
         same "the FIRST apply of the session changes the mode, and hyprctl agrees" "1680x1050" "$one"
         same "the SECOND apply lands too (the wlr path wedged here at 10.06 s)" "1280x1024" "$two"
@@ -556,15 +575,20 @@ dsb guest -- or a different KMS device: qxl, bochs-display, virtio-gpu blob=on, 
         # it: rc 0 in 0.64 s, empty stderr, and the head exactly where it was (measured 2026-09-09,
         # Virtual-2 asked for 1920x1080 while sitting at 1280x1024, three times).  A silent success
         # that changed nothing is worse for a script than the timeout it replaced, and no rung of
-        # AGENTS.md's ladder is needed to fix it: `HyprOutputs._verify_applied` already re-reads what
-        # it applied and says "Hyprland accepted the mode ... and did not apply it", and wxrandr's wlr
-        # backend does not.  NOT YET, so it is an xwant naming that fix, asserted on the OUTPUT rather
-        # than on the mode -- the mode here would also be held down by the rig's grow limit above, and
-        # the claim is that the tool SAYS something, not that the rig can do it.
+        # AGENTS.md's ladder was needed to fix it: `WlrOutputs._verify_applied` now re-reads what it
+        # applied and says "the compositor accepted the mode ... and did not apply it", which is the
+        # sentence `HyprOutputs._first_mismatch` has always said on the other backend.  Asserted on the
+        # OUTPUT rather than on the mode -- the mode here is held down by the rig's grow limit above,
+        # and the claim is that the tool SAYS something, not that the rig can do it.
+        #
+        # Green here on 2026-09-11, on this flavor, in exactly that state: `xrandr: the compositor
+        # accepted the mode 1920x1080 for Virtual-2 and did not apply it (it reports 1280x1024)` with
+        # Virtual-2 at 1280x1024 (14 pass, 0 fail, resolute-hypr display phase).  arch-hypr cannot stand
+        # in for it: there the wlr path still times out at 10.17 s instead of answering, which is the
+        # 0.56.2 half of the paragraph at the top of this phase.
         local silent; silent=$(guest "wxrandr --backend wlr --output $first --mode 1920x1080 2>&1" || true)
         note "the wlr route after a keyword apply: [$(ev "$silent")], $first at $(hypr_mode "$first")"
-        xwant "a wlr apply that changed nothing does not answer success in silence (fix wxrandr's wlr \
-backend: re-read what was applied, the way HyprOutputs._verify_applied does)" "." "$silent"
+        want "a wlr apply that changed nothing does not answer success in silence" "." "$silent"
     fi
 }
 

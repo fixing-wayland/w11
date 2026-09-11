@@ -264,6 +264,27 @@ def _spawn(env, extra_argv=()) -> None:
         os._exit(code)
 
 
+def _seated_uid(env=None) -> int | None:
+    """The seated user's uid when this process is root and the graphical
+    session is somebody else's; None otherwise -- which is every caller that is
+    already inside the session, so nothing below this changes for them.
+
+    `passthrough.session_uid(e)` and not `SUDO_UID`: `ssh root@box` and a root
+    cron job have no SUDO_UID at all, and only logind knows whose session is on
+    the seat (w11common/passthrough.py:312, the same call `repair_x_env` makes
+    two lines further on). Root is the only caller that gets an answer here on
+    purpose: `sudo -u someone xdotool ...` runs AS someone with SUDO_UID naming
+    the invoker, and for that process "the seated user" is a guess, so it keeps
+    looking at its own runtime directory exactly as it did before.
+
+    uid 0 is folded back to None: root's own session is not a foreign one, and
+    /run/user/0 is then read the way it always was."""
+    if os.geteuid() != 0:
+        return None
+    uid = passthrough.session_uid(os.environ if env is None else env)
+    return None if uid in (None, 0) else uid
+
+
 def ensure_proxy(env=None, timeout=POLL_SECONDS, extra_argv=()) -> str | None:
     """The proxy's display (`":N"`), starting one if there is none.
 
@@ -284,11 +305,25 @@ def ensure_proxy(env=None, timeout=POLL_SECONDS, extra_argv=()) -> str | None:
     stops a flagged command from being answered with a proxy somebody else's
     flags started.
 
+    As root the lookup is the SEATED user's (`_seated_uid`) and the answer is
+    attach-or-nothing: root joins the proxy that user's session already has, and
+    starts none. A proxy spawned by root would live in root's own runtime
+    directory with no $WAYLAND_DISPLAY to connect to and nothing in the session
+    would ever find it -- so `ssh root@box wmctrl -l` attaches to the one :N the
+    desktop is already using, or the clone runs and says why under XW11_DEBUG
+    (goal2/recon/gaps.md §3d). `xw11 __serve` started by hand as root is
+    unaffected: it is `xw11/cli.py:serve`, not this function.
+
     Returns None when no proxy came up within `timeout`."""
     from xw11 import display as display_mod
-    got = display_mod.read_display()
+    uid = _seated_uid(env)
+    got = display_mod.read_display(uid=uid)
     if got:
         return got
+    if uid is not None:
+        _debug(env, "no proxy in uid %d's session to attach to, and root "
+                    "starts none of its own" % uid)
+        return None
     _spawn(spawn_env(env), extra_argv)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -299,7 +334,7 @@ def ensure_proxy(env=None, timeout=POLL_SECONDS, extra_argv=()) -> str | None:
     return None
 
 
-def proxy_xauthority() -> str | None:
+def proxy_xauthority(uid=None) -> str | None:
     """The file the proxy appended its own cookie to, or None when there was no
     cookie to append (sway starts Xwayland with no `-auth`: recon/env.md 2, and
     the empty auth is forwarded and accepted).
@@ -311,6 +346,13 @@ def proxy_xauthority() -> str | None:
     signature. The hook's `env` is what the CHILD is given; what the lookups
     read is this process, which is the same dict everywhere but a test.
 
+    `uid` is the one thing this process cannot read out of its own environment:
+    the seated user's, from `_seated_uid()`, None for every caller inside the
+    session. It moves both lookups under it into that user's session -- the
+    display file into their runtime directory and the cookie into their
+    $XAUTHORITY -- because as root the cookie in /root/.Xauthority authorises
+    nothing on the session's Xwayland (goal2/recon/gaps.md §3d).
+
     Not read out of the display file -- the file carries `:N <pid> <upstream>`
     and no second control protocol -- but recomputed from the upstream it names,
     by the same `find_cookie()` the proxy used, which answers with the file the
@@ -318,7 +360,7 @@ def proxy_xauthority() -> str | None:
     section 2.5)."""
     from wdotool import x11_mini
     from xw11 import display as display_mod
-    got = display_mod.read_display_file()
+    got = display_mod.read_display_file(uid=uid)
     if not got:
         return None
     _name, _pid, upstream = got
@@ -326,7 +368,7 @@ def proxy_xauthority() -> str | None:
         num, _screen = x11_mini._parse_display(upstream)
     except Exception:
         return None
-    path, cookie = display_mod.find_cookie(num)
+    path, cookie = display_mod.find_cookie(num, uid)
     return path if (path and cookie) else None
 
 
@@ -451,7 +493,7 @@ def maybe_exec_through_proxy(tool, args, *, entry=True, env=None):
     # everything else it fills in is wanted.
     child = passthrough.repair_x_env(dict(e))
     child["DISPLAY"] = display
-    auth = proxy_xauthority()
+    auth = proxy_xauthority(_seated_uid(e))
     if auth:
         child["XAUTHORITY"] = auth
     # exec_real() runs child_env() over this, which adds the handover guard

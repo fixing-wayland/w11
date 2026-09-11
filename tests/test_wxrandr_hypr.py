@@ -56,9 +56,15 @@ class _ApplyingHypr(support.FakeHypr):
     `deaf=True` answers `ok` and changes nothing -- Hyprland after its wlr-output-management path has wedged,
     measured three times in a row on one session [M recon2/hyprland.md §4]."""
 
-    def __init__(self, mode="ok", deaf=False, **kw):
+    def __init__(self, mode="ok", deaf=False, conf_dir=None, **kw):
         self.deaf = deaf
+        #: Hyprland's config directory as this double sees it: `reload` applies what the files
+        #: hyprland.conf sources say, which is the route-2 half of the backend.  None is a compositor
+        #: whose config this run cannot see, and its `reload` changes nothing -- exactly what a reload
+        #: does when hyprland.conf never learned to source our file.
+        self.conf_dir = conf_dir
         self.keywords = []
+        self.reloads = 0
         super().__init__(mode, **kw)
 
     def reply_for(self, req: str) -> bytes:
@@ -67,7 +73,40 @@ class _ApplyingHypr(support.FakeHypr):
             if not self.deaf:
                 self._apply(self.keywords[-1])
             return b"ok"
+        if req.strip() == "reload":
+            self.reloads += 1
+            for spec in self.sourced_rules():
+                self._apply(spec)
+            return b"ok"
         return super().reply_for(req)
+
+    def sourced_rules(self) -> list:
+        """Every `monitor =` argument in the files hyprland.conf sources, in config order.
+
+        The rule Hyprland keeps is the LAST matching one, which is why wxrandr appends its `source =` line
+        rather than putting it anywhere else, and why this double applies them in order."""
+        out = []
+        if not self.conf_dir:
+            return out
+        try:
+            with open(os.path.join(self.conf_dir, "hyprland.conf"), encoding="utf-8") as fh:
+                conf = fh.read()
+        except OSError:
+            return out
+        for line in conf.splitlines():
+            m = re.match(r"\s*source\s*=\s*(.+?)\s*$", line)
+            if not m:
+                continue
+            try:
+                with open(m.group(1), encoding="utf-8") as fh:
+                    body = fh.read()
+            except OSError:
+                continue
+            for rule in body.splitlines():
+                m2 = re.match(r"\s*monitor\s*=\s*(.+?)\s*$", rule)
+                if m2:
+                    out.append(m2.group(1))
+        return out
 
     def _rows_key(self) -> str:
         """Whichever key this double is serving its monitor rows out of.  `support.FakeHypr` answers
@@ -436,29 +475,44 @@ class Apply(Base):
         self.assertEqual(code, 0)
         self.assertEqual(srv.keywords, [])
 
+    def deaf(self):
+        """A Hyprland deaf to `keyword monitor` AND with no config this run can reach, so the route-2
+        reload below it changes nothing either: what is left is the refusal, which is what these three
+        assert.  `XDG_CONFIG_HOME` is a directory of this test's own -- the fallback writes a file, and
+        the one place it may never write is the config of whoever is running the suite."""
+        self.conf_root = tempfile.mkdtemp(prefix="wxr-hypr-cfg-")
+        self.addCleanup(shutil.rmtree, self.conf_root, ignore_errors=True)
+        return self.plant(self.hypr(deaf=True))
+
     def test_a_compositor_that_says_ok_and_does_nothing_is_one_line(self):
         """The measured post-wedge Hyprland: `hyprctl keyword monitor` accepted with `ok` and no change,
-        three times in a row on one session [M recon2/hyprland.md §4]. Trusting the `ok` would report a
-        layout that is not on the screen."""
-        self.plant(self.hypr(deaf=True))
-        code, _out, err = self.run_cli("--output", "Virtual-1", "--mode", "1280x1024")
+        three times in a row on one session [M recon2/hyprland.md §4], and every apply of a fresh 0.56.2
+        session [M goal2/recon/flavors.md 3b]. Trusting the `ok` would report a layout that is not on the
+        screen; the route-2 reload is tried first and this is what is left when that lands nothing."""
+        self.deaf()
+        code, _out, err = self.run_cli("--output", "Virtual-1", "--mode", "1280x1024",
+                                       XDG_CONFIG_HOME=self.conf_root)
         self.assertEqual(code, 1)
-        self.assertEqual(err, "xrandr: Hyprland accepted the mode 1280x1024 for Virtual-1 and did not "
-                              "apply it (it reports 1920x1080)\n")
+        self.assertEqual(err.splitlines()[-1],
+                         "xrandr: Hyprland accepted the mode 1280x1024 for Virtual-1 and did not "
+                         "apply it (it reports 1920x1080)")
 
     def test_a_position_that_does_not_move_is_one_line(self):
-        self.plant(self.hypr(deaf=True))
-        code, _out, err = self.run_cli("--output", "HEADLESS-2", "--pos", "3000x0")
+        self.deaf()
+        code, _out, err = self.run_cli("--output", "HEADLESS-2", "--pos", "3000x0",
+                                       XDG_CONFIG_HOME=self.conf_root)
         self.assertEqual(code, 1)
-        self.assertEqual(err, "xrandr: Hyprland accepted the position 3000x0 for HEADLESS-2 and did not "
-                              "apply it (it reports 1920x0)\n")
+        self.assertEqual(err.splitlines()[-1],
+                         "xrandr: Hyprland accepted the position 3000x0 for HEADLESS-2 and did not "
+                         "apply it (it reports 1920x0)")
 
     def test_an_output_that_will_not_go_off_is_one_line(self):
-        self.plant(self.hypr(deaf=True))
-        code, _out, err = self.run_cli("--output", "HEADLESS-2", "--off")
+        self.deaf()
+        code, _out, err = self.run_cli("--output", "HEADLESS-2", "--off",
+                                       XDG_CONFIG_HOME=self.conf_root)
         self.assertEqual(code, 1)
-        self.assertEqual(err, "xrandr: Hyprland accepted HEADLESS-2 off and did not apply it "
-                              "(it is still on)\n")
+        self.assertEqual(err.splitlines()[-1],
+                         "xrandr: Hyprland accepted HEADLESS-2 off and did not apply it (it is still on)")
 
     def test_a_refused_keyword_is_hyprlands_own_words(self):
         srv = self.plant(self.hypr(payloads={}))
@@ -467,20 +521,203 @@ class Apply(Base):
         code, _out, err = self.run_cli("--output", "Virtual-1", "--mode", "1280x1024")
         self.assertEqual((code, err), (1, "xrandr: hypr: Invalid keyword\n"))
 
-    def test_persistent_is_said_once_and_the_layout_still_applies(self):
-        """Hyprland's layout lives in hyprland.conf. The note says so, and -- because `--persistent` is a
-        flag a user asked for and did not get -- what writing it would take and what that would cost."""
-        srv = self.plant()
-        code, _out, err = self.run_cli("--persistent", "--output", "Virtual-1", "--mode", "1280x1024")
-        self.assertEqual(code, 0)
-        # the literal sentence, not hypr.PERSIST_NOTE: reading the note back out of the module under test
-        # would pass whatever it said, and this one is what the WXRANDR.md row promises
-        self.assertEqual(err, "xrandr: --persistent: Hyprland keeps its layout in hyprland.conf; saving "
-                              "there is not done yet -- the route is a `monitor=` line in a snippet that "
-                              "file sources (AGENTS.md route 2), at the cost of owning a file the user "
-                              "hand-edits; this layout lasts as long as the session\n")
-        self.assertEqual(srv.keywords, ["Virtual-1,1280x1024@60.02,0x0,1"])
+    def test_persistent_writes_the_file_where_the_live_keyword_landed(self):
+        """`--persistent` on a session whose `keyword monitor` DOES apply (0.53.3, and the fast path
+        everywhere): the layout is already on the screen, so the rule goes into the file for the next
+        session and no `reload` request is sent.
 
+        No request is not no reload, and the line this run prints says so: Hyprland watches the files it
+        sources, so the write is one.  Measured on the arch-hypr golden (0.56.2, 2026-09-11): a bare
+        rewrite of the sourced file with no `hyprctl reload` anywhere applied the new mode and put
+        `general:gaps_out` from `40 40 40 40, set: true` back to `20 20 20 20, set: false`, and appending a
+        line to hyprland.conf -- which is exactly what the first `--persistent` run does -- did the same."""
+        root = tempfile.mkdtemp(prefix="wxr-hypr-cfg-")
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        conf = os.path.join(root, "hypr")
+        os.makedirs(conf)
+        with open(os.path.join(conf, "hyprland.conf"), "w", encoding="utf-8") as fh:
+            fh.write("monitor = Virtual-1,preferred,0x0,1\n")
+        srv = self.plant(self.hypr(conf_dir=conf))
+        code, _out, err = self.run_cli("--persistent", "--output", "Virtual-1", "--mode", "1280x1024",
+                                       XDG_CONFIG_HOME=root)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(srv.keywords, ["Virtual-1,1280x1024@60.02,0x0,1"])
+        self.assertEqual(srv.reloads, 0)
+        with open(os.path.join(conf, "w11-monitors.conf"), encoding="utf-8") as fh:
+            rules = [ln for ln in fh.read().splitlines() if ln.startswith("monitor =")]
+        self.assertEqual(rules, ["monitor = Virtual-1,1280x1024@60.02,0x0,1"])
+        rules_path = os.path.join(conf, "w11-monitors.conf")
+        self.assertEqual(err.splitlines(), [
+            "xrandr: added a `source = %s` line to %s" % (rules_path, os.path.join(conf, "hyprland.conf")),
+            "xrandr: --persistent: the layout is in %s for the next session too, and writing that file is "
+            "itself a reload, no `hyprctl reload` needed (the whole config is re-read: runtime "
+            "`hyprctl keyword`s set since login are reset)" % rules_path,
+        ])
+
+class RouteTwo(Base):
+    """The apply a fresh Hyprland 0.56.2 needs: the rules in a file hyprland.conf sources, and `reload`.
+
+    Measured on the arch-hypr golden (Hyprland 0.56.2, 2026-09-11): `hyprctl keyword monitor` answered `ok`
+    in 4 ms to three modes out of the head's own `availableModes` and to a scale, and changed NOTHING, while
+    the same rules written into a `source =`d file plus `hyprctl reload` applied mode, scale, transform and
+    disable -- all four [M goal2/recon/flavors.md 3b].  `_ApplyingHypr(deaf=True, conf_dir=...)` is that
+    compositor: deaf to the keyword, obedient to the reload.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="wxr-hypr-cfg-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.conf = os.path.join(self.root, "hypr")
+        os.makedirs(self.conf)
+        self.hyprconf = os.path.join(self.conf, "hyprland.conf")
+        self.rules = os.path.join(self.conf, "w11-monitors.conf")
+        # the rig's own config, which is what an appended `source =` has to come after: those four lines
+        # are vm/build-image.sh's desktop_hypr, byte for byte
+        with open(self.hyprconf, "w", encoding="utf-8") as fh:
+            fh.write("monitor = , preferred, auto, 1\nmonitor = Virtual-1,preferred,0x0,1\n")
+
+    def deafsrv(self):
+        return self.plant(self.hypr(deaf=True, conf_dir=self.conf))
+
+    def cli(self, *argv):
+        return self.run_cli(*argv, XDG_CONFIG_HOME=self.root)
+
+    def rule_lines(self) -> list:
+        with open(self.rules, encoding="utf-8") as fh:
+            return [ln for ln in fh.read().splitlines() if ln.startswith("monitor =")]
+
+    def source_lines(self) -> list:
+        with open(self.hyprconf, encoding="utf-8") as fh:
+            return [ln for ln in fh.read().splitlines() if ln.startswith("source =")]
+
+    def test_a_keyword_that_did_nothing_is_followed_by_the_file_and_a_reload(self):
+        srv = self.deafsrv()
+        code, _out, err = self.cli("--output", "Virtual-1", "--mode", "1280x1024")
+        self.assertEqual(code, 0, err)
+        # the fast path was tried first and once: the file is the fallback, not the route
+        self.assertEqual(srv.keywords, ["Virtual-1,1280x1024@60.02,0x0,1"])
+        self.assertEqual(srv.reloads, 1)
+        # and the mode really landed, through the reload's reading of the sourced file
+        self.assertEqual(srv.payloads["monitors"][0]["width"], 1280)
+        self.assertIn("xrandr: Hyprland accepted the live `keyword monitor` and did not apply it", err)
+        self.assertIn(self.rules, err)
+
+    def test_the_source_line_is_appended_after_the_config_and_only_once(self):
+        self.deafsrv()
+        self.assertEqual((self.cli("--output", "Virtual-1", "--mode", "1280x1024"))[0], 0)
+        self.assertEqual(self.source_lines(), ["source = %s" % self.rules])
+        with open(self.hyprconf, encoding="utf-8") as fh:
+            body = fh.read()
+        # after the rig's own rules, because Hyprland keeps the LAST matching one
+        self.assertLess(body.index("monitor = Virtual-1,preferred,0x0,1"), body.index("source ="))
+        code, _out, err = self.cli("--output", "Virtual-1", "--mode", "1680x1050")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.source_lines(), ["source = %s" % self.rules])
+
+    def test_a_run_without_persistent_keeps_the_rule_and_says_why(self):
+        """The plan said a non-persistent apply takes its own line out again.  The measurement said
+        otherwise and the measurement wins: Hyprland watches the files it sources, so on the arch-hypr
+        golden (0.56.2, 2026-09-11) the rule applied on the WRITE, before `hyprctl reload` was sent, and
+        writing the file back empty put Virtual-1 from 1024x768 to 1920x1080 again before the next read --
+        removing the rule IS an apply.  So the rule stays, the layout stays with it, and the run says what
+        to delete."""
+        srv = self.deafsrv()
+        code, _out, err = self.cli("--output", "Virtual-1", "--mode", "1280x1024")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.rule_lines(), ["monitor = Virtual-1,1280x1024@60.02,0x0,1"])
+        self.assertEqual(srv.payloads["monitors"][0]["width"], 1280)
+        self.assertIn("those rules stay in %s, with or without --persistent" % self.rules, err)
+        self.assertIn("Delete that file, or the `source =` line hyprland.conf carries for it", err)
+
+    def test_persistent_does_not_repeat_what_the_run_already_had_to_do(self):
+        """The same apply with the flag: the same file, the same rule -- and no line telling the user the
+        rules stayed, because staying is what was asked for."""
+        self.deafsrv()
+        code, _out, err = self.cli("--persistent", "--output", "Virtual-1", "--mode", "1280x1024")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.rule_lines(), ["monitor = Virtual-1,1280x1024@60.02,0x0,1"])
+        self.assertNotIn("with or without --persistent", err)
+
+    def test_persistent_keeps_the_rule_in_the_file(self):
+        srv = self.deafsrv()
+        code, _out, err = self.cli("--persistent", "--output", "Virtual-1", "--mode", "1280x1024")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.rule_lines(), ["monitor = Virtual-1,1280x1024@60.02,0x0,1"])
+        self.assertEqual(srv.reloads, 1)
+
+    def test_a_second_output_does_not_take_the_first_ones_rule_with_it(self):
+        """Two `--persistent` runs, one output each: the file is merged, not replaced."""
+        self.deafsrv()
+        self.assertEqual((self.cli("--persistent", "--output", "Virtual-1", "--mode", "1280x1024"))[0], 0)
+        self.assertEqual((self.cli("--persistent", "--output", "HEADLESS-2", "--pos", "3000x0"))[0], 0)
+        self.assertEqual(self.rule_lines(), ["monitor = Virtual-1,1280x1024@60.02,0x0,1",
+                                             "monitor = HEADLESS-2,1920x1080@0.06,3000x0,2"])
+
+    def test_a_failed_route_two_apply_leaves_no_rule_behind(self):
+        """The reload landed nothing (this compositor's config is not the one this run can see), so the
+        refusal is printed -- and the rule a non-persistent run wrote is still taken out, in the `finally`,
+        so the next session does not come up in a layout that never worked."""
+        srv = self.plant(self.hypr(deaf=True, conf_dir=None))
+        code, _out, err = self.cli("--output", "Virtual-1", "--mode", "1280x1024")
+        self.assertEqual(code, 1)
+        self.assertEqual(srv.reloads, 1)
+        self.assertEqual(self.rule_lines(), [])
+        self.assertEqual(err.splitlines()[-1],
+                         "xrandr: Hyprland accepted the mode 1280x1024 for Virtual-1 and did not "
+                         "apply it (it reports 1920x1080)")
+
+    def test_a_config_that_is_not_there_is_not_created(self):
+        """A hyprland.conf written by this tool would BE the next session's whole config -- Hyprland's own
+        default file carries the keybinds -- so the one that is missing is named in a line instead."""
+        os.unlink(self.hyprconf)
+        self.plant(self.hypr(deaf=True, conf_dir=self.conf))
+        code, _out, err = self.cli("--output", "Virtual-1", "--mode", "1280x1024")
+        self.assertEqual(code, 1)
+        self.assertFalse(os.path.exists(self.hyprconf))
+        self.assertIn("there is no %s to source the rules from" % self.hyprconf, err)
+        self.assertIn("add `source = %s` to the config this session started with" % self.rules, err)
+
+    def test_no_reload_is_sent_when_nothing_sources_our_file(self):
+        """The reload is not free -- `hyprctl keyword general:gaps_out 40` read back `40 40 40 40,
+        set: true` and was `20 20 20 20, set: false` after one [M arch-hypr golden, 0.56.2, 2026-09-11] --
+        so a config that does not mention our file does not get one sent: it would pay the whole cost of a
+        reload for none of its effect.  And nothing claims a reload that was not sent."""
+        os.unlink(self.hyprconf)
+        srv = self.plant(self.hypr(deaf=True, conf_dir=self.conf))
+        code, _out, err = self.cli("--output", "Virtual-1", "--mode", "1280x1024")
+        self.assertEqual(code, 1)
+        self.assertEqual(srv.reloads, 0)
+        self.assertNotIn("the config was reloaded", err)
+
+    def test_the_reloaded_line_is_not_printed_by_a_route_two_apply_that_failed(self):
+        """`WROTE_CONF_NOTE` says the layout went into the file and the config was reloaded.  Printed
+        before the reload it claimed both while neither had happened yet -- and the `finally` below takes
+        the rule back out, so after a failure neither is true at all."""
+        srv = self.plant(self.hypr(deaf=True, conf_dir=None))
+        code, _out, err = self.cli("--output", "Virtual-1", "--mode", "1280x1024")
+        self.assertEqual(code, 1)
+        self.assertEqual(srv.reloads, 1)
+        self.assertNotIn("the config was reloaded", err)
+        self.assertNotIn("those rules stay in", err)
+
+    def test_a_failed_apply_leaves_an_earlier_runs_rule_for_the_same_output_alone(self):
+        """The rollback is the file as it was, not a pop of the names this run touched.
+
+        A `--persistent` run had put Virtual-1 at 1280x1024 in the file and that layout is what the next
+        login reads; a later run for the SAME output that does not land must not take it away with its own.
+        Popping by name did exactly that -- one failed `--mode 1680x1050` and the persisted 1280x1024 was
+        gone from a file nobody had asked to change."""
+        self.deafsrv()
+        self.assertEqual((self.cli("--persistent", "--output", "Virtual-1", "--mode", "1280x1024"))[0], 0)
+        self.assertEqual(self.rule_lines(), ["monitor = Virtual-1,1280x1024@60.02,0x0,1"])
+        # a compositor whose config this run cannot see: the reload lands nothing and the apply fails
+        self.plant(self.hypr(deaf=True, conf_dir=None))
+        code, _out, err = self.cli("--output", "Virtual-1", "--mode", "1680x1050")
+        self.assertEqual(code, 1, err)
+        self.assertEqual(self.rule_lines(), ["monitor = Virtual-1,1280x1024@60.02,0x0,1"])
+
+
+class Dryrun(Base):
     def test_the_dryrun_backend_hook_sends_nothing_at_all(self):
         out = self.outputs()
         self.assertIsNone(out.verify(self.state(), []))

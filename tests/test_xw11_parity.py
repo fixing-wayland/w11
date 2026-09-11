@@ -444,29 +444,32 @@ class NativeParity(unittest.TestCase):
             self.assertEqual(self.tokenise(got.stdout),
                              self.tokenise(mine.stdout), flag)
 
-    def test_wmctrl_d_agrees_except_in_the_viewport_column(self):
-        """Row 36, measured and pinned AS FOUND.
+    def test_wmctrl_d_agrees_except_in_the_workarea_column(self):
+        """Row 36, measured.
 
         `DG:` is `display_size()` on both sides -- the clone prints it from
         `wwmctl/core.py:780` and the proxy publishes `_NET_DESKTOP_GEOMETRY`
         from the same call, which is why that name is in the root set at all.
-        The other two columns are where the two routes honestly differ, and
-        both differences are the clone's own rule meeting an EWMH reader:
 
-        * `VP:` -- `wwmctl/core.py:828` prints `0,0` for the CURRENT desktop
-          and `N/A` for the rest when no `_NET_DESKTOP_VIEWPORT` is published;
-          real wmctrl reads that property, the proxy publishes none (no Wayland
-          compositor implements viewports), so it prints `N/A` for every row
-          including the current one.
-        * `WA:` -- both print `N/A`; the proxy publishes no `_NET_WORKAREA` and
-          `wwmctl/core.py:800` prints `N/A` for the workarea too.
+        * `VP:` AGREES, and the agreement is a property: the proxy publishes
+          `_NET_DESKTOP_VIEWPORT` as one `0,0` pair per desktop
+          (xw11/shadow.py:root_props) so real wmctrl's `[2i]` indexing prints
+          `0,0` on every row, and `wwmctl/core.py:803` prints `0,0` on every
+          row when there is nothing to read -- both are what an X WM with
+          viewports prints [M 2026-09-11, this box, headless sway with two
+          workspaces; before the property existed the original printed
+          `VP: N/A` on every row against the clone's `0,0` on the current one].
+        * `WA:` is the one column that still differs from what X would print
+          on both routes at once: both print `N/A`, because nobody publishes
+          `_NET_WORKAREA` and `wwmctl/core.py:800` has no workarea to print.
+          Not yet: one more root property off the usable area the backend can
+          name (rung 2 on sway, `get_workspaces`/`get_outputs` over the IPC
+          socket the registry already holds, minus the layer-shell exclusive
+          zones). A gap in our work, not a policy.
         The NAME column AGREES, and measured rather than assumed: the proxy
         publishes `_NET_DESKTOP_NAMES` wherever the backend has a
         `workspaces()`, and `backend_sway.py:441` has one -- both routes print
         sway's workspace name (`1`) [M 2026-09-10, this rig].
-
-        Closing the `VP:` gap is one root property (`_NET_DESKTOP_VIEWPORT` as
-        `[0, 0]` per desktop) and it is a row in the docs, not a policy.
         """
         got, mine = self.parity(["wmctrl", "-d"], "wwmctl")
         self.assertEqual(got.returncode, 0, got.stderr)
@@ -477,11 +480,11 @@ class NativeParity(unittest.TestCase):
         size = json.loads(self.swaymsg("", kind="get_outputs").stdout)[0]["rect"]
         for line in original:
             self.assertIn("DG: %dx%d" % (size["width"], size["height"]), line)
-            self.assertIn("VP: N/A", line)
+            self.assertIn("VP: 0,0", line)
             self.assertIn("WA: N/A", line)
         for line in clone:
             self.assertIn("DG: %dx%d" % (size["width"], size["height"]), line)
-        self.assertIn("VP: 0,0", clone[0])
+            self.assertIn("VP: 0,0", line)
         self.assertEqual(original[0].split()[:2], clone[0].split()[:2])
         spaces = json.loads(self.swaymsg("", kind="get_workspaces").stdout)
         self.assertEqual(len(original), len(spaces), "one row per workspace")

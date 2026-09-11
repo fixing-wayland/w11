@@ -21,21 +21,30 @@ What the protocol does not carry, and what this backend therefore says instead o
   hint) and nothing else, so those four refuse per command, name the protocol, and say what would close the
   gap: a patched cosmic-comp, AGENTS.md route 6. Every refusal in this file carries that second half.
 * **No numeric id.** `identifier` is 32 base62 characters, so ids are minted from it
-  (`backend.mint_id`): 30 bits of blake2b under 0x40000000, stable across processes for the life of the
-  window and out of Xwayland's id range, unlike the wlr floor's arrival order.
-* **Geometry, sometimes.** The `geometry` event never arrived in the nested rig -- not in 4 s and not after a
-  maximize -- because cosmic-comp sends it only alongside `output_enter` or on a change [M cosmic.md §4,
-  R `toplevel_info.rs`: `(outputs_changed || geometry_changed)`]. Without it the listing falls back to the
-  output rectangle, the way the wlr floor does, and sets `geometry_is_floor` rather than printing anything:
-  `list()` runs on every window command, so a warning there is a warning on all of them."""
+  (`backend.mint_id`): `ID_BASE | 30 bits of blake2b`, i.e. at or ABOVE 0x40000000 and therefore above every
+  id Xwayland gives its own clients ((client << 21) | serial), stable across processes for the life of the
+  window, unlike the wlr floor's arrival order. This paragraph said "under 0x40000000" until 2026-09-11 and
+  vm/live-smoke.d/cosmic.sh:120 checked for that, which failed on every correctly minted id
+  [M goal2/recon/flavors.md §5: 1081277706 = 0x40730C0A].
+* **Geometry, on a compositor that is asked to wait for it.** cosmic-comp sends `geometry` alongside
+  `output_enter` or on a change [R `toplevel_info.rs`: `(outputs_changed || geometry_changed)`], out of the
+  same rate-limited refresh as `state` (STATE_WAIT below). It never arrived in the nested rig, in 4 s or
+  after a maximize [M cosmic.md §4] -- and on the fedora44-cosmic golden it arrives with the first state
+  array, 152 ms in, which is why `wdotool getwindowgeometry` reads a real rectangle there
+  (`762,201 696x532` [M vm/live-smoke.out/fedora44-cosmic-20260911-213252.log]) instead of the head's
+  mode. Where it still does not come the
+  listing falls back to the output rectangle, the way the wlr floor does, and sets `geometry_is_floor`
+  rather than printing anything: `list()` runs on every window command, so a warning there is a warning on
+  all of them."""
 
 import struct
+import time
 
 from w11common import session
 from w11common.errors import CmdError
 from w11common.wayland_mini import WlConn
 from wdotool import ext_workspace
-from wdotool.backend import Window, WindowBackend, mint_map
+from wdotool.backend import Window, WindowBackend, Workspace, mint_map
 from wdotool.backend_wlr import XPlaneViews
 
 EXT_LIST = "ext_foreign_toplevel_list_v1"
@@ -108,6 +117,37 @@ OLD_MANAGER = ("this cosmic-comp's %s is version %d and %s arrived in version %d
                "route is that version of the protocol it already speaks (AGENTS.md route 1), which "
                "costs a newer cosmic-comp and no code of ours")
 
+#: `ext_workspace_handle_v1.activate` and `ext_workspace_manager_v1.commit` -- the pair
+#: `ext_workspace.WorkspaceClient.activate` sends.  Re-sent here because the desktop NUMBER this backend
+#: hands out is not the index that client counts in; see `_ws_rows`.
+_WS_ACTIVATE, _WS_COMMIT = 1, 0
+
+#: How long a fresh connection waits for the first `state` array of every toplevel it attached to.
+#:
+#: cosmic-comp does NOT answer `get_cosmic_toplevel` with the window's info: the handle is created in the
+#: request arm and stays empty
+#: [R recon2/cosmic/src-cosmic-comp/src/wayland/protocols/toplevel_info.rs:186-215], and everything about
+#: it -- `state` first of all -- is sent by `ToplevelInfoState::refresh`, which runs from
+#: the event loop's post-dispatch callback [R src/lib.rs:210]. That callback is RATE LIMITED: `fn refresh` at
+#: src/lib.rs:340-367 returns without sending anything when the last refresh was under 150 ms ago and arms a
+#: 150 ms timer instead. A `wl_display.sync` is answered by the dispatch itself, so a roundtrip can come back
+#: -- twice -- before the compositor has said a word about state, and the client then reads every window as
+#: unfocused and unmaximized. That is exactly what CI measured on fedora44-cosmic (cosmic-comp 1.6.0):
+#: `getactivewindow` -> `xdo_get_active_window reported an error` and `wxprop -id _NET_WM_STATE` empty right
+#: after a maximize [M goal2/recon/flavors.md §5, goal2/ci/rig-fedora44-cosmic.log].
+#:
+#: So the connection waits for the events instead of assuming them, and the wait ends the moment the last
+#: handle has its array. Measured on the live fedora44-cosmic golden (cosmic-comp 1.8.0-1.fc44 -- the
+#: golden was rebuilt on 2026-09-11 and carries a build NEWER than arch-cosmic's 1.7.0, `rpm -q` in the
+#: transcript; the flavor's own header still says the 1.6.0-3.fc44 it was written at), 2026-09-11: the
+#: roundtrip after `get_cosmic_toplevel` came back in 0.1 ms with nothing, and every `state` array landed
+#: 152.1 ms after the request -- the 150 ms window, once; 153.2, 151.9 and 152.8 ms on three re-runs (the
+#: probe and its transcript: goal2/recon/cosmic-state-probe.py and cosmic-state-probe.txt, and what the
+#: wait costs a command on that session: 0.15-0.30 s per tool, same file). 500 ms is three of them, the
+#: margin for a compositor under load; a handle that never answers is given up on ONCE -- `_Top.waited`,
+#: below -- so the budget is paid per silent handle and not per listing, and the window is still listed.
+STATE_WAIT = 0.5
+
 #: What the desktop commands say when the session publishes no workspace global. cosmic-comp does publish
 #: one; this is the line for a build or a session that does not [M recon2/cosmic.md §3].
 NO_WORKSPACES = ("this session publishes no ext_workspace_manager_v1; not yet here, and the route is that "
@@ -116,7 +156,7 @@ NO_WORKSPACES = ("this session publishes no ext_workspace_manager_v1; not yet he
 
 
 class _Top:
-    __slots__ = ("ext", "cosmic", "identifier", "title", "app_id", "states",
+    __slots__ = ("ext", "cosmic", "identifier", "title", "app_id", "states", "have_state", "waited",
                  "geometry", "workspace", "closed")
 
     def __init__(self, ext):
@@ -126,6 +166,12 @@ class _Top:
         self.title = ""
         self.app_id = ""
         self.states: set[int] = set()
+        #: False until a `state` event has arrived for this handle at all -- which is not the same as an
+        #: empty array, and is what `_await_state` waits on
+        self.have_state = False
+        #: set when a `_await_state` deadline passed with this handle still silent: the budget is spent
+        #: once per handle, not once per listing (STATE_WAIT's paragraph)
+        self.waited = False
         self.geometry = None        # (x, y, w, h) once a geometry event arrives
         self.workspace = None       # workspace handle oid from workspace_enter
         self.closed = False
@@ -211,7 +257,8 @@ class CosmicBackend(XPlaneViews, WindowBackend):
 
         self._pump()   # the toplevel announcements and their ext events
         self._attach()  # one get_cosmic_toplevel per handle
-        self._pump()   # state / geometry / workspace for each
+        self._pump()   # state / geometry / workspace for each, when the compositor is quick
+        self._await_state()   # ...and the wait for them when it is not (STATE_WAIT)
 
     def _close_own(self):
         if self._own_conn:
@@ -246,6 +293,7 @@ class CosmicBackend(XPlaneViews, WindowBackend):
         if op == _CH_EV_STATE:
             arr = cur.array()
             rec.states = set(struct.unpack("<%dI" % (len(arr) // 4), arr[:len(arr) // 4 * 4]))
+            rec.have_state = True
         elif op == _CH_EV_GEOMETRY:
             cur.u32()   # output
             rec.geometry = (cur.i32(), cur.i32(), cur.i32(), cur.i32())
@@ -301,10 +349,50 @@ class CosmicBackend(XPlaneViews, WindowBackend):
             self.by_cosmic[new_id] = rec
             self.c.on(new_id, lambda o, c, f, r=rec: self._on_cosmic(r, o, c))
 
+    def _await_state(self):
+        """Read until every attached handle has had a `state` event, or `STATE_WAIT` runs out ON IT.
+
+        The wait is the whole reason `have_state` exists: an empty array is an answer (a window that is
+        neither maximized nor activated) and no array at all is silence from a compositor whose refresh is
+        still 150 ms away (see STATE_WAIT). Without this a `wdotool getactivewindow` on an idle COSMIC
+        session read every window as unfocused and answered `xdo_get_active_window reported an error`.
+
+        The budget is spent per HANDLE and not per call. A `get_cosmic_toplevel` whose
+        `ext_foreign_toplevel_handle_v1` cosmic-comp could not resolve gets an EMPTY handle state and no
+        events at all [R protocols/toplevel_info.rs:213-219]; `_refresh` runs on every `list()` and every
+        `window*` command, so waiting the full STATE_WAIT for that handle again each time would put 0.5 s
+        on every listing of that session and 0.5 s on every poll of a `--sync` loop (measured over
+        NeverRefresh in tests/test_backend_cosmic.py: 0.504 s, then 0.501 s, then 0.501 s, before the
+        give-up flag). So a deadline that passes marks the still-silent handles `waited` and later calls
+        skip them; a `state` that turns up afterwards still lands through `_on_cosmic`, and a handle
+        attached later -- a window that opened since -- has its own first wait.
+
+        Returns True when every handle answered, False when some handle has been given up on: not an
+        error, a listing that gave up on one handle is still a listing, with that window's states left at
+        the empty set it started with."""
+        deadline = time.monotonic() + STATE_WAIT
+        while True:
+            silent = [r for r in self.tops.values()
+                      if r.cosmic is not None and not r.closed and not r.have_state]
+            if not silent:
+                return True
+            if all(r.waited for r in silent):
+                return False
+            left = deadline - time.monotonic()
+            if left <= 0:
+                for r in silent:
+                    r.waited = True
+                return False
+            try:
+                self.c.dispatch(timeout=left)
+            except (OSError, RuntimeError, struct.error) as e:
+                raise CmdError("cosmic backend: %s" % e) from None
+
     def _refresh(self):
         self._pump()
         self._attach()
         self._pump()
+        self._await_state()
 
     def _ids(self) -> "dict[int, int]":
         """{ext handle oid: window id}, minted from `identifier` in arrival order.
@@ -392,18 +480,44 @@ class CosmicBackend(XPlaneViews, WindowBackend):
             ))
         return wins
 
+    def _ws_rows(self) -> list:
+        """The live workspace records in DESKTOP order: every group's workspaces contiguous, coordinates
+        within the group, announcement order between groups.
+
+        cosmic-comp publishes one `ext_workspace_group_handle_v1` PER OUTPUT, each with its own workspaces
+        and its own active one. Measured on the fedora44-cosmic golden with two heads, 2026-09-11: three
+        workspaces, `1` (coordinates [1]) and `2` ([2]) in group 4278190084 and `1` ([1]) in group
+        4278190087, with BOTH ones active -- one per head. `WorkspaceClient._live()` sorts by
+        `(coordinates, arrival)` alone, which interleaves the groups into `1, 1, 2`: desktop 1 was then the
+        other head's already-active workspace, `wdotool set_desktop 1` activated a workspace that was
+        already active, nothing moved, and `get_desktop` answered 0 -- the CI failure
+        [M goal2/recon/flavors.md §5, goal2/ci/rig-fedora44-cosmic.log]. Grouping first makes desktop 1 the
+        first head's second workspace, which is the switch X's `wmctrl -s 1` makes.
+
+        The ordering belongs in `ext_workspace.WorkspaceClient` itself, where labwc and Budgie (one group
+        each, so nothing there changes) would inherit it; that file is another batch's this wave, so the
+        request is filed (goal2/requests-batch-5.md) and this is the COSMIC-local order until it lands."""
+        if self.ws is None:
+            return []
+        rows = [r for r in self.ws.workspaces.values() if not r.removed]
+        first = {}
+        for r in rows:
+            first.setdefault(r.group, r.arrival)
+        rows.sort(key=lambda r: (first.get(r.group, r.arrival), r.coords, r.arrival))
+        return rows
+
     def _ws_handles(self) -> "list[int]":
         """The `ext_workspace_handle_v1` oids in desktop-number order, or [].
 
-        `WorkspaceClient.handles()` is the public accessor (landed 2026-09-09; this used to reach through to
-        `_live()` with the request filed beside it).  The oid is what this backend needs and the public
-        `backend.Workspace` deliberately does not carry: `workspace_enter` names a workspace by oid, and
-        `move_to_ext_workspace` takes one."""
-        return [] if self.ws is None else self.ws.handles()
+        The oid is what this backend needs and the public `backend.Workspace` deliberately does not carry:
+        `workspace_enter` names a workspace by oid, and `move_to_ext_workspace` takes one."""
+        return [r.oid for r in self._ws_rows()]
 
     def _active_workspaces(self) -> "set[int]":
-        """The handle oids of the workspaces that say they are active; empty when none does."""
-        return set() if self.ws is None else self.ws.active_handles()
+        """The handle oids of the workspaces that say they are active; empty when none does.
+
+        A set and not an index: with one group per output, several workspaces are on screen at once."""
+        return {r.oid for r in self._ws_rows() if r.state & ext_workspace.STATE_ACTIVE}
 
     def _desktop_of(self, rec: _Top) -> int:
         if rec.workspace is None:
@@ -488,30 +602,79 @@ class CosmicBackend(XPlaneViews, WindowBackend):
     # -- desktops -------------------------------------------------------------
 
     def get_desktop(self) -> int:
+        """The first active workspace in `_ws_rows()` order, or -1.
+
+        The first and not the only one: with a group per output, every head's current workspace says it is
+        active, and wwmctl/core.py takes the first active row as the current desktop and prints `*` on each
+        (backend_hypr's `_active_workspace_id` carries the same sentence for Hyprland's per-monitor
+        workspaces)."""
         if self.ws is None:
             self._not_yet("get_desktop", NO_WORKSPACES)
         self._pump()
-        return self.ws.active_index()
+        for i, r in enumerate(self._ws_rows()):
+            if r.state & ext_workspace.STATE_ACTIVE:
+                return i
+        return -1
 
     def set_desktop(self, n: int):
+        """`activate` on desktop `n`'s own handle, then the manager's `commit`.
+
+        ext-workspace is double-buffered: `activate` alone changes nothing and `commit` applies the batch
+        [M recon2/labwc.md §6a]. The pair is sent here rather than through `WorkspaceClient.activate`
+        because that counts in its own index (see `_ws_rows`), and the activate is pumped twice: once to put
+        the requests on the wire, once to read the `state` the compositor sends back, which is up to 150 ms
+        later (STATE_WAIT's paragraph)."""
         if self.ws is None:
             self._not_yet("set_desktop", NO_WORKSPACES)
         self._pump()
-        if not self.ws.activate(n):
+        rows = self._ws_rows()
+        if not 0 <= n < len(rows):
             raise CmdError("cosmic backend: cannot activate workspace %d" % n)
+        rec = rows[n]
+        if not rec.caps & ext_workspace.CAP_ACTIVATE:
+            raise CmdError("cosmic backend: cannot activate workspace %d" % n)
+        try:
+            self.c.send(rec.oid, _WS_ACTIVATE)
+            self.c.send(self.ws.mgr, _WS_COMMIT)
+        except OSError as e:
+            raise CmdError("cosmic backend: %s" % e) from None
         self._pump()
+        self._await_workspace(rec.oid)
+
+    def _await_workspace(self, oid: int):
+        """Read until the workspace `oid` says it is active, or `STATE_WAIT` runs out.
+
+        The same wait as `_await_state` and for the same reason: cosmic-comp answers the commit by
+        switching the shell and sends the new `state` from its rate-limited refresh, so a `set_desktop`
+        that returned on the roundtrip alone left the next `get_desktop` -- a second process -- reading the
+        workspace bits from before the switch."""
+        deadline = time.monotonic() + STATE_WAIT
+        while True:
+            rec = self.ws.workspaces.get(oid)
+            if rec is None or rec.state & ext_workspace.STATE_ACTIVE:
+                return
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return
+            try:
+                self.c.dispatch(timeout=left)
+            except (OSError, RuntimeError, struct.error) as e:
+                raise CmdError("cosmic backend: %s" % e) from None
 
     def num_desktops(self) -> int:
         if self.ws is None:
             self._not_yet("get_num_desktops", NO_WORKSPACES)
         self._pump()
-        return self.ws.count()
+        return len(self._ws_rows())
 
     def workspaces(self):
+        """The `wwmctl -d` rows, in `_ws_rows()` order. `work_area` stays (0,0,0,0): the protocol carries no
+        geometry, and a group may cover several outputs."""
         if self.ws is None:
             return None
         self._pump()
-        return self.ws.workspace_list()
+        return [Workspace(index=i, name=r.name, active=bool(r.state & ext_workspace.STATE_ACTIVE))
+                for i, r in enumerate(self._ws_rows())]
 
     def set_window_desktop(self, wid: int, n: int):
         """`move_to_ext_workspace`, which is the v4 spelling of the capability the manager advertises as 6.
@@ -524,8 +687,9 @@ class CosmicBackend(XPlaneViews, WindowBackend):
         `zcosmic_workspace_handle_v1` from a workspace protocol this backend does not bind.
 
         Any `wl_output` will do, and `outputs[0]` is not a multi-head guess: cosmic-comp's dispatcher
-        refuses the request unless `Output::from_resource(&output)` is Some [R recon2/cosmic/tlmgmt.rs:255-262]
-        and its handler then ignores the value (`_output: Output`, R toplevel_management.rs:144-149) -- the
+        refuses the request unless `Output::from_resource(&output)` is Some
+        [R recon2/cosmic/tlmgmt.rs:255-262] and its handler then ignores the value (`_output: Output`,
+        R toplevel_management.rs:144-149) -- the
         workspace handle is what decides where the window lands."""
         if self.ws is None:
             self._not_yet("set_desktop_for_window", NO_WORKSPACES)

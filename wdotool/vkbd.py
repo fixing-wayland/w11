@@ -43,7 +43,32 @@ THE KEYMAP. `us_keymap.TEXT`, a captured keymap, uploaded verbatim. A keymap
 we synthesise ourselves compiles and then delivers no key events (twice, on
 wlroots, unexplained) -- so nothing here builds one, and the built-in US
 character table in `keymap.py` is right by construction because the keymap we
-upload is the one that table was written for.
+upload is the one that table was written for. It binds more than that table's
+ASCII: `key <I443> { [ 0x20ac ] }` is evdev 435 and really types `€`,
+byte-exact into a focused `foot` on headless sway 1.11 [M goal2/recon/gaps.md
+§3b], which is why `keymap.UPLOADED_EXTRA_KEYS` is read out of this file
+rather than hand-listed.
+
+A CHARACTER THE UPLOADED KEYMAP BINDS NOWHERE is **not yet** typeable here,
+and X is the oracle that says it should be: the pinned xdotool 4.20260303.1 on
+Xvfb with a plain `us` layout typed `é☃X` into an xterm byte for byte,
+because X lets a client rebind a scratch keycode through
+XChangeKeyboardMapping and xdotool does exactly that [M 2026-09-11, this box].
+Our route to the same thing is rung 1 of AGENTS.md's ladder, the protocol we
+already speak: put the wanted keysym on a spare keycode in a copy of
+`us_keymap.TEXT` and press that keycode. The seam is already here --
+`open(keymap_text=...)` takes the text, and `_upload()` (no arguments) sends
+whatever `self.keymap_text` holds -- so the route is a second `VirtualKeyboard`
+carrying the edited text, or a re-set of `keymap_text` and a second
+`_upload()`, driven from `daemon.op_type`. The cost, which is why it is not
+wired up yet: `open()` calls `_upload` once per object, so `op_type` -- the
+only caller that knows a character was skipped -- has to drive the re-upload
+and the re-press in the middle of a string; that swaps the keymap under the
+focused client between two keystrokes and nothing has measured what each
+compositor does with the swap; and the captured keymap may not be regenerated
+(see `us_keymap.py`), so the edit has to be one added `key` line on an unused
+keycode over the captured text, not a rebuild. Until then `type` names the
+character it skipped and the layout it was looking at, and skips it.
 """
 
 import os
@@ -181,9 +206,15 @@ class VirtualKeyboard:
                 # zwp_virtual_keyboard_manager_v1 (v1) and no virtual pointer at all, so this sentence is one
                 # COSMIC never sees while the pointer's is the one it always sees [M recon2/cosmic.md §3:
                 # `wdotool type 'hello cosmic'` landed byte-exact with no /dev/uinput node on the box].
+                # Muffin is named on both sides of the semicolon because both halves are true of it and a
+                # Cinnamon user meets whichever their release is: 26.04's muffin 6.4 advertises 23
+                # globals and not one is this one, while master (the 6.6/6.8 line) carries the XML and
+                # META_ZWP_VIRTUAL_KEYBOARD_MANAGER_V1_VERSION 1 -- and still no virtual pointer
+                # [M recon2/cinnamon.md §2.1]. vm/live-smoke.d/cinnamon-wayland.sh:376 checks this clause.
                 raise VkbdError(
                     f"this compositor does not implement {MANAGER} "
-                    "(Mutter and KWin do not; sway, Hyprland, the wlroots family and COSMIC do)")
+                    "(Mutter, KWin and Cinnamon's Muffin 6.4 do not; sway, Hyprland, the wlroots "
+                    "family, COSMIC and Muffin 6.6+ do)")
             version = min(found[1], MAX_VERSION)
             seat = conn.find_global("wl_seat")
             if seat is None:

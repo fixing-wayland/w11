@@ -64,6 +64,7 @@ import json
 import os
 import re
 import signal
+import stat
 import struct
 import threading
 import time
@@ -1631,9 +1632,77 @@ HYPR_TIMEOUT = 2.0
 _HYPR_TYPING_RE = re.compile(r"keyboard|keybd|kbd", re.I)
 
 
+#: The kernel device the injecting half of wdotool writes through. A process that has it OPEN is the one
+#: whose keys reach the compositor as a real input device -- the daemon, and nothing else in this tree
+#: (`wdotool/daemon.py:625` opens it at startup and holds it for the daemon's life; `keys explain` and every
+#: other client never does). That is the whole test the fourth rule needs, and it is a fact about THIS
+#: process rather than about the session, which is what tells the two questions apart.
+UINPUT_NODE = "/dev/uinput"
+
+#: The override `wdotool/uinput.py:dev_path()` honours, and the reason this module reads the environment
+#: rather than that constant alone: a daemon started with `WDOTOOL_UINPUT_PATH=/dev/uinput2` opens THAT
+#: node, and a fourth rule comparing st_rdev against /dev/uinput would find no fd of its own and quietly
+#: encode for the session's group instead of its device's -- the exact failure the rule exists to end.
+#: The name is not imported from wdotool.uinput: that module opens the kernel device at import-adjacent
+#: call sites and every reader here (`keys explain`, the passthrough probe) would carry it for one string.
+UINPUT_PATH_ENV = "WDOTOOL_UINPUT_PATH"
+
+
+def _uinput_node() -> str:
+    """The node the injecting half of this process would have opened, override and all."""
+    return os.environ.get(UINPUT_PATH_ENV) or UINPUT_NODE
+
+
+def _holds_uinput(node: str = "") -> bool:
+    """Does this process have the uinput node open?
+
+    By device number off `/proc/self/fd`, not by the link's text: the path a fd was opened through is not
+    the only name a device node has, and comparing `st_rdev` of a character device is the same test the
+    kernel would make. Any failure is False -- a /proc that is not mounted, a node that is not there -- and
+    False means the reader below answers about the session, which is what it did before the fourth rule."""
+    try:
+        want = os.stat(node or _uinput_node())
+        if not stat.S_ISCHR(want.st_mode):
+            return False
+        names = os.listdir("/proc/self/fd")
+    except OSError:
+        return False
+    for name in names:
+        try:
+            st = os.stat("/proc/self/fd/" + name)
+        except OSError:
+            continue          # the fd closed between listdir and stat: not ours to worry about
+        if stat.S_ISCHR(st.st_mode) and st.st_rdev == want.st_rdev:
+            return True
+    return False
+
+
 def _hypr_injected(name) -> bool:
     """Is this one of the virtual keyboards wdotool itself put there?"""
     return any(str(name or "").startswith(p) for p in HYPR_INJECTED)
+
+
+def _hypr_our_keyboard(devices):
+    """The row for the keyboard WE injected (`HYPR_INJECTED`), or None.
+
+    The uinput device is created as "wdotool virtual keyboard" (`wdotool/uinput.py:162`) and Hyprland lists
+    it as `wdotool-virtual-keyboard` -- the name the live 0.53.3 session reported at `active_layout_index: 0`
+    while the physical keyboard sat at 1 [M recon2/hyprland.md §3]."""
+    kbs = devices.get("keyboards") if isinstance(devices, dict) else None
+    if not isinstance(kbs, list):
+        return None
+    for k in kbs:
+        if isinstance(k, dict) and _hypr_injected(k.get("name")):
+            return k
+    return None
+
+
+def _hypr_index_of(dev) -> "int | None":
+    """`active_layout_index` of one `j/devices` keyboard row, or None."""
+    if not isinstance(dev, dict):
+        return None
+    idx = dev.get("active_layout_index")
+    return idx if isinstance(idx, int) and not isinstance(idx, bool) else None
 
 
 def _hypr_keyboard(devices):
@@ -1696,6 +1765,8 @@ class HyprLayouts(_IpcLayouts):
 
     def __init__(self, sockpath=None):
         self.sockpath = sockpath   # None: found the way the backend finds it
+        #: how many times the fourth rule below moved our own device's group, for the tests
+        self.switched = 0
         super().__init__()
 
     def _index(self):
@@ -1710,11 +1781,64 @@ class HyprLayouts(_IpcLayouts):
             self.absent = not self.asked
             self._failed()
             return None
-        dev = _hypr_keyboard(HyprIPC(path, timeout=HYPR_TIMEOUT).json("devices"))
-        if dev is None:
+        ipc = HyprIPC(path, timeout=HYPR_TIMEOUT)
+        devices = ipc.json("devices")
+        idx = _hypr_index_of(_hypr_keyboard(devices))
+        if idx is None:
             return None
-        idx = dev.get("active_layout_index")
-        return idx if isinstance(idx, int) and not isinstance(idx, bool) else None
+        return self._group_of_our_device(ipc, devices, idx)
+
+    def _group_of_our_device(self, ipc, devices, idx: int) -> int:
+        """THE FOURTH RULE: the group the keys we are about to inject will be READ in.
+
+        Hyprland keeps XKB state per device, so the session's group and the injected device's group are two
+        questions. `_hypr_keyboard` answers the first one, which is what `keys explain` and every other
+        reader wants; the process that holds /dev/uinput open is about to send keycodes THROUGH a device of
+        its own, and the only group that decides what they produce is that device's.
+
+        Measured, resolute-hypr / Hyprland 0.53.3, 2026-09-09, `kb_layout = us,de`: after `hyprctl
+        switchxkblayout at-translated-set-2-keyboard 1`, `j/devices` reported the physical keyboard at
+        `active_layout_index: 1` (German) and `wdotool-virtual-keyboard` still at `0` (US) -- and
+        `wdotool type` encoded for German while the device read US, so `zy@ Straße` came out `zyq Stra-e`:
+        `@` went as the German AltGr+Q and landed in the US group as a plain `q`
+        [M vm/live-smoke.d/hypr.sh layout_phase, and again on 0.56.2 in goal2/recon/gaps.md §1b #13].
+
+        So the two are put back together, and the cheap way round: `switchxkblayout <our device> <n>` over
+        the socket we are already holding (AGENTS.md route 2) moves OUR device only -- the session's own
+        keyboard keeps the group the user put it in, and nobody else types on ours, so there is nothing to
+        put back. What is typed after that is the session's layout, which is what a user who switched to
+        German and ran `wdotool type` asked for; X is the oracle and XTEST types in the layout the server
+        is in.
+
+        When the switch does not take, the answer is our device's own index rather than the session's: a
+        group that is really there beats one that is not, and it is what wdotool typed correctly with
+        before this reader existed. Only the injector does any of this -- for every other process this
+        returns `idx` untouched and nothing is sent."""
+        if not _holds_uinput():
+            return idx
+        ours = _hypr_our_keyboard(devices)
+        mine = _hypr_index_of(ours)
+        if ours is None or mine is None or mine == idx:
+            return idx
+        try:
+            # `switchxkblayout` is a request of its own and NOT a dispatcher: `dispatch switchxkblayout
+            # wdotool-virtual-keyboard 1` answers `Invalid dispatcher` and changes nothing, while the bare
+            # `switchxkblayout wdotool-virtual-keyboard 1` answers `ok` and the device's
+            # `active_layout_index` is 1 in the very next `j/devices` -- both measured over a raw socket on
+            # the arch-hypr golden, Hyprland 0.56.2, 2026-09-11, after the dispatcher form shipped here and
+            # typed `yz@ Strae` (the ASCII right, the sharp s dropped, because the fallback below was what
+            # answered).
+            reply = ipc.request("switchxkblayout %s %d"
+                                % (str(ours.get("name") or ""), idx)).decode("utf-8", "replace").strip()
+            now = mine if reply != "ok" else _hypr_index_of(_hypr_our_keyboard(ipc.json("devices")))
+        except Exception:
+            # A request Hyprland refuses, a socket that went in the middle: the group our device is in is
+            # still the honest answer, and none of this may reach the caller as an exception.
+            now = mine
+        if now == idx:
+            self.switched += 1
+            return idx
+        return now if now is not None else mine
 
 
 #: The one method this reader sends. Its sibling `wayfire/set-keyboard-state` is

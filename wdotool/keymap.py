@@ -8,9 +8,19 @@ Every resolver here takes an optional `layout`: a `xkbmap.ReverseMap` for the co
 whole answer, exactly as it was. When it is given, a keysym that the active layout binds somewhere resolves to
 that key and its modifier mask instead; keys that are the same on every layout (Return, the function keys, the
 keypad, the modifiers themselves) keep their fixed keycodes.
+
+Two tables answer for a character, and they are separate on purpose. `CHAR_TO_KEY` is the US-QWERTY block,
+which is also the set `xkbmap._expected_us()` demands of a session keymap before the plain-US bypass is
+taken; `UPLOADED_EXTRA_KEYS` is what the keymap `vkbd.py` uploads binds ON TOP of that block (€ on evdev
+435, ± on 118), read out of `us_keymap.TEXT` at import. `char_to_key()` is the view over both -- and on
+the kernel sink only the codes `uinput.keyboard()` registered arrive, which 435 is not one of yet: see
+`_uploaded_extra_keys` for the measurement and the route.
 """
 
+import re
+
 from wdotool.keysyms import KEYSYM_TO_UNICODE, NAME_TO_KEYSYM
+from wdotool.us_keymap import TEXT as _UPLOADED
 
 # evdev keycodes (input-event-codes.h)
 KEY_ESC = 1
@@ -76,6 +86,98 @@ CHAR_TO_KEY["\t"] = (KEY_TAB, False)
 CHAR_TO_KEY["\b"] = (KEY_BACKSPACE, False)
 CHAR_TO_KEY["\x1b"] = (KEY_ESC, False)
 CHAR_TO_KEY["\x7f"] = (KEY_DELETE, False)
+
+# Keycode names in `us_keymap.TEXT`'s xkb_keycodes section ("<I443> = 443;") and its symbols section's
+# key statements ("key <I443> {\t[ 0x20ac ] };" and the two-group
+# "key <AE01> { symbols[1]= [ 0x31, 0x21 ], ...}").
+_KC_RE = re.compile(r"<([A-Za-z0-9_+\-]+)>\s*=\s*(\d+)\s*;")
+_KEY_RE = re.compile(r"key\s+<([A-Za-z0-9_+\-]+)>\s*\{(.*?)\}\s*;", re.S)
+_G1_RE = re.compile(r"symbols\s*\[\s*1\s*\]\s*=\s*\[([^\]]*)\]")
+_LEVELS_RE = re.compile(r"\[([^\]]*)\]")
+
+
+def _keysym_codepoint(ks: int) -> int | None:
+    """The character a keysym names, or None. X's own three rules in X's order: keysymdef's table, then the
+    latin-1 keysyms which are their own codepoint, then the Unicode space (0x01000000 | codepoint)."""
+    cp = KEYSYM_TO_UNICODE.get(ks)
+    if cp is None:
+        if 0x20 <= ks <= 0xFF:
+            cp = ks  # latin-1 keysyms are their own codepoint
+        elif ks & 0xFF000000 == 0x01000000:
+            cp = ks & 0xFFFFFF
+        else:
+            return None
+    if not 0 <= cp <= 0x10FFFF:
+        # The Unicode keysym space (0x01000000 | codepoint) is 24 bits wide and Unicode is 21:
+        # `wdotool key 0x01ffffff` is a syntactically valid keysym naming no character, and chr() raises
+        # ValueError on it. Unreachable, like any other keysym this layout cannot type -- not a traceback.
+        return None
+    return cp
+
+
+def _uploaded_extra_keys(text: str) -> dict[str, tuple[int, bool]]:
+    """char -> (evdev keycode, shifted) for every character the keymap we UPLOAD binds that the fixed US block
+    above has no key for. Group 1, levels 1 and 2, hex keysyms only -- which is every keysym that file writes.
+
+    Read out of `us_keymap.TEXT` rather than hand-listed, so the table and the keymap cannot drift: once
+    that keymap is uploaded it IS what our keycodes mean. Today it yields exactly two rows: EUR ->
+    (435, False) from `key <I443>` (evdev KEY_EURO) and PLUS-MINUS -> (118, False) from `key <I126>`
+    (KEY_KPPLUSMINUS). Before this existed, `wdotool type` and the proxy's XTEST path both answered
+    "Can't type character" for EUR into a focused `foot` on headless sway, while pressing evdev 435
+    through that same virtual keyboard put its three UTF-8 bytes in the window, byte-exact
+    (goal2/recon/gaps.md §3b; reproduced end to end 2026-09-11). Parsing costs 0.16 ms, measured on this
+    box over 10 runs, and it happens once, at import.
+
+    WHICH SINK THESE REACH, measured rather than assumed. On the virtual-keyboard sink, both: that is the
+    keymap this table was read out of, and the EUR run above is what landed. On the kernel sink, only the
+    codes the device registered -- `uinput.keyboard()` asks the kernel for keybits 1..255 and nothing else
+    (`uinput.py:160`, whose own comment records that an unregistered code is dropped silently; `_EVDEVK`
+    below refuses `code >= 256` for the same reason). 118 is inside that range and 435 is not, so
+    `wdotool type EUR` on the kernel sink is **not yet** a keystroke that arrives: the daemon presses 435
+    and the kernel drops it, where before it warned. The route is rung 4, the kernel device we already
+    create: `uinput.keyboard()` registering these codes on top of 1..255, at the cost of one more
+    UI_SET_KEYBIT per row and one measurement nobody has made -- evdev 435 through /dev/uinput into a
+    native window on a plain `us` session (that session's keymap is this file byte for byte, plus its
+    trailing NUL: `tests/fixtures/keymaps/us.xkb`, so it should type, and "should" is not "measured").
+    Filed as goal2/requests-batch-2.md; until it lands the honest answer on that sink is the warning.
+
+    Kept OUT of CHAR_TO_KEY on purpose, and that is not cosmetic: `xkbmap._expected_us()` builds the plain-US
+    bypass check's demands out of CHAR_TO_KEY, and `xkbmap._plain_us` only reads keycodes below X 264, so a
+    435 in there makes `active_group_is_plain_us` answer False for EVERY keymap -- measured: 20 failures in
+    tests/test_xkbmap.py, and the uinput path drags in the reverse map on sessions that do not need it.
+    CHAR_TO_KEY stays the US-QWERTY block the bypass checker is about; these are the extra keys the keymap
+    carries on top of it.
+    """
+    body = text[text.index("xkb_symbols"):]
+    codes = {name: int(x) for name, x in _KC_RE.findall(text[:len(text) - len(body)])}
+    out: dict[str, tuple[int, bool]] = {}
+    for name, stmt in _KEY_RE.findall(body):
+        x = codes.get(name)
+        if x is None or x <= 8:   # X keycode 8 is evdev 0, which is no key
+            continue
+        m = _G1_RE.search(stmt) or _LEVELS_RE.search(stmt)
+        if m is None:
+            continue
+        for level, tok in enumerate(t.strip() for t in m.group(1).split(",")):
+            if level > 1 or not tok:
+                continue
+            try:
+                ks = int(tok, 16)
+            except ValueError:
+                continue          # a keysym NAME: this capture writes none, and a guess is worse than a skip
+            cp = _keysym_codepoint(ks)
+            if cp is None:
+                continue
+            ch = chr(cp)
+            # The fixed block wins, and so does the first key in the file that binds a character: the keymap
+            # binds 30 of them twice (the keypad's digits, <LSGT>'s < >, <I187>'s parenleft) and the main
+            # block, which comes first and is the one CHAR_TO_KEY already holds, is the one to press.
+            if ch not in CHAR_TO_KEY:
+                out.setdefault(ch, (x - 8, bool(level)))
+    return out
+
+
+UPLOADED_EXTRA_KEYS: dict[str, tuple[int, bool]] = _uploaded_extra_keys(_UPLOADED)
 
 # keysym name -> (keycode, shifted) for keys that are not (or not best) reached
 # through the unicode fallback. Checked before the unicode path.
@@ -254,7 +356,15 @@ _BAD_SEQ_CHARS = set(" \t\n.-[]{}\\|")
 
 
 def char_to_key(ch: str) -> tuple[int, bool] | None:
-    return CHAR_TO_KEY.get(ch)
+    """The US-QWERTY block first, then the extra keys the uploaded keymap carries (EUR, PLUS-MINUS).
+
+    The answer is the same on both sinks because the caller (`daemon.op_type`) has no sink to tell us
+    about; which of them the keystroke actually arrives on is `_uploaded_extra_keys`' second paragraph.
+    """
+    hit = CHAR_TO_KEY.get(ch)
+    if hit is None:
+        hit = UPLOADED_EXTRA_KEYS.get(ch)
+    return hit
 
 
 def layout_name(layout) -> str:
@@ -275,18 +385,8 @@ def _keysym_value_to_key(ks: int, layout=None) -> tuple[int, bool] | None:
         hit = layout.keysyms.get(ks)
         if hit is not None:
             return hit
-    cp = KEYSYM_TO_UNICODE.get(ks)
+    cp = _keysym_codepoint(ks)
     if cp is None:
-        if 0x20 <= ks <= 0xFF:
-            cp = ks  # latin-1 keysyms are their own codepoint
-        elif ks & 0xFF000000 == 0x01000000:
-            cp = ks & 0xFFFFFF
-        else:
-            return None
-    if not 0 <= cp <= 0x10FFFF:
-        # The Unicode keysym space (0x01000000 | codepoint) is 24 bits wide and Unicode is 21:
-        # `wdotool key 0x01ffffff` is a syntactically valid keysym naming no character, and chr() raises
-        # ValueError on it. Unreachable, like any other keysym this layout cannot type -- not a traceback.
         return None
     if layout is not None and layout.chars:
         # THE LAYOUT IS THE AUTHORITY, and falling through to the built-in US table here is not a
@@ -298,7 +398,7 @@ def _keysym_value_to_key(ks: int, layout=None) -> tuple[int, bool] | None:
         # The character table, not `keysyms`, because a *Unicode* keysym (0x010020ac) names a character
         # the layout does have under a different keysym name (EuroSign).
         return layout.chars.get(chr(cp))
-    return CHAR_TO_KEY.get(chr(cp))
+    return char_to_key(chr(cp))
 
 
 def keysym_to_key(name: str, layout=None) -> tuple[int, bool] | None:

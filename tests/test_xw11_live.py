@@ -661,12 +661,19 @@ class NativeExists(ProxyLive):
 
     def test_wmctrl_d_prints_one_row_per_workspace(self):
         """One row per workspace sway really has, named the way sway names it,
-        and the two columns measured and pinned AS FOUND: the `VP:` and `WA:`
-        columns are the clone's own rule (wwmctl/core.py:800, 828) and the
-        proxy comes at them from the other side -- it publishes no
-        `_NET_DESKTOP_VIEWPORT` and no `_NET_WORKAREA`, so real wmctrl prints
-        `N/A` for both. Closing the `VP:` gap is one root property, which is a
-        row in the docs and not a policy.
+        and the two columns measured: `VP:` is `0,0` on EVERY row because the
+        proxy publishes `_NET_DESKTOP_VIEWPORT` as one `0,0` pair per desktop
+        (xw11/shadow.py:root_props), which is what an X WM with viewports
+        publishes and what `wwmctl -d` prints from its own rule
+        (wwmctl/core.py:803) -- the two routes agree on this column to the
+        byte [M 2026-09-11, this box, headless sway with two workspaces: both
+        print `VP: 0,0` on both rows; before the property existed real wmctrl
+        printed `VP: N/A` on both rows here]. `WA:` is still `N/A`: nobody
+        publishes `_NET_WORKAREA` yet. Closing it is one more root property on
+        this same root, off the usable area the backend can already name
+        (rung 2 on sway, `get_workspaces`/`get_outputs` over the IPC socket
+        the registry is already connected to, minus the layer-shell exclusive
+        zones) -- not yet, a gap in our work and not a policy.
 
         The NAME column is not one of those gaps: `_NET_DESKTOP_NAMES` comes
         from `workspaces()` and `backend_sway.py:441` has one, so wmctrl prints
@@ -679,7 +686,7 @@ class NativeExists(ProxyLive):
         self.assertEqual(len(rows), len(spaces), got.stdout)
         for row, ws in zip(rows, spaces):
             self.assertEqual(row.split()[-1], ws["name"], row)
-            self.assertIn("VP: N/A", row)
+            self.assertIn("VP: 0,0", row)
             self.assertIn("WA: N/A", row)
             self.assertIn("DG: ", row)
         current = [i for i, ws in enumerate(spaces) if ws["focused"]]

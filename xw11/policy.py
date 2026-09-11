@@ -380,8 +380,13 @@ ATOMS = (
     "_NET_CLOSE_WINDOW", "_NET_MOVERESIZE_WINDOW", "_NET_WM_MOVERESIZE",
     "_NET_SHOWING_DESKTOP", "WM_CHANGE_STATE",
     # the rest of design section 4.6's root set, plus the one name wxprop does
-    # NOT synthesize (docs/WXPROP.md:103) and the proxy answers zero for
-    "_NET_DESKTOP_GEOMETRY", "_NET_FRAME_EXTENTS",
+    # NOT synthesize (docs/WXPROP.md:103) and the proxy answers zero for.
+    # `_NET_DESKTOP_VIEWPORT` is the origin of every desktop, `0,0` each:
+    # without it real `wmctrl -d` prints `VP: N/A` on every row and the clone
+    # prints `VP: 0,0` on the current one, the two routes disagreeing over a
+    # property that costs eight bytes a desktop [M goal2/recon/gaps.md 3a, a
+    # hand-built EWMH root on Xvfb :77, 2026-09-11]
+    "_NET_DESKTOP_GEOMETRY", "_NET_DESKTOP_VIEWPORT", "_NET_FRAME_EXTENTS",
 )
 
 #: The root names the proxy answers from the compositor instead of from
@@ -403,7 +408,7 @@ ATOMS = (
 OVERRIDES = (
     "_NET_CLIENT_LIST", "_NET_CLIENT_LIST_STACKING", "_NET_ACTIVE_WINDOW",
     "_NET_NUMBER_OF_DESKTOPS", "_NET_CURRENT_DESKTOP", "_NET_DESKTOP_NAMES",
-    "_NET_DESKTOP_GEOMETRY",
+    "_NET_DESKTOP_GEOMETRY", "_NET_DESKTOP_VIEWPORT",
 )
 
 #: What the proxy adds to upstream's `_NET_SUPPORTED`, in this order (design
@@ -421,7 +426,7 @@ SUPPORTED = (
     # the root set of design section 4.6
     "_NET_CLIENT_LIST", "_NET_CLIENT_LIST_STACKING", "_NET_ACTIVE_WINDOW",
     "_NET_NUMBER_OF_DESKTOPS", "_NET_CURRENT_DESKTOP", "_NET_DESKTOP_NAMES",
-    "_NET_DESKTOP_GEOMETRY",
+    "_NET_DESKTOP_GEOMETRY", "_NET_DESKTOP_VIEWPORT",
     # the per-window set of design section 4.4
     "_NET_WM_NAME", "_NET_WM_PID", "_NET_WM_DESKTOP", "_NET_WM_STATE",
     "_NET_WM_WINDOW_TYPE", "_NET_FRAME_EXTENTS",

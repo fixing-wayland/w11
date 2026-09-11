@@ -591,6 +591,20 @@ class State:
     def lastmodes(self) -> dict:
         return self._container("lastmode")
 
+    # heads a wlroots compositor stopped announcing after --off ---------------
+    def offheads(self) -> dict:
+        """{output: what it was, for a compositor that drops a head it is asked to turn off}.
+
+        X's `xrandr` keeps a disabled output in `--query` and `--auto` turns it back on, and X is the
+        oracle; two wlroots compositors here do not.  Measured: river 0.4.8 -- `wxrandr --output Virtual-3
+        --off` works, `wlr-randr` then still says `Enabled: no`, and our next process sees no such head, so
+        `--auto` answered `warning: output Virtual-3 not found; ignoring` with exit 0 [M
+        goal2/recon/flavors.md §2]; cosmic-comp 1.7.0 loses it the same way (arch-cosmic `--auto` brought
+        back 0 of 3 where 1.6.0 has no such problem) [M goal2/recon/flavors.md §5].  This is the keeping,
+        which is ours; the compositor taking the head back is its own and is a documented gap in the step
+        files."""
+        return self._container("offhead")
+
 
 # -- wlr-output-management snapshot + atomic apply ----------------------------
 
@@ -815,19 +829,92 @@ class WlrOutputs:
                 dims[t.name] = predicted_dims(t, state, wire="fixed")
         pos = resolve_positions(targets, dims)
         plan = {t.name: t for t in targets}
+        self._refuse_dropped(targets)
+        self._remember_off(state, targets)
         self.send(plan, pos)
         fresh = self._reread(state)
         stray = _stray_head(pos, fresh)
-        if stray is None:
-            return fresh
-        self.send(plan, pos)
-        fresh = self._reread(state)
-        stray = _stray_head(pos, fresh)
-        if stray is None:
-            return fresh
-        name, want, got = stray
-        raise Fatal("the compositor accepted the position %d,%d for %s twice and put it at %d,%d "
-                    "both times\n" % (want[0], want[1], name, got[0], got[1]))
+        if stray is not None:
+            self.send(plan, pos)
+            fresh = self._reread(state)
+            stray = _stray_head(pos, fresh)
+        if stray is not None:
+            name, want, got = stray
+            raise Fatal("the compositor accepted the position %d,%d for %s twice and put it at %d,%d "
+                        "both times\n" % (want[0], want[1], name, got[0], got[1]))
+        self._verify_applied(targets, fresh)
+        self._forget_live(state)
+        return fresh
+
+    def _refuse_dropped(self, targets: list):
+        """The output this run is enabling is one the compositor has stopped announcing.
+
+        It is remembered here (`State.offheads`) because X keeps a disabled output in `--query` and X is the
+        oracle, and `--auto` on it must say what happened rather than warn it away with exit 0: there is no
+        head object to enable, so nothing would go on the wire at all.  NOT YET, and the rung is 6, a
+        compositor that announces a disabled head instead of dropping it -- river 0.4.8 has no IPC of its
+        own left (riverctl is gone in 0.4) and the reference client fails identically, `wlr-randr --output
+        Virtual-3 --on` -> `failed to apply configuration`, rc 1 [M goal2/recon/flavors.md §2]."""
+        for t in targets:
+            if t.changed and t.enabled and t.output.wlr_head is None and self.by_name(t.name) is None:
+                raise Fatal("%s was turned off and the compositor stopped announcing it, so there is no "
+                            "head left to turn back on; not yet here, and the route is a compositor that "
+                            "keeps announcing a disabled head (AGENTS.md route 6) -- wlr-randr refuses the "
+                            "same request on the same session\n" % t.name)
+
+    def _remember_off(self, state: "State | None", targets: list):
+        """Keep every head this run is turning OFF, before it goes: a compositor that drops it takes the
+        modes, the millimetres and the make/model/serial with it, and `--query` still owes all of them."""
+        if state is None:
+            return
+        for t in targets:
+            if not (t.changed and not t.enabled):
+                continue
+            head = self.by_name(t.name)
+            if head is not None:
+                state.offheads()[t.name] = _offhead_record(head)
+
+    def _forget_live(self, state: "State | None"):
+        """Drop the record of any remembered head that is announced again (a re-plug, or a compositor that
+        did take it back), so the listing never carries two of one output."""
+        if state is None:
+            return
+        live = {h["name"] for h in self.live_heads()}
+        for name in [n for n in state.offheads() if n in live]:
+            state.offheads().pop(name, None)
+
+    @staticmethod
+    def _verify_applied(targets: list, fresh: list):
+        """`succeeded` and nothing changed is not a success.
+
+        `_stray_head` above answers for the POSITION, which is labwc's failure mode; this is the rest of the
+        apply, and it is here because of a measured silence: on Hyprland, after a `keyword monitor` apply,
+        the wlr path stopped timing out and started answering rc 0 in 0.64 s with empty stderr and the head
+        exactly where it was -- asked for 1920x1080 while sitting at 1280x1024, three times
+        [M vm/live-smoke.d/hypr.sh display phase, resolute-hypr 2026-09-09].  A silent success that changed
+        nothing is worse for a script than the timeout it replaced, and `xrandr` on X says `Configure crtc
+        failed` rather than nothing.  The sentences are `wxrandr/hypr.py:_first_mismatch`'s, with "the
+        compositor" for the name this backend does not know."""
+        by = {o.name: o for o in fresh}
+        for t in targets:
+            if not t.changed:
+                continue
+            o = by.get(t.name)
+            if o is None:
+                raise Fatal("the compositor accepted the configuration for %s and then stopped "
+                            "listing it\n" % t.name)
+            if o.active != t.enabled:
+                raise Fatal("the compositor accepted %s %s and did not apply it (it is still %s)\n"
+                            % (t.name, "on" if t.enabled else "off", "on" if o.active else "off"))
+            if not t.enabled:
+                continue
+            cur = o.current
+            if t.mode is not None and cur is not None and (cur.w, cur.h) != (t.mode.w, t.mode.h):
+                raise Fatal("the compositor accepted the mode %dx%d for %s and did not apply it "
+                            "(it reports %dx%d)\n" % (t.mode.w, t.mode.h, t.name, cur.w, cur.h))
+            if o.transform != t.sway_tf:
+                raise Fatal("the compositor accepted the transform %s for %s and did not apply it "
+                            "(it reports %s)\n" % (t.sway_tf, t.name, o.transform))
 
     def _reread(self, state: "State | None"):
         """The post-apply snapshot. A compositor that accepted the configuration and then stopped answering
@@ -837,6 +924,36 @@ class WlrOutputs:
             return snapshot_wlr(self, state)
         except OSError:
             raise Fatal("the compositor applied the output configuration " "and then stopped responding\n")
+
+
+def _offhead_record(h: dict) -> dict:
+    """What a head has to leave behind to keep being an output in `--query` after the compositor drops it:
+    the millimetres, the identity strings and the mode list -- `--auto` re-derives the preferred mode off
+    that list, so a record without it would find the output and then have nothing to enable it at."""
+    return {"mm_w": h["mm_w"], "mm_h": h["mm_h"], "make": h["make"], "model": h["model"],
+            "serial": h["serial"],
+            "modes": [[m["w"], m["h"], m["refresh"], bool(m["preferred"])] for m in h["modes"]]}
+
+
+def _offhead_output(name: str, rec, ident: int) -> "OutputState | None":
+    """One `State.offheads()` record as the inactive OutputState `--query` prints and `--auto` targets.
+
+    The file is hand-editable and shared (`_read_state`'s whole premise), so a record of the wrong shape is
+    dropped rather than obeyed -- the same rule `State.custom_mode` follows."""
+    if not isinstance(rec, dict):
+        return None
+    st = OutputState(name=name, active=False, ident=ident,
+                     mm_w=int(rec.get("mm_w") or 0), mm_h=int(rec.get("mm_h") or 0),
+                     make=str(rec.get("make") or "Unknown"), model=str(rec.get("model") or "Unknown"),
+                     serial=str(rec.get("serial") or "Unknown"))
+    for row in rec.get("modes") or []:
+        try:
+            w, h, mhz, pref = int(row[0]), int(row[1]), int(row[2]), bool(row[3])
+        except (IndexError, TypeError, ValueError):
+            return None
+        st.modes.append(Mode(w=w, h=h, refresh_mhz=mhz, preferred=pref))
+    st.virtual_modes = not st.modes
+    return st
 
 
 def _stray_head(pos: dict, fresh: list) -> tuple | None:
@@ -999,6 +1116,19 @@ def snapshot_wlr(wlr: WlrOutputs, state: State | None = None) -> list:
                     break
         finish_modes(st, customs)
         outs.append(st)
+    # Then the heads this backend turned off and the compositor stopped announcing (`State.offheads`).
+    # xrandr keeps a disabled output in `--query` and `--auto` brings it back, so a listing that lost the
+    # output the last command disabled is ours to fix, whatever the compositor does with the head itself.
+    live = {h["name"] for h in wlr.live_heads()}
+    if state is not None:
+        for name, rec in sorted(state.offheads().items()):
+            if name in live:
+                continue
+            st = _offhead_output(name, rec, len(outs) + 1)
+            if st is None:
+                continue
+            finish_modes(st, state.modes_for_output(name))
+            outs.append(st)
     return outs
 
 

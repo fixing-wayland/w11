@@ -260,6 +260,22 @@ class TheKeymapWeUpload(unittest.TestCase):
         self.assertFalse(blob[:-1].endswith(b"\0"), "exactly one NUL")
         self.assertEqual(blob[:-1].decode(), us_keymap.TEXT)
 
+    def test_the_extra_characters_it_binds_are_typeable_and_out_of_the_bypass_table(self):
+        """B2. This keymap binds `key <I443> { [ 0x20ac ] }` -- evdev 435 -- and the built-in table had no
+        row for it, so `type` skipped the character on the one path where this keymap is the authority
+        (goal2/recon/gaps.md §3b). `keymap.UPLOADED_EXTRA_KEYS` is read out of this same text.
+
+        The second half is why those rows are not IN `CHAR_TO_KEY`: `active_group_is_plain_us` is built from
+        that table and reads no keycode above X 263, so a 435 in it would fail the check above for every
+        keymap in the tree -- including this one, the one keymap that must pass it."""
+        self.assertEqual(keymap.char_to_key("\u20ac"), (435, False))
+        self.assertNotIn("\u20ac", keymap.CHAR_TO_KEY)
+        self.assertTrue(xkbmap.active_group_is_plain_us(us_keymap.TEXT, 1))
+        with open(os.path.join(FIXTURES, "us.xkb"), encoding="utf-8") as f:
+            session_us = f.read().rstrip("\0")
+        self.assertTrue(xkbmap.active_group_is_plain_us(session_us, 1),
+                        "a real plain-us session keymap must still take the bypass")
+
     def test_it_is_captured_not_generated(self):
         # A keymap we synthesise compiles and then delivers no key events
         # (measured twice on wlroots). This is the guard against someone
@@ -330,6 +346,27 @@ class ACompositorWithoutTheProtocol(VkbdTest):
             vkbd.VirtualKeyboard.open()
         self.assertIn("does not implement", str(cm.exception))
         self.assertEqual(self.comp.created, [])
+
+    def test_the_sentence_names_muffin_on_both_sides_of_the_semicolon(self):
+        """B2. The clause listing who DOES implement it left Muffin out, so a Cinnamon user was told nothing
+        about their own desktop; vm/live-smoke.d/cinnamon-wayland.sh:376 pins the Muffin|Cinnamon half of it
+        against a real muffin session, and this pins the bytes. Both halves are true and both are named:
+        26.04's muffin 6.4 advertises 23 globals and none is this protocol, while master (the 6.6/6.8 line)
+        ships virtual-keyboard-unstable-v1.xml and META_ZWP_VIRTUAL_KEYBOARD_MANAGER_V1_VERSION 1
+        [M recon2/cinnamon.md §2.1]."""
+        with self.assertRaises(vkbd.VkbdError) as cm:
+            vkbd.VirtualKeyboard.open()
+        said = str(cm.exception)
+        # the step file's own two greps, in the order it runs them
+        self.assertRegex(said, r"does not implement zwp_virtual_keyboard_manager_v1")
+        self.assertRegex(said, r"Muffin|Cinnamon")
+        do_not, _, do = said.partition(";")
+        self.assertIn("Muffin 6.4", do_not)
+        self.assertIn("Muffin 6.6+", do)
+        for who in ("Mutter", "KWin"):
+            self.assertIn(who, do_not)
+        for who in ("sway", "Hyprland", "wlroots", "COSMIC"):
+            self.assertIn(who, do)
 
 
 class ACompositorThatRefuses(VkbdTest):
@@ -542,15 +579,17 @@ class ACosmicShapedSession(VkbdTest):
         self.assertTrue(any("zwp_virtual_keyboard_v1" in w for w in warns), warns)
 
     def test_the_refusal_no_longer_puts_cosmic_on_the_wrong_side(self):
-        """The sentence a session without the protocol gets. COSMIC has it, so COSMIC belongs in the second
-        half of the list; naming it in the first half would send a user looking for a bug that is not
-        there."""
+        """The sentence a session without the protocol gets, byte for byte. COSMIC has it, so COSMIC belongs
+        in the second half of the list; naming it in the first half would send a user looking for a bug that
+        is not there. Muffin joined both halves in B2 -- 6.4 has no such global, master carries it -- and the
+        byte pin is here so a reword has to come back through this test and cinnamon-wayland.sh:376."""
         self.comp.manager_version = None
         d = self.daemon(uinput=True)
         with self.assertRaises(RuntimeError) as cm:
             d.op_type("hi", 0, False, None, None, "on")
         said = str(cm.exception)
-        self.assertIn("(Mutter and KWin do not; sway, Hyprland, the wlroots family and COSMIC do)", said)
+        self.assertIn("(Mutter, KWin and Cinnamon's Muffin 6.4 do not; sway, Hyprland, the wlroots "
+                      "family, COSMIC and Muffin 6.6+ do)", said)
 
 
 class TheGnomePathIsUntouched(VkbdTest):
@@ -618,6 +657,16 @@ class UnderANonUsSessionLayout(VkbdTest):
                           ("key", 21, 0),
                           ("key", keymap.KEY_LEFTSHIFT, 0),
                           ("mods", 0, 0, 0, 0)])
+
+    def test_the_euro_sign_goes_out_as_the_keycode_the_uploaded_keymap_binds(self):
+        """B2, the end of goal2/recon/gaps.md §3b: `wdotool type EUR+X` put only the X in a focused `foot`
+        and warned "Can't type character". Now evdev 435 (KEY_EURO, `key <I443>`) and 45 (x) go out, in that
+        order, with no Shift and no warning -- reproduced live 2026-09-11 on headless sway 1.11 + foot:
+        `wdotool --vkbd on type -- EUR+X` landed `b'\\xe2\\x82\\xacX\\n'`."""
+        d = self.daemon(uinput=False)
+        warns = d.op_type("\u20acx", 0, False)
+        self.assertEqual(self.comp.pressed(), [435, 45])
+        self.assertEqual([w for w in warns if "Can't type character" in w], [])
 
     def test_a_character_the_us_keymap_cannot_type_is_still_skipped(self):
         d = self.daemon(uinput=False)

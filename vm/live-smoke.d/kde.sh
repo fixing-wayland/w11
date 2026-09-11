@@ -29,16 +29,19 @@ EDITOR_CLASS=kate
 # runs predate this phase -- so Ubuntu's Plasma being seated by sddm is a `want`
 # on that recon and on nothing else.  Fedora 44 is seated by plasmalogin.service
 # instead, whose autologin keys were read out of the plasma-login-manager rpm's
-# /etc/plasmalogin.conf template and never run [recon2/fedora 5], so that half
-# is an `xwant` until the first fedora44-kde golden builds and says XPASS.
+# /etc/plasmalogin.conf template [recon2/fedora 5].  That half was an `xwant`
+# until the golden built: the first fedora44-kde rig run says
+# `logind says this session's Service is 'plasmalogin-autologin'` and XPASS
+# [M goal2/ci/rig-fedora44-kde.log:543-544, 2026-09-11], so it is a plain
+# `want` now -- the same prefix rule as sddm's, because autologin's PAM
+# service carries the suffix on both.
 phase_dm() {
     local svc
     svc=$(guest 'loginctl show-session "${XDG_SESSION_ID:-auto}" -p Service --value 2>/dev/null' \
             | tr -d ' \r' || true)
     note "logind says this session's Service is '${svc:-<empty>}'"
     if [ "$DISTRO" = fedora ]; then
-        xwant "plasma-login-manager seated the session (until fedora44-kde builds once)" \
-              "^plasmalogin" "$svc"
+        want "plasma-login-manager seated the session" "^plasmalogin" "$svc"
     else
         want "sddm seated the session" "^sddm" "$svc"
     fi
@@ -171,11 +174,57 @@ phase_kwin() {
     sleep 2
     beside right "$first" "$second" "positioning the replica again ends the mirror"
     # F4.1 live: two same-title xterms on Xwayland, moved by X id.
+    #
+    # `-e sh -c 'sleep 600'` and not a bare xterm: an interactive shell REWRITES the
+    # title `-T` set.  Measured on the arch-kde golden (Plasma 6.7.5 / KWin 6.7.5,
+    # 2026-09-11): two `xterm -T fwtwin` came up titled `test@kde-b6:~` -- Arch's
+    # /etc/bash.bashrc writes the xterm title out of PS1 -- so `wdotool search --name
+    # '^fwtwin$'` found 0 AND the real `xdotool search --name fwtwin` found 0, on the
+    # same session in the same second.  The clone agreed with X; the check was asking
+    # for a title nothing on that desktop carried.  With the shell out of the way the
+    # very same session answers 2, `wwmctl -lpx` lists both twins under the X ids
+    # `xprop -root _NET_CLIENT_LIST` names (0x00e00012 and 0x01000012), and `-i -r
+    # <xid> -e` moves the second alone (758,367 484x344 -> 700,120 600x428, the first
+    # left at 718,345).  hypr.sh's X client has carried the `-e` since it was written,
+    # which is why arch-hypr's XWayland id join passed in the same CI run this failed.
+    #
+    # Only arch-kde and fedora44-kde carry an X client at all -- noble-kde,
+    # resolute-kde and stonking-kde print the note at the bottom of this block
+    # instead [M vm/live-smoke.out/noble-kde-20260908-100601.log:111] -- so the
+    # 2026-09-11 rig run was the first execution of this pair anywhere, and both of
+    # its failures were this one bug.  Nothing under wdotool/ had to change for it:
+    # the 6.7.5 join is measured working, and is a fixture in
+    # tests/test_backend_kwin.py (KWIN_675_RAW / KWIN_675_CLIENTS) as of this run.
     if [ "$(guest 'command -v xterm' | wc -l)" -gt 0 ]; then
-        guest "setsid nohup xterm -T fwtwin >/dev/null 2>&1 </dev/null &
-               setsid nohup xterm -T fwtwin >/dev/null 2>&1 </dev/null & sleep 4; true" >/dev/null || true
+        guest "setsid nohup xterm -T fwtwin -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null &
+               setsid nohup xterm -T fwtwin -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 1; true" \
+            >/dev/null || true
+        # On this golden Xwayland is already up when the session seats (pid 570 on
+        # :1, `-rootless`, before any X client -- measured 2026-09-11 on arch-kde);
+        # a window is listed once KWin has mapped and managed it.  So this waits for
+        # the pair rather than sleeping at it: 4 s was enough on this guest, a loaded
+        # CI runner is not this guest, and a session configured to start Xwayland on
+        # demand instead pays for the server's own startup on top of the mapping.
+        await 30 '^2$' "wdotool search --name '^fwtwin\$' | grep -cE '^[0-9]+\$'" >/dev/null || true
         local ids; ids=$(guest "wdotool search --name '^fwtwin$'" | grep -E '^[0-9]+$' || true)
         local n; n=$(printf '%s\n' "$ids" | grep -c .)
+        # A count that is not 2 is three different bugs (no X plane, an X client that
+        # died, a title that is not the one asked for) and the run used to say which
+        # one it was nowhere.  X is the oracle for all three.
+        if [ "$n" != 2 ]; then
+            local tq disp xw cl titles said
+            tq='for w in $(xdotool search --class xterm 2>/dev/null); do'
+            tq="$tq"' xdotool getwindowname $w; done'
+            disp=$(guest 'echo $DISPLAY')
+            xw=$(guest 'pgrep -a Xwayland | head -1')
+            cl=$(guest 'xprop -root _NET_CLIENT_LIST 2>&1')
+            titles=$(guest "$tq")
+            said=$(guest "wdotool search --name '^fwtwin\$' 2>&1")
+            note "DISPLAY=[$disp] Xwayland=[$(ev "$xw")]"
+            note "the X root's own client list: [$(ev "$cl")]"
+            note "the titles X has for them: [$(ev "$titles")]"
+            note "and wdotool said: [$(ev "$said")]"
+        fi
         same "two windows with the same title are two windows to the tools" "2" "$n"
         local id2; id2=$(printf '%s\n' "$ids" | sed -n 2p)
         local before after

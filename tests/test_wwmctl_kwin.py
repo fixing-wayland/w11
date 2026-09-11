@@ -38,7 +38,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ["W11_PASSTHROUGH"] = "never"
 
 from test_backend_kwin import UU, WID, XTERM_XID, _Base, _FakeX
-from wdotool import backend, backend_kwin
+from wdotool import backend, backend_detect, backend_kwin
+from wdotool import cli as wdotool_cli
 from wwmctl import cli, core
 
 #: the twin xterm the tie tests add: a second window of the same client, same
@@ -48,6 +49,13 @@ from wwmctl import cli, core
 #: so no window carries its own X id there).
 TWIN_UU = "8d0e0000-0000-4000-8000-00000000d00d"
 XID_A, XID_B = 0x1000001, 0x1000003
+
+#: the two ids Xwayland actually gave that pair on the arch-kde golden (Plasma
+#: 6.7.5 / KWin 6.7.5, 2026-09-11): `xprop -root _NET_CLIENT_LIST` printed
+#: `0xe00012, 0x1000012` and `wwmctl -lpx` listed the two `fwtwin` xterms under
+#: exactly those two, one per window. Two X clients get resource-id bases that
+#: are 0x00200000 apart there, which is why these are not consecutive.
+XID_LIVE_A, XID_LIVE_B = 0x00E00012, 0x01000012
 
 #: the xterm as Xwayland reports it: the client rect sits inside KWin's frame
 XTERM_CLIENT = {"pid": 1201, "inst": "xterm", "cls": "XTerm",
@@ -107,6 +115,24 @@ class KwinCliBase(_Base):
     def ids(self, out):
         return [int(line.split()[0], 16) for line in out.splitlines()]
 
+    def wdo(self, argv):
+        """Run wdotool's CLI once over the same fake KWin.
+
+        `wwmctl -l` and `wdotool search` print two different id spaces on
+        Plasma 6 -- the listing prints the X id of an XWayland window, search
+        prints the id minted from the KWin uuid for every window there is --
+        and vm/live-smoke.d/kde.sh's F4.1 block chains one into the other, so
+        the pair has to be exercised against one desktop."""
+        out, err = io.StringIO(), io.StringIO()
+        backend_ = self.b
+        # No sys.argv patch, unlike wm() above: wdotool's cli reads sys.argv only when
+        # main() is called with none (wdotool/cli.py:323, and _prog_name at :496), and the
+        # argv here carries its own argv[0].
+        with mock.patch.object(backend_detect, "detect", lambda: backend_):
+            with redirect_stdout(out), redirect_stderr(err):
+                rc = wdotool_cli.main(["wdotool"] + list(argv))
+        return rc, out.getvalue(), err.getvalue()
+
 
 class ListingTests(KwinCliBase):
     def test_l_prints_the_xterm_under_its_x_id_and_natives_under_kwin_ids(self):
@@ -136,14 +162,17 @@ class ListingTests(KwinCliBase):
         """`wmctrl -d`: one row per KWin virtual desktop, the current one
         starred, the geometry from workspace.virtualScreenSize and the work
         area from clientArea(WorkArea) -- the fake's 0,32 1920x1048, i.e. a
-        1920x1080 screen with a 32px Plasma panel at the top. VP is N/A for
-        every desktop but the current one: KWin has no viewport of its own
-        and wmctrl prints the current one only."""
+        1920x1080 screen with a 32px Plasma panel at the top. VP is `0,0` on
+        every row: real KWin publishes `_NET_DESKTOP_VIEWPORT` as one pair per
+        desktop and real wmctrl prints `VP: 0,0` against each of them
+        (docs/WWMCTL.md:397), and there is no X plane in this rig to read it
+        from, so the clone prints the origin it knows rather than an absence
+        [M goal2/recon/gaps.md 3a, Xvfb :77, 2026-09-11]."""
         rc, out, err = self.wm(["-d"])
         self.assertEqual((rc, err), (0, ""))
         self.assertEqual(out.splitlines(), [
             "0  * DG: 1920x1080  VP: 0,0  WA: 0,32 1920x1048  Desktop 1",
-            "1  - DG: 1920x1080  VP: N/A  WA: 0,32 1920x1048  Desktop 2",
+            "1  - DG: 1920x1080  VP: 0,0  WA: 0,32 1920x1048  Desktop 2",
         ])
 
     def test_plasma_5_takes_the_xid_from_the_payload_not_from_a_match(self):
@@ -218,6 +247,76 @@ class IdentityTests(KwinCliBase):
         self.assertNotIn(XID_B, ids)
         for wid in ids:
             self.assertGreaterEqual(wid, 0x40000000)
+
+
+class SearchTests(KwinCliBase):
+    """What `vm/live-smoke.d/kde.sh`'s F4.1 pair counts and then moves.
+
+    The live check starts two `xterm -T fwtwin` on Xwayland, counts
+    `wdotool search --name '^fwtwin$'` and feeds the second id to
+    `wwmctl -i -r <id> -e`. Both halves are here over the fake KWin, because
+    both went red on arch-kde and fedora44-kde (CI 2026-09-11) with a count
+    of 0 -- and the guest says why: the shell inside a bare `xterm` rewrites
+    the title `-T` set, so the windows were there under `test@kde-b6:~` and
+    the real `xdotool search --name fwtwin` found none of them either
+    [M arch-kde golden, Plasma 6.7.5, 2026-09-11]. The count is a fact about
+    the window LIST and not about the X ids: search prints the minted id of
+    every window KWin lists, whether or not the X plane could be joined to
+    it, which is what tells that failure apart from a broken join."""
+
+    def twins(self):
+        """The fixture xterm and a second one, both titled `fwtwin`, both on
+        the X plane under ids of their own."""
+        self.kwin.find(UU["xterm"])["t"] = "fwtwin"
+        twin = self.twin(t="fwtwin")
+        self.xclients(dict(XTERM_CLIENT, name="fwtwin", xid=XID_LIVE_A),
+                      dict(XTERM_CLIENT, name="fwtwin", xid=XID_LIVE_B))
+        return twin
+
+    def test_two_same_title_xterms_are_two_ids_to_search(self):
+        """Two windows with the same title are two windows to the tools: two
+        lines, two different ids, in KWin's own stacking order."""
+        twin = self.twins()
+        rc, out, err = self.wdo(["search", "--name", "^fwtwin$"])
+        self.assertEqual((rc, err), (0, ""))
+        found = [int(line) for line in out.split()]
+        self.assertEqual(found, [WID["xterm"], backend_kwin._wid(twin["u"])])
+        # ...and the same desktop lists them under the two X ids the golden's
+        # Xwayland gave the real pair, one per window
+        rc, out, err = self.wm(["-l"])
+        self.assertEqual((rc, err), (0, ""))
+        self.assertEqual(self.ids(out)[-2:], [XID_LIVE_A, XID_LIVE_B])
+
+    def test_the_second_id_search_printed_moves_the_second_window(self):
+        """F4.1 end to end: the id that came out of `search` addresses one
+        window through `wwmctl -i -r <id> -e`, and it is the second of the
+        pair -- the first keeps the rectangle it had. The numbers are
+        kde.sh's own (`0,700,120,600,400`)."""
+        twin = self.twins()
+        rc, out, _err = self.wdo(["search", "--name", "^fwtwin$"])
+        self.assertEqual(rc, 0)
+        second = int(out.split()[1])
+        rc, out, err = self.wm(["-i", "-r", str(second), "-e",
+                                "0,700,120,600,400"])
+        self.assertEqual((rc, out, err), (0, "", ""))
+        moved = [(d["u"], d["x"], d["y"], d["w"], d["h"])
+                 for d in self.kwin.windows if d["t"] == "fwtwin"]
+        self.assertEqual(moved, [(UU["xterm"], 100, 80, 640, 480),
+                                 (twin["u"], 700, 120, 600, 400)])
+
+    def test_a_window_with_no_x_id_is_still_found_by_its_title(self):
+        """The count does not depend on the X join: with no X plane at all
+        (Xwayland not started, or its client list unreadable) the two windows
+        are still two windows and still carry ids that address them. This is
+        what tells a 0 apart from a join that went wrong -- a 0 means KWin
+        did not list the windows."""
+        twin = self.twins()
+        self.b._x = None
+        self.b._x11 = lambda: None
+        rc, out, err = self.wdo(["search", "--name", "^fwtwin$"])
+        self.assertEqual((rc, err), (0, ""))
+        self.assertEqual([int(line) for line in out.split()],
+                         [WID["xterm"], backend_kwin._wid(twin["u"])])
 
 
 class StateTests(KwinCliBase):

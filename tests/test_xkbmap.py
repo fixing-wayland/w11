@@ -11,6 +11,7 @@ every entry point into the machinery raise.
 """
 
 import contextlib
+import copy
 import io
 import os
 import re
@@ -2685,6 +2686,158 @@ def hypr_devices(*rows):
                   active_keymap="German" if idx else "English (US)")
         kbs.append(kb)
     return dict(HYPR_DEVICES, keyboards=kbs)
+
+
+class SwitchingHypr(FakeHypr):
+    """`FakeHypr` that lets `switchxkblayout <device> <n>` move that device's group.
+
+    Hyprland keeps XKB state per device and the request is per device, so a double whose `j/devices` never
+    changed could not tell a switch that took from one that did not -- which is the whole of the fourth
+    rule.  It is a request of its own and NOT a `dispatch`: measured over a raw socket on the arch-hypr
+    golden (Hyprland 0.56.2, 2026-09-11), `dispatch switchxkblayout wdotool-virtual-keyboard 1` answers
+    `Invalid dispatcher` and changes nothing, while the bare form answers `ok` and the new index is in the
+    very next `j/devices`.  `stubborn=True` answers `ok` and moves nothing -- a request accepted and not
+    acted on, which is the state the whole route-2 apply in wxrandr/hypr.py exists for and which this
+    reader has to survive; whether a name Hyprland does not know answers that way or `Invalid dispatcher`
+    was not measured, so the double does not claim it."""
+
+    def __init__(self, mode="ok", stubborn=False, **kw):
+        self.stubborn = stubborn
+        self.switches = []
+        super().__init__(mode, **kw)
+
+    def reply_for(self, req: str) -> bytes:
+        if req.startswith("switchxkblayout "):
+            name, _, idx = req[len("switchxkblayout "):].strip().rpartition(" ")
+            self.switches.append((name, int(idx)))
+            if self.mode == "refuse":
+                return self.INVALID.encode()   # what the `dispatch` spelling really answered
+            if not self.stubborn:
+                rows = copy.deepcopy(self.payloads["devices"])
+                for kb in rows.get("keyboards", []):
+                    if kb.get("name") == name:
+                        kb["active_layout_index"] = int(idx)
+                        kb["active_keymap"] = "German" if int(idx) else "English (US)"
+                self.payloads["devices"] = rows
+            return b"ok"
+        return super().reply_for(req)
+
+
+class TestTheFourthRuleOnHyprland(unittest.TestCase):
+    """U39b: the group the process that HOLDS /dev/uinput encodes for.
+
+    Hyprland keeps XKB state per device, so "which group is the session in" and "which group will the keys
+    this process is about to inject be read in" are two questions, and until this rule they had one answer.
+    Measured, resolute-hypr / Hyprland 0.53.3, 2026-09-09, `kb_layout = us,de`: with the physical
+    `at-translated-set-2-keyboard` switched to index 1, `j/devices` still reported
+    `wdotool-virtual-keyboard` at index 0, `keys explain` correctly said `German -- group 2 of 2` and
+    `wdotool type` wrote `zyq Stra-e` for `zy@ Straße` -- `@` encoded as the German AltGr+Q and read in the
+    injected device's US group as a plain `q` [M vm/live-smoke.d/hypr.sh layout_phase, xwant at :425; the
+    same on 0.56.2 in goal2/recon/gaps.md §1b #13].
+
+    The stand-in for /dev/uinput is `/dev/urandom`: a character device this process can hold open, which is
+    what `_holds_uinput` actually tests (st_rdev of every fd in /proc/self/fd against the node's).  The
+    negative case asserts the probe is False BEFORE the file is opened, so the two tests differ by the open
+    file and nothing else."""
+
+    NODE = "/dev/urandom"
+
+    def setUp(self):
+        if not os.path.exists(self.NODE):
+            self.skipTest("no %s on this box" % self.NODE)
+        self.addCleanup(setattr, xkbmap, "UINPUT_NODE", xkbmap.UINPUT_NODE)
+        xkbmap.UINPUT_NODE = self.NODE
+        self.assertFalse(xkbmap._holds_uinput(), "%s is already open in this process" % self.NODE)
+
+    def hold(self):
+        """This process becomes the injector."""
+        fh = open(self.NODE, "rb")
+        self.addCleanup(fh.close)
+        self.assertTrue(xkbmap._holds_uinput())
+        return fh
+
+    def reader(self, mode="ok", **kw):
+        srv = SwitchingHypr(mode, **kw)
+        self.addCleanup(srv.close)
+        self.srv = srv
+        return xkbmap.HyprLayouts(srv.path)
+
+    def devices(self, physical=1, ours=0):
+        return hypr_devices(("at-translated-set-2-keyboard", physical, False),
+                            ("wdotool-virtual-keyboard", ours, True))
+
+    def test_a_process_that_does_not_inject_reads_the_session_and_sends_nothing(self):
+        """`keys explain` and every other client: the session is in group 2 and that is the answer, with
+        `j/devices` the whole conversation."""
+        r = self.reader(payloads={"devices": self.devices()})
+        self.assertEqual(r.group(text("kde_us_de")), 2)
+        self.assertEqual(self.srv.switches, [])
+        self.assertEqual(self.srv.requests, ["j/devices"])
+
+    def test_the_injector_moves_its_own_device_into_the_sessions_group(self):
+        """The keys are about to go through `wdotool-virtual-keyboard`, so that device is put in the group
+        they are encoded for -- one request (`switchxkblayout`, which is not a dispatcher, see
+        `SwitchingHypr`), on our device alone; the session's own keyboard keeps the group the user put it
+        in, and nobody else types on ours."""
+        self.hold()
+        r = self.reader(payloads={"devices": self.devices()})
+        self.assertEqual(r.group(text("kde_us_de")), 2)
+        self.assertEqual(self.srv.switches, [("wdotool-virtual-keyboard", 1)])
+        self.assertEqual(r.switched, 1)
+        ours = xkbmap._hypr_our_keyboard(self.srv.payloads["devices"])
+        self.assertEqual(ours["active_layout_index"], 1)
+
+    def test_nothing_is_sent_when_the_two_devices_are_already_in_one_group(self):
+        self.hold()
+        r = self.reader(payloads={"devices": self.devices(physical=1, ours=1)})
+        self.assertEqual(r.group(text("kde_us_de")), 2)
+        self.assertEqual(self.srv.switches, [])
+        self.assertEqual(r.switched, 0)
+
+    def test_a_switch_that_did_not_take_answers_the_group_our_device_is_really_in(self):
+        """A group that is really there beats one that is not: encoding for the session's German while the
+        injected device sits in US is exactly what typed `zyq`, and US is what wdotool typed correctly with
+        before any of these readers existed."""
+        self.hold()
+        r = self.reader(stubborn=True, payloads={"devices": self.devices()})
+        self.assertEqual(r.group(text("kde_us_de")), 1)
+        self.assertEqual(self.srv.switches, [("wdotool-virtual-keyboard", 1)])
+        self.assertEqual(r.switched, 0)
+
+    def test_a_refused_request_is_not_an_exception_and_not_the_sessions_group(self):
+        """Nothing about typing may depend on this working: a Hyprland that refuses the request leaves the
+        answer at our device's own index, with no traceback anywhere near `type`.  `Invalid dispatcher` is
+        the double's refusal text because it is the one the WRONG spelling really got: `dispatch
+        switchxkblayout ...` shipped here first and answered exactly that on the arch-hypr golden, which is
+        how the bare form was found."""
+        self.hold()
+        r = self.reader("refuse", payloads={"devices": self.devices()})
+        self.assertEqual(r.group(text("kde_us_de")), 1)
+        self.assertEqual(self.srv.switches, [("wdotool-virtual-keyboard", 1)])
+
+    def test_the_probe_follows_the_node_the_daemon_was_told_to_open(self):
+        """`WDOTOOL_UINPUT_PATH` is what `wdotool/uinput.py:dev_path()` opens, so it is what this probe
+        stats.  A daemon started with the override held a node whose st_rdev matched nothing under
+        /dev/uinput, the fourth rule never fired, and the injected device stayed in whatever group it was
+        in -- silently typing `zyq` again.  UINPUT_NODE is pointed at a path that is not there, so only the
+        override can make this True."""
+        xkbmap.UINPUT_NODE = "/dev/w11-no-such-uinput-node"
+        self.addCleanup(os.environ.pop, xkbmap.UINPUT_PATH_ENV, None)
+        self.assertFalse(xkbmap._holds_uinput())
+        os.environ[xkbmap.UINPUT_PATH_ENV] = self.NODE
+        self.assertFalse(xkbmap._holds_uinput(), "%s is already open in this process" % self.NODE)
+        fh = open(self.NODE, "rb")
+        self.addCleanup(fh.close)
+        self.assertTrue(xkbmap._holds_uinput())
+
+    def test_an_injector_with_no_device_of_ours_in_the_list_reads_the_session(self):
+        """Before the daemon's device is announced -- and on the virtual-keyboard path, which uploads its
+        own keymap and never consults this -- there is nothing of ours to move, so the session's group is
+        the answer it always was."""
+        self.hold()
+        r = self.reader(payloads={"devices": hypr_devices(("at-translated-set-2-keyboard", 1, True))})
+        self.assertEqual(r.group(text("kde_us_de")), 2)
+        self.assertEqual(self.srv.switches, [])
 
 
 class TestTheActiveGroupFromHyprland(unittest.TestCase):

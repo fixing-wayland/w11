@@ -159,7 +159,15 @@ class UinputDevice:
 def keyboard() -> UinputDevice:
     # 1..255: keymap accepts numeric evdev codes up to 255 (X keycodes 9..263);
     # every accepted code must be registered or the kernel drops it silently.
-    return UinputDevice("wdotool virtual keyboard", keys=range(1, 256))
+    # 1..255 is every code an X keymap maps, and the kernel drops an event on a code that
+    # was not registered, silently. The uploaded keymap (wdotool/us_keymap.py, what vkbd.py
+    # hands the compositor) binds a few characters above that block -- the euro on evdev
+    # 435 -- and the character table answers those codes on BOTH sinks, so the kernel
+    # device registers them too (measured by the euro batch, 2026-09-11: without this a
+    # `wdotool type €` through /dev/uinput on a plain us session typed nothing).
+    from wdotool import keymap
+    extra = sorted({code for code, _shifted in keymap.UPLOADED_EXTRA_KEYS.values()} - set(range(1, 256)))
+    return UinputDevice("wdotool virtual keyboard", keys=tuple(range(1, 256)) + tuple(extra))
 
 
 def rel_mouse() -> UinputDevice:

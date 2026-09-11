@@ -803,13 +803,24 @@ class Core:
     def _viewports(self, n: int, cur: int) -> list[str]:
         """The VP column for `n` desktops, wmctrl's rule exactly.
 
-        wmctrl prints `_NET_DESKTOP_VIEWPORT[2i]` and `[2i+1]` for desktop i when the array is long enough, and
-        N/A when it is not — so a WM that publishes one pair per desktop (KWin does) prints `VP: 0,0` on every
-        row, and one that publishes a single pair prints it against the current desktop only. Read it from the X
-        server when one is already there, so the column is the same as `wmctrl -d`'s whatever the compositor
-        publishes; with no X plane fall back to the single-pair reading (no Wayland compositor implements
-        viewports — `wwmctl -o` says so — so the current desktop's origin is all we can honestly claim to
-        know)."""
+        wmctrl prints `_NET_DESKTOP_VIEWPORT[2i]` and `[2i+1]` for desktop i when the array reaches that far and
+        N/A when it does not, with ONE exception, which is the whole of its `-o` world: an array of exactly one
+        pair is a WM that scrolls a single viewport around, so the pair belongs to the current desktop and every
+        other row prints N/A — row 0 included, which is the reading a plain `[2i]` rule gets wrong. Read it from
+        the X server when one is already there, so the column is the same as `wmctrl -d`'s whatever the
+        compositor publishes; a longer-but-short array is still indexed and still prints N/A past its end, and
+        that N/A does not move to the current row [M 2026-09-11, Xvfb :81 on this box, the pinned wmctrl 1.07,
+        twelve readings: `[7,9]` over 2 desktops prints `7,9`/`N/A` with cur=0 and `N/A`/`7,9` with cur=1;
+        `[7,9,1,2]` over 3 prints `7,9`/`1,2`/`N/A` for cur=0, 1 and 2 alike; `[7,9,1]` prints `7,9`/`N/A`/`N/A`;
+        `[7]` prints N/A everywhere; absent prints N/A everywhere].
+
+        With no property to read at all, every row is `0,0`: X is the oracle and a WM that publishes viewports
+        publishes an origin for each desktop, so `0,0` everywhere is the answer, not `0,0` on the current row
+        and an absence on the others. It is also the same bytes the proxy publishes for a session with no X of
+        its own (`_NET_DESKTOP_VIEWPORT` as `[0, 0]` per desktop, xw11/shadow.py:root_props), which is what
+        makes real `wmctrl -d` through `xw11` and `wwmctl -d` agree on this column [M goal2/recon/gaps.md 3a,
+        Xvfb :77, 2026-09-11; and M 2026-09-11 on this box, headless sway with two workspaces: both routes
+        print `VP: 0,0` on BOTH rows, where this rule used to print `N/A` on the non-current one]."""
         vals = []
         if self._x11 not in ("unset", None) or session.xwayland_running():
             x = self.x11()
@@ -820,12 +831,14 @@ class Core:
                     vals = []
         out = []
         for i in range(n):
-            if len(vals) >= 2 * (i + 1):
+            if len(vals) == 2:             # one pair: the current desktop's, and nobody else's
+                out.append("%d,%d" % (vals[0], vals[1]) if i == cur else "N/A")
+            elif len(vals) >= 2 * (i + 1):
                 out.append("%d,%d" % (vals[2 * i], vals[2 * i + 1]))
-            elif len(vals) >= 2 and i == cur:
-                out.append("%d,%d" % (vals[0], vals[1]))
+            elif vals:
+                out.append("N/A")          # a real, short array: wmctrl's own N/A
             else:
-                out.append("0,0" if i == cur else "N/A")
+                out.append("0,0")          # nothing published: every desktop begins at its origin
         return out
 
     def list_desktops(self) -> int:

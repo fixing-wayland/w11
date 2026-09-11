@@ -1000,6 +1000,21 @@ def root_props(shadows, atoms):
         # `wwmctl -d` prints its `DG:` column from `display_size()`
         # (wwmctl/core.py:780) and the parity target is the clone's bytes.
         put("_NET_DESKTOP_GEOMETRY", _p_cardinal([size[0], size[1]]))
+    # One `0,0` pair per desktop, which is where every desktop on every
+    # compositor in the survey begins: no Wayland compositor scrolls a desktop
+    # under a smaller viewport yet, so the origin is the whole truth about it
+    # and it is a number, not an absence. Unconditional, unlike the two above
+    # -- a viewport the proxy cannot compute wrong is a viewport it has no
+    # reason to leave out, and leaving it out is what made real `wmctrl -d`
+    # print `VP: N/A` on every row against the clone's `VP: 0,0` [M
+    # goal2/recon/gaps.md 3a, Xvfb :77, 2026-09-11: the same hand-built EWMH
+    # root prints `VP: 0,0` on both rows with the property and `VP: N/A` on
+    # both without it]. With this line the two routes agree on the column [M
+    # 2026-09-11, headless sway 1.11 + Xwayland on this box, two workspaces:
+    # the pinned `wmctrl 1.07` through the proxy and `wwmctl -d` both print
+    # `VP: 0,0` on BOTH rows].
+    put("_NET_DESKTOP_VIEWPORT",
+        _p_cardinal([0, 0] * max(shadows.num_desktops, 1)))
     return named
 
 

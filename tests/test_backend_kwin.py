@@ -1824,6 +1824,111 @@ class PayloadShapeTests(_Base):
             self.assertEqual(wid & 0xFFFFFFFF, wid, u)
 
 
+KWIN_675_FIXTURE = os.path.join(ROOT, "tests", "fixtures", "live",
+                                "arch-kde-6.7.5-fwtwin-windowlist.txt")
+
+
+def _read_675(path=KWIN_675_FIXTURE):
+    """The measured KWin 6.7.5 payload, read out of the fixture rather than retyped.
+
+    What Plasma 6.7.5 / KWin 6.7.5 answered on the arch-kde golden (instance kde-b6) on
+    2026-09-11 with two `xterm -T fwtwin -e sh -c 'sleep 600'` (pids 2387, 2388) on its
+    Xwayland: the script's own window list with every field the matcher reads, then
+    `_NET_CLIENT_LIST` and the clients behind it, then the join the backend made.  Nothing
+    is invented -- the uuids, the pids, the rectangles, the titles and the two ORDERS are
+    that session's bytes, and the file's header says which commands printed them.
+    Returns `(raw, clients, xids, root_list)`; `#` lines are the file's prose."""
+    raw, clients, xids, root = [], [], {}, []
+    rows = None
+    with io.open(path, encoding="utf-8") as fh:
+        for line in fh:
+            if line.startswith("#"):
+                continue
+            if line.startswith("_NET_CLIENT_LIST(WINDOW)"):
+                root = [int(t, 16) for t in re.findall(r"0x[0-9a-fA-F]+", line)]
+            elif line.startswith("RAW:"):
+                rows = raw
+            elif line.startswith("CLIENTS"):
+                rows = clients
+            elif line.startswith("xids:"):
+                xids = {u: int(x) for u, x in json.loads(line.split(":", 1)[1]).items()}
+            elif line.startswith("  {") and rows is not None:
+                rows.append(json.loads(line))
+    for c in clients:
+        c["geo"] = tuple(c["geo"])
+    return raw, clients, xids, root
+
+
+#: The two xterms are `ix` 2 and 3 while the panel is `ix` 1 and `so` 3, which is the case the
+#: `ix` key exists for: workspace.windowList() is not the stacking order the payload is sorted
+#: into.  `KWIN_675_CLIENTS` is in `_NET_CLIENT_LIST` order, as KwinBackend._x_clients reads it,
+#: and each X rect is the CLIENT area (28 px of KWin titlebar above it, and 28 px shorter), which
+#: is why the pairing distance is small but never zero.  `KWIN_675_XIDS` is the join that session
+#: made: `wwmctl -lpx` printed 0x00e00012 and 0x01000012 on those two rows.
+KWIN_675_RAW, KWIN_675_CLIENTS, KWIN_675_XIDS, KWIN_675_ROOT_LIST = _read_675()
+
+
+class Kwin675Tests(_Base):
+    """KWin 6.7.5 publishes its X11 windows and the id join still works on them.
+
+    The 2026-09-11 rig run counted 0 for `wdotool search --name '^fwtwin$'` on arch-kde and
+    fedora44-kde, and the first reading of that was that Plasma 6.7 had stopped handing X11 windows
+    to org.kde.KWin.Scripting. The guest says otherwise: both xterms were in the list, under the
+    title their interactive SHELL had written over `-T fwtwin` (`test@kde-b6:~`, out of Arch's
+    /etc/bash.bashrc), and the real `xdotool search --name fwtwin` found nothing either -- the
+    clone agreed with X, and the check was asking for a title no window carried
+    (vm/live-smoke.d/kde.sh, F4.1). These pin the half that would have been broken if the first
+    reading had been right, on that session's own bytes -- kept as
+    tests/fixtures/live/arch-kde-6.7.5-fwtwin-windowlist.txt and read by `_read_675`."""
+
+    def test_the_675_payload_joins_both_twins_to_their_own_x_ids(self):
+        self.assertEqual(xid_match.match_xids(KWIN_675_RAW, KWIN_675_CLIENTS, 1.0),
+                         KWIN_675_XIDS)
+
+    def test_the_backend_makes_that_join_out_of_the_same_two_lists(self):
+        """`_xids` over the measured payload and a fake X plane serving the measured client
+        list: the same answer the session gave, through the backend's own ratio and screen
+        read (1920x1080 logical, a 1920x1080 X root, so ratio 1.0)."""
+        b = self.backend(plasma=6)
+        b._x = _FakeX(KWIN_675_CLIENTS)
+        self.assertEqual(b._x_ratio(b._x), 1.0)
+        self.assertEqual(b._xids(KWIN_675_RAW), KWIN_675_XIDS)
+
+    def test_the_twins_are_told_apart_with_no_pid_on_the_x_side(self):
+        """The measured pair differs by pid, which is the first filter and the easy case. An X
+        client that publishes no _NET_WM_PID leaves the title tied as well -- and the rectangles
+        and the two list orders still put each window on its own id."""
+        anon = [dict(c, pid=0) for c in KWIN_675_CLIENTS]
+        self.assertEqual(xid_match.match_xids(KWIN_675_RAW, anon, 1.0), KWIN_675_XIDS)
+
+    def test_the_recorded_clients_stand_in_the_recorded_root_list_order(self):
+        """The fixture is one session's bytes and its halves have to agree: the clients
+        `_x_clients` read stand in the order `xprop -root _NET_CLIENT_LIST` printed on the same
+        run (0xe00012, then 0x1000012), and the two twins run in that same order in the KWin
+        payload (pid 2387 at `ix` 2, pid 2388 at `ix` 3). That agreement is what the next test
+        leans on, and the fixture's tail holds an earlier run of the same pair where the ids
+        came out the other way round and the two orders still agreed."""
+        self.assertEqual(KWIN_675_ROOT_LIST, [0x00E00012, 0x01000012])
+        self.assertEqual([c["xid"] for c in KWIN_675_CLIENTS], KWIN_675_ROOT_LIST)
+        twins = sorted((w for w in KWIN_675_RAW if w["t"] == "fwtwin"), key=lambda w: w["ix"])
+        self.assertEqual([w["p"] for w in twins], [c["pid"] for c in KWIN_675_CLIENTS])
+
+    def test_the_client_list_order_is_read_as_an_order(self):
+        """Reversing _NET_CLIENT_LIST reverses the answer: with the pids gone the two twins are
+        separated by where they sit in the two lists. On the two recorded runs of this pair the
+        X list and windowList() ran in the same order (the test above), so the tie-break lands
+        on the right window; nothing here rests on that, only the direction does."""
+        anon = [dict(c, pid=0) for c in reversed(KWIN_675_CLIENTS)]
+        # the rectangles still hold the pair apart, so a reversed list pairs the same way ...
+        self.assertEqual(xid_match.match_xids(KWIN_675_RAW, anon, 1.0), KWIN_675_XIDS)
+        # ... and once the rectangles tie too, the order is the only key left
+        flat = [dict(c, pid=0, geo=(718, 373, 484, 316)) for c in KWIN_675_CLIENTS]
+        self.assertEqual(xid_match.match_xids(KWIN_675_RAW, flat, 1.0), KWIN_675_XIDS)
+        self.assertEqual(xid_match.match_xids(KWIN_675_RAW, list(reversed(flat)), 1.0),
+                         {"3afbbacc-28fd-4446-9de6-8dd6ad19c26c": 0x01000012,
+                          "0b364979-1a8c-49be-bbc5-a4afb4539de2": 0x00E00012})
+
+
 class XPropertyCorrectionTests(_Base):
     """5.27 hands the X id straight to the script, so nothing ever asked the
     X server about those windows -- and KWin's own answers are not the ones

@@ -309,8 +309,8 @@ class DesktopTests(GnomeCliBase):
         self.assertEqual((rc, err), (0, ""))
         self.assertEqual(out.splitlines(), [
             "0  * DG: 1920x1080  VP: 0,0  WA: 0,32 1920x1048  Workspace 1",
-            "1  - DG: 1920x1080  VP: N/A  WA: 0,32 1920x1048  Workspace 2",
-            "2  - DG: 1920x1080  VP: N/A  WA: 0,32 1920x1048  Workspace 3",
+            "1  - DG: 1920x1080  VP: 0,0  WA: 0,32 1920x1048  Workspace 2",
+            "2  - DG: 1920x1080  VP: 0,0  WA: 0,32 1920x1048  Workspace 3",
         ])
         self.assertIn("DisplaySize", [m for m, _ in self.bridge.calls])
         self.assertIn("ListWorkspaces", [m for m, _ in self.bridge.calls])
@@ -324,17 +324,41 @@ class DesktopTests(GnomeCliBase):
         self.assertEqual((rc, err), (0, ""))
         self.assertEqual([ln.split("VP: ")[1].split()[0]
                           for ln in out.splitlines()], ["0,0"] * 3)
-        # a single pair is the current desktop's, as wmctrl reads it
+        # a single pair is the CURRENT desktop's and no other row's -- row 0
+        # gets it only when row 0 is the current one, which a plain [2i] rule
+        # gets wrong [M 2026-09-11, Xvfb :81, the pinned wmctrl 1.07 over a
+        # hand-built EWMH root: `[7,9]` with 2 desktops prints `7,9`/`N/A`
+        # for cur=0 and `N/A`/`7,9` for cur=1]
         x = FakeX11(viewport=[7, 9])
         rc, out, _e = self.wm(["-d"], x11=x, xwayland=True)
         self.assertEqual([ln.split("VP: ")[1].split()[0]
                           for ln in out.splitlines()], ["7,9", "N/A", "N/A"])
-        # no X plane at all: the current desktop's origin, nothing invented
-        self.assertEqual(len(self.x_calls), 2)   # one per run above
+        self.bridge.active_ws = 1
+        self.bridge._refresh_active()
+        self.addCleanup(self.bridge._refresh_active)
+        self.addCleanup(setattr, self.bridge, "active_ws", 0)
+        x = FakeX11(viewport=[7, 9])
+        rc, out, _e = self.wm(["-d"], x11=x, xwayland=True)
+        self.assertEqual([ln.split("VP: ")[1].split()[0]
+                          for ln in out.splitlines()], ["N/A", "7,9", "N/A"])
+        # a longer-but-short array is indexed all the same, and its N/A stays
+        # past the end rather than moving to the current row [same reading:
+        # `[7,9,1,2]` over 3 desktops prints `7,9`/`1,2`/`N/A` for every cur]
+        x = FakeX11(viewport=[7, 9, 1, 2])
+        rc, out, _e = self.wm(["-d"], x11=x, xwayland=True)
+        self.assertEqual([ln.split("VP: ")[1].split()[0]
+                          for ln in out.splitlines()], ["7,9", "1,2", "N/A"])
+        self.bridge.active_ws = 0
+        self.bridge._refresh_active()
+        # no X plane at all: every desktop's origin, which is what a WM that
+        # publishes viewports prints and what real wmctrl prints through xw11,
+        # whose root publishes one `0,0` pair per desktop [M
+        # goal2/recon/gaps.md 3a, Xvfb :77, 2026-09-11]
+        self.assertEqual(len(self.x_calls), 4)   # one per run above
         self.x_calls = []
         rc, out, _e = self.wm(["-d"], x11=None, xwayland=False)
         self.assertEqual([ln.split("VP: ")[1].split()[0]
-                          for ln in out.splitlines()], ["0,0", "N/A", "N/A"])
+                          for ln in out.splitlines()], ["0,0", "0,0", "0,0"])
         self.assertEqual(self.x_calls, [])
 
     def test_d_nameless_workspace_prints_its_index(self):
@@ -349,7 +373,7 @@ class DesktopTests(GnomeCliBase):
         self.bridge.m_ListWorkspaces = nameless
         rc, out, _e = self.wm(["-d"], x11=None)
         self.assertEqual(out.splitlines()[1],
-                         "1  - DG: 1920x1080  VP: N/A  WA: 0,32 1920x1048  1")
+                         "1  - DG: 1920x1080  VP: 0,0  WA: 0,32 1920x1048  1")
 
     def test_s(self):
         rc, _o, err = self.wm(["-s", "2"], x11=None)

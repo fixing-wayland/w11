@@ -18,6 +18,7 @@ The dispatch strings are asserted byte for byte against the double's request log
 contract with the compositor and every one of them was measured `ok` and verified in `hyprctl clients`.
 """
 
+import copy
 import json
 import os
 import shutil
@@ -56,11 +57,45 @@ FOOT_FLOAT = ADDRS[0]     # floating, at 100,120 size 800x600
 FOOT_TILED = ADDRS[1]     # tiled, at 22,22 size 931x1036
 
 
+class BatchHypr(support.FakeHypr):
+    """`support.FakeHypr` that also speaks `[[BATCH]]`, which is what `hyprctl --batch` sends.
+
+    The request is the prefix and then the requests separated by `;`, and the reply is one answer per
+    request joined by three newlines -- `ok\n\n\nok` for two dispatches that both took, and
+    `ok\n\n\nInvalid dispatcher` when the second verb does not exist (measured over a raw socket, see
+    `SEP`).  `refuse_verbs` refuses the named dispatch verbs and nothing else, so a batch can be half
+    accepted, which is the only way the relayed sentence below is worth asserting."""
+
+    PREFIX = "[[BATCH]]"
+    #: Measured over a raw socket on the arch-hypr golden (Hyprland 0.56.2, 2026-09-11): two dispatches
+    #: that took answered `b'ok\n\n\nok'`, and one whose second verb does not exist answered
+    #: `b'ok\n\n\nInvalid dispatcher'` -- the whole batch runs and every answer comes back, three
+    #: newlines between them.
+    SEP = b"\n\n\n"
+
+    def __init__(self, mode="ok", refuse_verbs=(), **kw):
+        self.refuse_verbs = tuple(refuse_verbs)
+        self.batches = []
+        super().__init__(mode, **kw)
+
+    def reply_for(self, req: str) -> bytes:
+        if req.startswith(self.PREFIX):
+            parts = req[len(self.PREFIX):].split(";")
+            self.batches.append(parts)
+            return self.SEP.join(self.reply_for(p) for p in parts)
+        verb = req.split(" ", 1)[0]
+        if verb == "dispatch" and req.split(" ")[1:2] and req.split(" ")[1] in self.refuse_verbs:
+            return self.INVALID.encode()
+        return super().reply_for(req)
+
+
 class Base(unittest.TestCase):
     """One FakeHypr per test, and a backend speaking to it."""
 
+    DOUBLE = BatchHypr
+
     def hypr(self, mode="ok", **kw) -> support.FakeHypr:
-        srv = support.FakeHypr(mode, **kw)
+        srv = self.DOUBLE(mode, **kw)
         self.addCleanup(srv.close)
         return srv
 
@@ -268,11 +303,66 @@ class Dispatches(Base):
 
     def test_move_and_resize_address_the_window_by_address(self):
         self.b.move_window(self.float_id, 100, 120)
-        self.b.resize(self.float_id, 800, 600)
+        self.b.resize(self.float_id, 640, 480)
         self.assertEqual(self.dispatches(), [
             "dispatch movewindowpixel exact 100 120,address:0x59daae6de8f0",
-            "dispatch resizewindowpixel exact 800 600,address:0x59daae6de8f0",
+            "[[BATCH]]dispatch resizewindowpixel exact 640 480,address:0x59daae6de8f0;"
+            "dispatch movewindowpixel exact 100 120,address:0x59daae6de8f0",
         ])
+
+    def test_resize_re_issues_the_origin_after_the_size_in_one_batch(self):
+        """Hyprland 0.56.2 resizes a floating window about its CENTRE, so the size MOVES it: measured with
+        `hyprctl` alone, 100,100 800x600 sent `resizewindowpixel exact 400 300` landed at 300,250 400x300
+        (both centred on 500,400), which is why the smoke's move-then-size came out 660,340 800x600
+        [M goal2/recon/flavors.md 3a, and CI runs 34372382621 / 103360601210].  `xdotool windowsize` never
+        moves the origin, so the origin `j/clients` already carries goes back out after the resize, in the
+        same batch -- one round trip, nothing of Hyprland's between the two dispatches."""
+        self.b.resize(self.float_id, 640, 480)
+        sent = self.dispatches()
+        self.assertEqual(len(sent), 1, sent)
+        self.assertTrue(sent[0].startswith("[[BATCH]]"), sent[0])
+        first, second = sent[0][len("[[BATCH]]"):].split(";")
+        self.assertEqual(first, "dispatch resizewindowpixel exact 640 480,address:0x59daae6de8f0")
+        # 100,120 is the fixture's `at` for this window, so the second dispatch is the PRE-RESIZE origin
+        # and not a number this test made up
+        self.assertEqual(second, "dispatch movewindowpixel exact 100 120,address:0x59daae6de8f0")
+
+    def test_a_row_without_an_origin_resizes_alone_rather_than_moving_to_the_corner(self):
+        """A `j/clients` row with no readable `at` gets the resize on its own.
+
+        Every row measured here carries a two-number `at` (the recorded fixture and the live arch-hypr
+        golden), so this is the shape of a row nobody has seen -- and the answer to not knowing where the
+        window is is to leave it there. `movewindowpixel exact 0 0` is the one thing this method exists to
+        prevent, and sending it off a default would be doing it deliberately."""
+        rows = copy.deepcopy(support.fixture_json("hypr", "clients.json"))
+        for row in rows:
+            if row.get("address") == FOOT_FLOAT:
+                del row["at"]
+        srv = self.hypr(payloads={"clients": rows})
+        b = self.backend(srv)
+        srv.requests.clear()
+        b.resize(backend_mod.mint_id(FOOT_FLOAT), 640, 480)
+        self.assertEqual(self.dispatches(),
+                         ["dispatch resizewindowpixel exact 640 480,address:0x59daae6de8f0"])
+
+    def test_a_batch_hyprland_did_not_take_whole_is_its_own_words(self):
+        """The reply to a batch is one answer per request, joined by three newlines (`ok\n\n\nok` for two
+        dispatches that took), so a refusal anywhere in it makes one of those answers something else. It is
+        relayed whole and in Hyprland's name, the way a single dispatch is -- half a batch that took is not
+        a success to report."""
+        srv = self.hypr(refuse_verbs=("movewindowpixel",))
+        b = self.backend(srv)
+        with self.assertRaises(CmdError) as cm:
+            b.resize(backend_mod.mint_id(FOOT_FLOAT), 640, 480)
+        self.assertEqual(str(cm.exception), "hypr: %s" % BatchHypr.INVALID)
+        self.assertEqual(len(srv.batches), 1)
+
+    def test_a_tiled_window_is_refused_before_anything_is_sent(self):
+        """The refusal comes first, so `--sync` does not spin on a resize that will never happen -- and the
+        batch above never reaches a window Hyprland would re-lay out anyway."""
+        with self.assertRaises(SoftCmdError):
+            self.b.resize(self.tiled_id, 640, 480)
+        self.assertEqual(self.dispatches(), [])
 
     def test_activate_close_and_workspaces(self):
         self.b.activate(self.float_id)

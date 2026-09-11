@@ -178,10 +178,74 @@ class HyprBackend(WindowBackend):
         self._refuse_tiled(row, "move", "position")
         self.ipc.dispatch("movewindowpixel exact %d %d,%s" % (x, y, self._addr(row)))
 
+    #: hyprctl --batch's own prefix on the wire, and `;` between the requests.
+    BATCH = "[[BATCH]]"
+    #: What Hyprland puts BETWEEN the answers of a batch: one reply per request, joined by three newlines.
+    #: Measured on the arch-hypr golden (0.56.2, 2026-09-11) over a raw socket: two dispatches that took
+    #: answered `b'ok\n\n\nok'`, and a batch whose second verb does not exist answered
+    #: `b'ok\n\n\nInvalid dispatcher'`. Not `okok`, which is what this code first assumed and what the
+    #: live run corrected.
+    BATCH_SEP = "\n\n\n"
+
+    def _batch(self, dispatches: "list[str]") -> str:
+        """Several dispatches in ONE round trip, insisting on `ok` for every one of them.
+
+        `HyprIPC.dispatch` is a connection per verb, and two connections are two moments: Hyprland re-lays
+        the floating window between them, which is exactly what `resize` below must not allow.
+
+        Hyprland answers a batch whatever happened -- the refusal of one verb does not stop the others --
+        so the first answer that is not `ok` is the one relayed, in its own words, the way a single
+        dispatch's is."""
+        text = self.BATCH + ";".join("dispatch " + d for d in dispatches)
+        reply = self.ipc.request(text).decode("utf-8", "replace")
+        parts = [p.strip() for p in reply.split(self.BATCH_SEP)]
+        bad = [p for p in parts if p != "ok"]
+        if bad or len(parts) != len(dispatches):
+            raise CmdError("hypr: %s" % (bad[0] if bad else reply.strip()))
+        return reply
+
     def resize(self, wid: int, w: int, h: int):
+        """`resizewindowpixel exact`, and then the origin again, in one batch.
+
+        Hyprland 0.56.2 resizes a floating window about its CENTRE, so the size moves the window: measured
+        with `hyprctl` alone on a fresh 0.56.2 session, a window at 100,100 800x600 sent
+        `resizewindowpixel exact 400 300` landed at 300,250 400x300 -- both rectangles have the centre
+        (500,400) [M goal2/recon/flavors.md 3a]. The smoke's move-then-size therefore came out at
+        660,340 800x600 from 100,100 1920x1080 (100+560, 100+240), the bytes CI printed twice
+        (`hypr.sh` windows phase, runs 34372382621 and 103360601210). 0.53.3 did not do it.
+
+        X is the oracle and unambiguous: `xdotool windowsize` changes width and height and never the
+        origin. So the position `row["at"]` already carries -- fetched here for `_refuse_tiled` -- is
+        re-issued after the resize, both dispatches in one `--batch` so no repaint sits between them
+        (measured: two separate dispatches also land, the batch lands 100,100 800x600 in one round
+        trip)."""
         row = self._row(wid)
         self._refuse_tiled(row, "resize", "size")
-        self.ipc.dispatch("resizewindowpixel exact %d %d,%s" % (w, h, self._addr(row)))
+        addr = self._addr(row)
+        at = self._origin(row)
+        if at is None:
+            # No origin to put back: the resize goes out ALONE rather than with a `movewindowpixel exact
+            # 0 0` after it. Every `j/clients` row measured here carries a two-number `at` (the recorded
+            # fixture's four rows, and the live arch-hypr golden), so this is not a case seen on the wire
+            # -- but a move to 0,0 is the one thing this method exists to prevent, and guessing it from a
+            # row we could not read would be doing it on purpose.
+            self.ipc.dispatch("resizewindowpixel exact %d %d,%s" % (w, h, addr))
+            return
+        self._batch(["resizewindowpixel exact %d %d,%s" % (w, h, addr),
+                     "movewindowpixel exact %d %d,%s" % (at[0], at[1], addr)])
+
+    @staticmethod
+    def _origin(row: dict) -> "tuple[int, int] | None":
+        """`row["at"]` as two ints, or None when the row does not carry one.
+
+        None is not 0,0 here: the caller sends nothing rather than a move to the corner."""
+        at = row.get("at")
+        if not isinstance(at, list) or len(at) != 2:
+            return None
+        try:
+            return int(at[0]), int(at[1])
+        except (TypeError, ValueError):
+            return None
 
     def _no(self, op: str, why: str, route: str):
         """A capability gap with its reason and its route attached. `_unsupported()` names the operation and

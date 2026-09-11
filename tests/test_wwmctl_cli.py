@@ -477,14 +477,31 @@ class DesktopTest(unittest.TestCase):
             ])
 
     def test_d_format(self):
-        # VP is per-current-desktop, like wmctrl under EWMH: the single
-        # viewport pair applies to the current desktop, the rest print N/A
+        # VP is `0,0` on EVERY row, which is what real wmctrl prints against a
+        # WM that publishes `_NET_DESKTOP_VIEWPORT` as one pair per desktop --
+        # and what it prints through xw11, whose root now publishes exactly
+        # that [M goal2/recon/gaps.md 3a, Xvfb :77, 2026-09-11]. It used to be
+        # `N/A` on the non-current rows, which no X WM with viewports prints.
         rc, out, _e, _b = run(["-d"], backend=self._backend())
         self.assertEqual(rc, 0)
         self.assertEqual(out.splitlines(), [
-            "0  - DG: 1280x720  VP: N/A  WA: 0,0 1280x690  1",
+            "0  - DG: 1280x720  VP: 0,0  WA: 0,0 1280x690  1",
             "1  * DG: 1280x720  VP: 0,0  WA: 0,0 1280x720  web",
         ])
+
+    def test_d_viewport_is_the_origin_on_every_row_not_only_the_current_one(self):
+        """The clone reads no X property here (no X plane in this rig), and the
+        column is still the one real `wmctrl -d` prints through the proxy: the
+        proxy publishes `[0, 0]` per desktop (xw11/shadow.py:root_props), so
+        `VP: N/A` on a non-current row would be the clone alone inventing an
+        absence. Asserted per row rather than on the whole line so that a WA or
+        a name change cannot make this one pass by accident."""
+        rc, out, _e, _b = run(["-d"], backend=self._backend())
+        self.assertEqual(rc, 0)
+        rows = out.splitlines()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual([ln.split("VP: ")[1].split()[0] for ln in rows],
+                         ["0,0", "0,0"])
 
     def test_s(self):
         rc, _o, _e, b = run(["-s", "1"])

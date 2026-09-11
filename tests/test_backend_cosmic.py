@@ -20,9 +20,12 @@ what makes a COSMIC session what it is.
 import io
 import os
 import struct
+import subprocess
 import sys
+import threading
+import time
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
 # The suite never hands a tool over to the real X11 one: see tests/conftest.py (which covers pytest) and
@@ -37,10 +40,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import wl_fake
 from w11common import session
 from w11common.errors import CmdError
-from support import env
+from support import env, sh_block
 from test_backend_wlr import FakeXPlane, net_wm_state
+from wdotool import window_cmds
 from wdotool.backend import ID_BASE, mint_id
-from wdotool.backend_cosmic import CosmicBackend
+from wdotool.backend_cosmic import ST_ACTIVATED, STATE_WAIT, CosmicBackend
 
 #: the head the nested cosmic-comp published [M recon2/cosmic.md §3: `outputs: WINIT-0 1920x1080+0+0`]
 OUT_W, OUT_H = 1920, 1080
@@ -50,14 +54,33 @@ CAPS = wl_fake.COSMIC_CAPABILITIES
 CAP_FULLSCREEN, CAP_STICKY = 5, 7
 
 
+#: a toplevel that opens after the listing did: the identifier is the same 32 base62 characters
+#: cosmic-comp mints [M recon2/cosmic.md §4], with a word in it so a failure names which window it is.
+LATE = ("LateW1nd0wQe8NowEoh7IP065Bbw8xd6", "latecomer", "foot")
+
+
 class Cosmic(wl_fake.CosmicCompositor):
     """The shared COSMIC fake with its output answering a mode event.
 
     The recorded registry has `wl_output` in it and the shared fake binds it without saying anything, which
     is right for a registry replay. The rectangle a *geometry-less* listing falls back to is this backend's
-    business, so the mode that names it is sent here."""
+    business, so the mode that names it is sent here.
+
+    Every byte this fake writes goes out under one lock. `Server._send` is a bare `sendall`
+    [tests/wl_fake.py:258] and two of the fakes below write from a thread that is not the serving one --
+    SlowRefresh from a `threading.Timer`, `open_late` from the test's own -- so without it two messages
+    could interleave inside one frame and come back as a `struct.error` under load. wl_fake.py belongs to
+    another batch this wave, so the lock lives here."""
 
     PREFIX = "wdotool-cosmic-"
+
+    def __init__(self, *a, **kw):
+        self.wire = threading.Lock()
+        super().__init__(*a, **kw)
+
+    def _send(self, conn, oid, opcode, body=b""):
+        with self.wire:
+            super()._send(conn, oid, opcode, body)
 
     def on_bind(self, conn, state, name, iface, version, new_id):
         if iface == "wl_output":
@@ -133,6 +156,196 @@ class ExtWorkspaceEnter(Cosmic):
             self.ws_ids = ids
 
 
+class SharedState(Cosmic):
+    """A COSMIC whose window state outlives the client that asked for it.
+
+    The shared fake builds a fresh `_CosmicTop` per connection, which is right for the one-client transcript
+    replay it was written for and wrong for every pair the smoke actually runs: `wdotool windowactivate` and
+    `wdotool getactivewindow` are two processes and therefore two connections, and on a real compositor the
+    state belongs to the window and not to whoever is watching. One list object per `identifier`, shared by
+    every connection's record, is that."""
+
+    def __init__(self, *a, **kw):
+        self.kept = {}     # identifier -> the one states list every connection's record points at
+        super().__init__(*a, **kw)
+
+    def _announce(self, conn, list_oid):
+        super()._announce(conn, list_oid)
+        for rec in self.tops.values():
+            rec.states = self.kept.setdefault(rec.identifier, rec.states)
+
+
+class SlowRefresh(SharedState):
+    """cosmic-comp's real timing: nothing comes back with `get_cosmic_toplevel`.
+
+    The request arm creates the handle and sends not one event
+    [R recon2/cosmic/src-cosmic-comp/src/wayland/protocols/toplevel_info.rs:186-215]; `state`, `geometry`
+    and the workspace enters are sent by `ToplevelInfoState::refresh`, which the event loop calls after
+    dispatching clients -- and `fn refresh` (src/lib.rs:340-367) SKIPS a refresh that would follow the last
+    one by under 150 ms, arming a timer instead. A `wl_display.sync` is answered inside the dispatch, so a
+    roundtrip comes back long before any of it. Measured on the fedora44-cosmic golden (cosmic-comp
+    1.8.0-1.fc44, `rpm -q` in the transcript) on 2026-09-11: the roundtrip after the
+    `get_cosmic_toplevel`s returned in 0.1 ms with every state array still absent, and every one of them
+    landed 152.1 ms later -- 153.2, 151.9 and 152.8 ms on three re-runs (the probe that reads that off the
+    wire and its output: `goal2/recon/cosmic-state-probe.py`, `goal2/recon/cosmic-state-probe.txt`).
+
+    The shared fake answers instantly, which is the one thing about it a live cosmic-comp does not do. DELAY
+    is that gap; the four checks CI measured red on both COSMIC flavors are what a client reads without it.
+    """
+
+    #: seconds, the measured 152.1 ms rounded down to something a test can wait out twice inside STATE_WAIT
+    DELAY = 0.15
+
+    def __init__(self, *a, **kw):
+        self.timers = []
+        super().__init__(*a, **kw)
+
+    def _defer(self, fn, *a):
+        t = threading.Timer(self.DELAY, fn, args=a)
+        t.daemon = True
+        self.timers.append(t)
+        t.start()
+
+    def _send_cosmic_state(self, conn, rec):
+        self._defer(super()._send_cosmic_state, conn, rec)
+
+    def close(self):
+        for t in self.timers:
+            t.cancel()
+        super().close()
+
+
+class NeverRefresh(Cosmic):
+    """A session whose `state` never arrives at all -- the empty handle cosmic-comp hands a client whose
+    `ext_foreign_toplevel_handle_v1` it could not resolve [R protocols/toplevel_info.rs:213-219]. Nothing
+    may hang on it: the listing is still a listing, with the states it never heard about left empty."""
+
+    def _send_cosmic_state(self, conn, rec):
+        pass
+
+
+class LateWindow(SlowRefresh):
+    """A session that answers for a window opened LATER and for none of the ones it started with.
+
+    Both halves are real: the empty handle above is the one cosmic-comp could not resolve, and a toplevel
+    announced after the client attached is every `foot` the smoke starts. The pair is here because the
+    give-up `_await_state` records is per HANDLE -- a client that armed one deadline per process would
+    list the new window with no state at all for the rest of that process's life, which on a
+    `wdotool search --sync` loop is the whole loop."""
+
+    def _send_cosmic_state(self, conn, rec):
+        if rec.identifier == LATE[0]:
+            super()._send_cosmic_state(conn, rec)     # SlowRefresh's timer: DELAY late
+
+    def _announce(self, conn, list_oid):
+        self.conn = conn
+        super()._announce(conn, list_oid)
+
+    def open_late(self, row, states=()):
+        """Announce one more toplevel on the live connection, the way a window opening does.
+
+        `states` is the array its (deferred) `state` event will carry, put in `kept` before the record is
+        built so SharedState hands the record that list."""
+        self.kept[row[0]] = list(states)
+        rows, self.rows = self.rows, (row,)
+        try:
+            self._announce(self.conn, self.list_oid)
+        finally:
+            self.rows = rows
+
+
+#: ext_workspace_manager_v1 / group / handle opcodes, off the XML wdotool/ext_workspace.py documents. The
+#: shared WorkspaceServer keeps its own copies private, and TwoGroupCosmic sends a shape it has no
+#: parameter for, so they are written out here the way ExtWorkspaceEnter writes out its two.
+_WSM_EV_GROUP, _WSM_EV_WORKSPACE, _WSM_EV_DONE = 0, 1, 2
+_WSG_EV_CAPABILITIES, _WSG_EV_WORKSPACE_ENTER = 0, 3
+_WS_EV_NAME, _WS_EV_COORDINATES, _WS_EV_STATE, _WS_EV_CAPABILITIES = 1, 2, 3, 4
+_WS_REQ_ACTIVATE = 1
+_WSM_REQ_COMMIT = 0
+#: ext_workspace_handle_v1.state and .workspace_capabilities
+_WS_ACTIVE, _WS_CAP_ACTIVATE = 1, 1
+
+
+class TwoGroupCosmic(Cosmic):
+    """One `ext_workspace_group_handle_v1` PER OUTPUT, which is what a COSMIC session with two heads is.
+
+    Measured on the fedora44-cosmic golden (cosmic-comp 1.8.0-1.fc44, `vmctl start --heads 2`,
+    2026-09-11): groups
+    4278190084 and 4278190087, the first carrying workspaces `1` (coordinates [1]) and `2` ([2]) and the
+    second `1` ([1]), with BOTH ones active -- one current workspace per head, both with capability 1.
+
+    The shared `WorkspaceServer` publishes ONE group, which is labwc's and Budgie's shape, so the second is
+    built here. `activate` is answered the way cosmic-comp answers it: the workspace's own group switches to
+    it and the other group is left alone [R handlers/workspace.rs `commit_requests`: `shell.activate(&output,
+    idx, ...)` on the output that owns the handle], and the new `state` events go out on the commit, because
+    that is the request that applies the batch.
+    """
+
+    #: (group index, name, coordinates, active) in announcement order
+    ROWS = ((0, "1", (1,), True), (0, "2", (2,), False), (1, "1", (1,), True))
+
+    def __init__(self, *a, **kw):
+        self.groups = []          # group oid per group index
+        self.rows = ()            # set in _ws_announce -- mutable copies of ROWS
+        super().__init__(*a, **kw)
+
+    def _ws_announce(self, conn, mgr_id):
+        self.ws_mgr = mgr_id
+        self.rows = [list(r) for r in self.ROWS]
+        oid = 0xFF000000
+        self.groups = []
+        for _g in sorted({r[0] for r in self.rows}):
+            self.groups.append(oid)
+            self._send(conn, mgr_id, _WSM_EV_GROUP, struct.pack("<I", oid))
+            self._send(conn, oid, _WSG_EV_CAPABILITIES, struct.pack("<I", 0))
+            oid += 1
+        self.ws_ids = []
+        for group, name, coords, active in self.rows:
+            self.ws_ids.append(oid)
+            self._send(conn, mgr_id, _WSM_EV_WORKSPACE, struct.pack("<I", oid))
+            self._send(conn, self.groups[group], _WSG_EV_WORKSPACE_ENTER, struct.pack("<I", oid))
+            self._send(conn, oid, _WS_EV_NAME, wl_fake.wstr(name))
+            arr = struct.pack("<%dI" % len(coords), *coords)
+            self._send(conn, oid, _WS_EV_COORDINATES,
+                       struct.pack("<I", len(arr)) + arr + b"\0" * wl_fake.pad(len(arr)))
+            self._send(conn, oid, _WS_EV_STATE, struct.pack("<I", _WS_ACTIVE if active else 0))
+            self._send(conn, oid, _WS_EV_CAPABILITIES, struct.pack("<I", _WS_CAP_ACTIVATE))
+            oid += 1
+        self._send(conn, mgr_id, _WSM_EV_DONE)
+
+    def on_request(self, conn, state, oid, opcode, body, fds):
+        if oid in self.ws_ids and opcode == _WS_REQ_ACTIVATE:
+            self.ws_calls.append(("activate", self.ws_ids.index(oid)))
+            self.pending = self.ws_ids.index(oid)
+            return
+        if oid == self.ws_mgr and opcode == _WSM_REQ_COMMIT:
+            self.ws_calls.append(("commit", None))
+            want = getattr(self, "pending", None)
+            self.pending = None
+            if want is not None:
+                group = self.rows[want][0]
+                for i, row in enumerate(self.rows):
+                    if row[0] == group:
+                        row[3] = i == want
+                for ws_oid, row in zip(self.ws_ids, self.rows):
+                    self._send(conn, ws_oid, _WS_EV_STATE,
+                               struct.pack("<I", _WS_ACTIVE if row[3] else 0))
+                self._send(conn, self.ws_mgr, _WSM_EV_DONE)
+            return
+        super().on_request(conn, state, oid, opcode, body, fds)
+
+
+class ActiveOnTheSecondHead(TwoGroupCosmic):
+    """Two groups whose desktop numbers the grouped and the flat order disagree about.
+
+    Same shape as the golden's -- a group per output, an active workspace in each -- with the first head
+    carrying three workspaces instead of two, so the active one there (`3`, coordinates [3]) sorts BEHIND
+    the other head's `1` (coordinates [1]) in `WorkspaceClient._live()`'s flat order. Grouped it is desktop
+    2; flat it would be desktop 1, and `wmctrl -s 1` would move the wrong head."""
+
+    ROWS = ((0, "1", (1,), False), (0, "2", (2,), False), (0, "3", (3,), True), (1, "1", (1,), True))
+
+
 class CosmicTest(unittest.TestCase):
     def setUp(self):
         # `xid_match` warns on a tie it cannot break, which is XWaylandIds's business and noise in the
@@ -191,8 +404,9 @@ class Listing(CosmicTest):
     def test_ids_are_minted_from_the_identifier(self):
         """`ext_foreign_toplevel_handle_v1.identifier` is 32 base62 characters and is the only handle the
         protocol carries -- no pid, no X id, no number [M recon2/cosmic.md §4]. So the id is minted from it:
-        30 bits of blake2b under 0x40000000, which keeps it out of the range Xwayland gives its clients
-        ((client << 21) | serial) and 32-bit clean for everything downstream."""
+        `ID_BASE | 30 bits of blake2b`, i.e. at or ABOVE 0x40000000, which keeps it out of the range
+        Xwayland gives its own clients ((client << 21) | serial, far below 2^30) and 32-bit clean for
+        everything downstream."""
         _comp, b = self.backend()
         wins = b.list()
         want = [mint_id(ident) for ident, _t, _a in wl_fake.COSMIC_TOPLEVELS]
@@ -629,6 +843,314 @@ class XWaylandIds(CosmicXPlane, CosmicTest):
         self.addCleanup(patch.stop)
         _comp, b = self.backend()
         self.assertIsNone(b.views())
+
+
+class TheSmokeIdCheck(unittest.TestCase):
+    """`vm/live-smoke.d/cosmic.sh`'s own id predicate, sliced out and run over the ids this backend mints.
+
+    The check read the wrong way round until 2026-09-11: it failed an id `>= 0x40000000`, which is every id
+    `backend.mint_id` produces, and both COSMIC flavors went red on it in CI with the sentence "the id
+    1081277706 is at or above 0x40000000, where an XWayland id could collide with it" -- 1081277706 is
+    0x40730C0A, `ID_BASE | blake2b` exactly [M goal2/recon/flavors.md §5]. The script's own `if` is what
+    runs here, not a paraphrase: a copy in this file would go on passing the day the script changes."""
+
+    SMOKE = os.path.join(ROOT, "vm", "live-smoke.d", "cosmic.sh")
+
+    #: the id fedora44-cosmic and arch-cosmic both minted for the smoke's foot window in CI
+    CI_ID = 1081277706
+
+    def verdict(self, wid) -> str:
+        """`pass`/`fail` for one id, from the script's block with the two reporters stubbed out."""
+        block = sh_block(self.SMOKE, '    if [ "$WIN" -ge 1000000 ]', "\n    fi\n")
+        script = "\n".join(['fail() { echo "FAIL $*"; }',
+                             'pass() { echo "PASS $*"; }',
+                             'WIN=$1',
+                             block])
+        run = subprocess.run(["bash", "-c", script, "idcheck", str(wid)],
+                             capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return run.stdout.strip()
+
+    def test_every_id_this_backend_mints_is_accepted(self):
+        for identifier, _title, _app in wl_fake.COSMIC_TOPLEVELS:
+            wid = mint_id(identifier)
+            self.assertGreaterEqual(wid, ID_BASE)
+            said = self.verdict(wid)
+            self.assertTrue(said.startswith("PASS"), "%s -> %d: %s" % (identifier, wid, said))
+
+    def test_the_id_ci_failed_on_is_accepted(self):
+        """The number is the datum, not a shape: 1081277706 is what the CI run printed for the smoke's foot
+        window and what the old `if` failed on, and the claim is that it lies inside the band `mint_id`
+        maps identifiers into -- [ID_BASE, ID_BASE + 2**30), read off the mint itself here -- so the
+        corrected check has to take it. A CI id in the floor's range or down in Xwayland's would fail this
+        line, and would mean detection had taken the wrong branch rather than that the check was wrong."""
+        band = range(ID_BASE, ID_BASE + (1 << 30))
+        minted = [mint_id(i) for i, _t, _a in wl_fake.COSMIC_TOPLEVELS]
+        self.assertTrue(all(w in band for w in minted), minted)
+        self.assertIn(self.CI_ID, band, "the id CI printed is not one this mint could have made")
+        said = self.verdict(self.CI_ID)
+        self.assertTrue(said.startswith("PASS"), said)
+
+    def test_an_id_inside_xwaylands_own_range_fails(self):
+        """0x40001e is the X id cosmic-comp's Xwayland gave the smoke's xterm on the golden (measured
+        2026-09-11, `wwmctl lists that window under its real X id 0x40001e`). A NATIVE row carrying a
+        number like that would mean the id was not minted at all."""
+        said = self.verdict(0x40001E)
+        self.assertTrue(said.startswith("FAIL"), said)
+        self.assertIn("below 0x40000000", said)
+
+    def test_a_wlr_floor_id_fails_with_the_floor_named(self):
+        said = self.verdict(1000001)
+        self.assertTrue(said.startswith("FAIL"), said)
+        self.assertIn("wlr floor", said)
+
+
+class StackCtx:
+    """What `wdotool.window_cmds.cmd_getactivewindow` asks of its ctx: a backend and a window stack.
+
+    The command and not a paraphrase of it: what CI printed on COSMIC was
+    `xdo_get_active_window reported an error`, which is this function's own string for a listing in which
+    nothing is focused [wdotool/window_cmds.py:250-268]."""
+
+    def __init__(self, backend):
+        self._backend = backend
+        self.stack = []
+
+    def backend(self):
+        return self._backend
+
+
+def getactivewindow(backend) -> str:
+    """`wdotool getactivewindow` over `backend`, its stdout as a string."""
+    out = io.StringIO()
+    with redirect_stdout(out):
+        window_cmds.cmd_getactivewindow(StackCtx(backend), [])
+    return out.getvalue()
+
+
+class DeferredState(CosmicTest):
+    """The four COSMIC failures CI measured, which are one failure: nobody waited for `state`.
+
+    `get_cosmic_toplevel` is answered with silence and the arrays come out of cosmic-comp's rate-limited
+    refresh up to 150 ms later (SlowRefresh's paragraph). A client that reads whatever a roundtrip brought
+    back sees every window unfocused and unmaximized, which is `getactivewindow` erroring and
+    `wxprop -id _NET_WM_STATE` empty -- two of the four FAILs on both COSMIC flavors
+    [goal2/ci/rig-fedora44-cosmic.log]."""
+
+    def test_getactivewindow_names_the_window_another_process_activated(self):
+        """The smoke's pair, in the shape it runs: `wdotool windowactivate --sync` and then
+        `wdotool getactivewindow` are two processes, so the second one is a second connection that has to
+        learn the state from scratch."""
+        comp, b = self.backend(cls=SlowRefresh)
+        wid = self.wid(b, "cosmicterm")
+        b.activate(wid)
+        self.assertEqual(comp.calls[-1][0], "activate")
+        b2 = self.connect()
+        self.assertEqual(getactivewindow(b2), "%d\n" % wid)
+
+    def test_the_first_listing_of_a_connection_carries_the_state(self):
+        """Not just the command above: `focused` is what `wdotool search --onlyvisible`, `wwmctl -l`'s
+        `*` and every `--sync` predicate read off the same listing."""
+        _comp, b = self.backend(cls=SlowRefresh)
+        b.activate(self.wid(b, "typedtest"))
+        b2 = self.connect()
+        self.assertEqual([(w.title, w.focused) for w in b2.list()],
+                         [("cosmicterm", False), ("typedtest", True), ("cosmicxterm", False)])
+
+    def test_a_session_whose_state_never_comes_still_lists_its_windows(self):
+        """The wait is bounded by STATE_WAIT and is not an error: a handle cosmic-comp could not resolve
+        gets no events at all, and a listing of three windows with nothing known about them is still the
+        answer. Bounded means both ends -- it waits the budget out (or the wait is not happening) and it
+        does not wait twice the budget (or the deadline is not the one it is written to)."""
+        comp = self.compositor(NeverRefresh)
+        t0 = time.monotonic()
+        b = self.connect()
+        spent = time.monotonic() - t0
+        self.assertGreaterEqual(spent, STATE_WAIT, "%.3fs: the silent handles were not waited for" % spent)
+        self.assertLess(spent, STATE_WAIT * 2, "%.3fs: the deadline is not STATE_WAIT" % spent)
+        wins = b.list()
+        self.assertEqual([w.title for w in wins], ["cosmicterm", "typedtest", "cosmicxterm"])
+        self.assertEqual([w.focused for w in wins], [False, False, False])
+        self.assertEqual([(w.x, w.y, w.w, w.h) for w in wins], [(0, 0, OUT_W, OUT_H)] * 3,
+                         "and the rectangle falls back to the head's, silently")
+        self.assertEqual(comp.calls, [], "nothing was sent to the manager to make that happen")
+
+    def test_the_give_up_is_remembered_so_the_next_listing_does_not_pay_again(self):
+        """`_refresh()` runs on every `list()` and every `window*` command. Before `_Top.waited` the
+        never-answering session paid the whole budget on each of them: measured over NeverRefresh, three
+        consecutive `list()` calls took 0.504 s, 0.501 s and 0.501 s and one `activate()` 0.501 s, so a
+        `wdotool search --sync` loop polled at two hertz and every tool that lists twice cost a second.
+        The budget belongs to the handle, and this session's handles have spent theirs."""
+        _comp, b = self.backend(cls=NeverRefresh)     # the constructor is where it is spent
+        wid = self.wid(b, "cosmicterm")
+        t0 = time.monotonic()
+        for _ in range(3):
+            b.list()
+        b.activate(wid)
+        spent = time.monotonic() - t0
+        self.assertLess(spent, STATE_WAIT,
+                        "%.3fs for three listings and an activate: the give-up is not remembered" % spent)
+
+    def test_a_window_that_opens_later_is_waited_for_all_the_same(self):
+        """The give-up is per handle and not per process. This session answers for nothing it started with
+        -- so its three handles are given up on -- and then a window opens, whose `state` comes 150 ms
+        after the `get_cosmic_toplevel` like every other one on a live cosmic-comp. The listing that
+        follows has to carry it: `wdotool search --sync foot` polls `list()` in one process, and a
+        deadline armed once per process would answer `focused: False` about the window it just opened for
+        as long as that process lived."""
+        comp, b = self.backend(cls=LateWindow)
+        self.assertEqual([w.focused for w in b.list()], [False, False, False])
+        comp.open_late(LATE, states=[ST_ACTIVATED])
+        wins = b.list()
+        self.assertEqual([w.title for w in wins],
+                         ["cosmicterm", "typedtest", "cosmicxterm", "latecomer"])
+        self.assertEqual([w.focused for w in wins], [False, False, False, True],
+                         "the new handle got its own wait; the old ones are still silent")
+        self.assertEqual(getactivewindow(b), "%d\n" % wins[-1].id)
+
+    def test_the_wait_ends_as_soon_as_the_arrays_are_in(self):
+        """It is a wait FOR the events and not a sleep: SlowRefresh answers in 150 ms and the constructor
+        must not sit out the whole 500 ms budget after that."""
+        _comp = self.compositor(SlowRefresh)
+        t0 = time.monotonic()
+        b = self.connect()
+        spent = time.monotonic() - t0
+        self.assertTrue(all(r.have_state for r in b.tops.values()))
+        self.assertLess(spent, STATE_WAIT, "%.3fs" % spent)
+
+
+class DeferredStateViews(CosmicXPlane, CosmicTest):
+    """The other two of the four: what `wxprop -id` prints for a window maximized by another process."""
+
+    def test_wxprop_prints_the_maximize_a_second_process_asked_for(self):
+        """CI's `wxprop -id says the window is maximized [got: _NET_WM_STATE(ATOM) = ]` on both flavors:
+        `wwmctl -r :ACTIVE: -b add,maximized_vert,maximized_horz` really did send `set_maximized`, and the
+        `wxprop` that followed it read a state array it had not waited for. Measured green on the
+        fedora44-cosmic golden after the wait landed, 2026-09-11: `_NET_WM_STATE(ATOM) =
+        _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_FOCUSED`."""
+        self.x_server()
+        _comp, b = self.backend(cls=SlowRefresh)
+        b.set_state(self.wid(b, "cosmicterm"), "MAXIMIZED_VERT", 1)
+        b2 = self.connect()
+        views = {v.window.title: v for v in b2.views()}
+        self.assertEqual((views["cosmicterm"].maximized_h, views["cosmicterm"].maximized_v), (True, True))
+        self.assertEqual(net_wm_state(views["cosmicterm"]),
+                         ["_NET_WM_STATE_MAXIMIZED_HORZ", "_NET_WM_STATE_MAXIMIZED_VERT"])
+        self.assertEqual(net_wm_state(views["typedtest"]), [],
+                         "and the window nobody maximized says nothing")
+
+    def test_the_geometry_arrives_with_the_state_and_not_the_head_rectangle(self):
+        """The same wait is why `wdotool getwindowgeometry` reads a rectangle on COSMIC at all: the
+        `geometry` event comes out of the same refresh. Measured on the golden 2026-09-11: `762,201
+        696x532` where the floor fallback would have been `0,0 1920x1080`, which is why
+        vm/live-smoke.d/cosmic.sh's geometry check is a `want` now and not an `xwant`."""
+        self.x_server()
+        _comp, b = self.backend(cls=SlowRefresh, geometry=(40, 50, 640, 480))
+        b2 = self.connect()
+        self.assertEqual([(w.x, w.y, w.w, w.h) for w in b2.list()], [(40, 50, 640, 480)] * 3)
+        self.assertFalse(b2.geometry_is_floor, "no window fell back to the output rectangle")
+
+
+class GroupedWorkspaces(CosmicTest):
+    """Desktop numbers on a session with a workspace group per head.
+
+    `set_desktop 1 -> get_desktop 0` was the third COSMIC FAIL on both flavors. With two heads cosmic-comp
+    publishes two groups, each with its own active workspace, and ordering the flat list by `(coordinates,
+    arrival)` alone interleaves them: desktop 1 was the OTHER head's workspace `1`, already active, so the
+    activate moved nothing at all [M goal2/recon/flavors.md §5 and the golden, TwoGroupCosmic's paragraph].
+    """
+
+    def flat_order(self, b):
+        """What `ext_workspace.WorkspaceClient` numbers by -- the order this backend does NOT use."""
+        return [r.oid for r in b.ws._live()]
+
+    def test_the_desktops_run_group_by_group(self):
+        _comp, b = self.backend(cls=TwoGroupCosmic)
+        self.assertEqual([(w.index, w.name, w.active) for w in b.workspaces()],
+                         [(0, "1", True), (1, "2", False), (2, "1", True)])
+        self.assertEqual(b.num_desktops(), 3)
+
+    def test_the_flat_order_is_a_different_list_and_is_not_the_one_used(self):
+        """The guard on the sentence above: with the coordinates these two groups carry, sorting by them
+        alone really does interleave the heads, so the two orders are different lists."""
+        comp, b = self.backend(cls=TwoGroupCosmic)
+        self.assertEqual(self.flat_order(b), [comp.ws_ids[0], comp.ws_ids[2], comp.ws_ids[1]])
+        self.assertEqual(b._ws_handles(), list(comp.ws_ids))
+
+    def test_the_current_desktop_is_the_first_active_row_of_the_GROUPED_order(self):
+        """`ActiveOnTheSecondHead` is the fixture the two orders disagree about: grouped, the first active
+        row is the first head's `3` at desktop 2; flat, the second head's `1` sorts in at index 1 by its
+        coordinates and the answer would be 1. Both are read here, so the test says which order produced
+        the number rather than agreeing with either."""
+        comp, b = self.backend(cls=ActiveOnTheSecondHead)
+        flat = self.flat_order(b)
+        self.assertEqual(flat, [comp.ws_ids[0], comp.ws_ids[3], comp.ws_ids[1], comp.ws_ids[2]])
+        self.assertEqual(b._ws_handles(), list(comp.ws_ids), "grouped: announcement order, group by group")
+        active = {comp.ws_ids[2], comp.ws_ids[3]}
+        self.assertEqual(next(i for i, oid in enumerate(flat) if oid in active), 1,
+                         "the flat order's answer, spelled out so the two cannot be confused")
+        self.assertEqual(b.get_desktop(), 2)
+        self.assertEqual([w.active for w in b.workspaces()], [False, False, True, True])
+
+    def test_set_desktop_on_the_fixture_the_orders_disagree_about(self):
+        """And the switch reaches the same workspace the number named: desktop 1 is the first head's `2`
+        (announcement index 1), where the flat order would have activated the other head's `1` (index 3)
+        -- the shape of the CI failure, where the activate went to a workspace that was already active."""
+        comp, b = self.backend(cls=ActiveOnTheSecondHead)
+        b.set_desktop(1)
+        self.assertEqual(comp.ws_calls, [("activate", 1), ("commit", None)])
+        self.assertEqual(b.get_desktop(), 1)
+
+    def test_set_desktop_1_switches_the_head_that_owns_desktop_1(self):
+        """The measured pair: `wdotool set_desktop 1` then `wdotool get_desktop` answered 1 on the
+        fedora44-cosmic golden on 2026-09-11, having answered 0 in CI. `activate` goes to the FIRST group's
+        second workspace -- announcement index 1 -- and not to the other head's row, which is what the flat
+        order would have activated."""
+        comp, b = self.backend(cls=TwoGroupCosmic)
+        b.set_desktop(1)
+        self.assertEqual(comp.ws_calls, [("activate", 1), ("commit", None)])
+        self.assertEqual(b.get_desktop(), 1)
+        self.assertEqual([w.active for w in b.workspaces()], [False, True, True],
+                         "the other head's workspace is left where it was")
+
+    def test_set_desktop_0_puts_it_back(self):
+        """The round trip, on the two-workspace head: what this one pins is the `activate` + `commit` pair
+        going out again for the second switch and the state coming back, not the ordering (with these rows
+        desktop 0 is the same workspace in either order -- the ordering is the two tests above)."""
+        comp, b = self.backend(cls=TwoGroupCosmic)
+        b.set_desktop(1)
+        b.set_desktop(0)
+        self.assertEqual(comp.ws_calls[-2:], [("activate", 0), ("commit", None)])
+        self.assertEqual(b.get_desktop(), 0)
+
+    def test_a_desktop_that_is_not_there(self):
+        comp, b = self.backend(cls=TwoGroupCosmic)
+        for n in (-1, 3):
+            with self.assertRaises(CmdError) as cm:
+                b.set_desktop(n)
+            self.assertIn("cannot activate workspace %d" % n, str(cm.exception))
+        self.assertEqual(comp.ws_calls, [], "nothing goes on the wire for a desktop that is not there")
+
+    def test_a_window_on_the_second_group_reports_its_grouped_number(self):
+        """The desktop COLUMN reads the same order: `wwmctl -l`'s desktop and `set_desktop` have to agree
+        about which workspace is 2, or `wmctrl -s 2` and `wmctrl -l` are talking about different heads."""
+
+        class SecondGroup(TwoGroupCosmic):
+            WHERE = (0, 2, 2)      # one ROWS index per toplevel
+            EXT_ENTER = 10
+
+            def _send_cosmic_state(self, conn, rec):
+                ids, self.ws_ids = self.ws_ids, []
+                try:
+                    super()._send_cosmic_state(conn, rec)
+                    i = list(self.tops).index(rec.ext)
+                    self._send(conn, rec.cosmic, self.EXT_ENTER, struct.pack("<I", ids[self.WHERE[i]]))
+                    self._send(conn, rec.cosmic, 1)   # done
+                finally:
+                    self.ws_ids = ids
+
+        _comp, b = self.backend(cls=SecondGroup)
+        self.assertEqual([w.desktop for w in b.list()], [0, 2, 2])
 
 
 if __name__ == "__main__":

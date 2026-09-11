@@ -9,9 +9,13 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+# ...and the tests directory itself, for the bare `import support` below: running this file by path puts it
+# on sys.path for free, `python3 -m unittest tests/<file>.py` does not.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from support import RecorderDev
 from w11common.errors import CmdError
-from wdotool import cli, daemon, input_cmds
+from wdotool import cli, daemon, input_cmds, keymap, uinput
 from wdotool.backend import Window, WindowBackend
 from wdotool.ctx import Context
 
@@ -417,6 +421,106 @@ class TestType(unittest.TestCase):
         input_cmds.cmd_type(ctx, ["x"])
         self.assertEqual(ctx._backend.activated, [])
 
+
+
+class RealTypingDaemon:
+    """`type` all the way down to the keycodes, instead of down to a recorded string.
+
+    FakeDaemon above records the text and proves the argument handling; it cannot say anything about which
+    key a character reaches, because it never resolves one. This one is the real `daemon._Daemon` with
+    support.RecorderDev where /dev/uinput would be, so `cmd_type` -> `type_text` -> `op_type` ->
+    `keymap.char_to_key` runs for real and the assertion is the evdev keycodes that came out."""
+
+    def __init__(self):
+        self.d = daemon._Daemon()
+        self.d.kb = RecorderDev()
+        self.d.dev_error = None
+        self.d._reader = None           # no key-state reads in a test
+        self.warnings = []
+
+    def type_text(self, text, delay_ms, clearmods=False):
+        self.warnings += self.d.op_type(text, delay_ms, clearmods, None, None, "off")
+
+    def pressed(self):
+        return [code for kind, code, value in self.d.kb.events if kind == "KEY" and value == 1]
+
+
+class KeybitProbe(uinput.UinputDevice):
+    """The real `uinput.keyboard()` stopped at its argument list: which keybits does it ask the kernel to
+    register? A subclass rather than a mock because the question is about the real function's own numbers,
+    and it must not open /dev/uinput (this box has none) -- so `__init__` records and does not call up."""
+
+    asked = ()
+
+    def __init__(self, name, keys=(), rels=(), abs_axes=(), vendor=0, product=0):
+        KeybitProbe.asked = tuple(keys)
+
+
+def kernel_keyboard_keybits():
+    """The keycodes `wdotool`'s kernel keyboard registers. Every accepted code must be registered or the
+    kernel drops the event silently (wdotool/uinput.py:160, its own comment)."""
+    real, uinput.UinputDevice = uinput.UinputDevice, KeybitProbe
+    try:
+        uinput.keyboard()
+    finally:
+        uinput.UinputDevice = real
+    return KeybitProbe.asked
+
+
+class TypingACharacterOnlyTheUploadedKeymapBinds(unittest.TestCase):
+    """B2 / goal2/recon/gaps.md §3b. `wdotool type EUR+X` used to put one keystroke on the wire and a
+    "Can't type character" warning on stderr, because the built-in character table stopped at ASCII while
+    the keymap wdotool uploads binds `key <I443> { [ 0x20ac ] }` = evdev 435.
+
+    What this file can pin is the CLI's half: `cmd_type` -> `op_type` -> `keymap.char_to_key` resolves the
+    character instead of warning about it, on the sink these cases run (`--vkbd off`, the kernel device).
+    Whether that keycode then reaches a WINDOW is the sink's half and is pinned where the sink is real:
+    tests/test_vkbd.py::UnderANonUsSessionLayout.test_the_euro_sign_goes_out_as_the_keycode_the_uploaded_keymap_binds
+    is the virtual keyboard on a live socket, and that is the path measured live on sway (`--vkbd on type`
+    landed the three UTF-8 bytes). On the kernel device 435 is resolved and then dropped, because the
+    device registered keybits 1..255 -- the expected failure below is that gap, not a passing claim."""
+
+    def ctx(self):
+        ctx = Context()
+        ctx._daemon = RealTypingDaemon()
+        ctx._backend = FakeBackend()
+        return ctx
+
+    def test_the_euro_resolves_through_the_table_instead_of_the_skip_warning(self):
+        """The resolution only: RecorderDev records whatever code it is handed, so the claim here stops at
+        "the CLI asked for evdev 435 and issued no warning", which is what used to be false."""
+        ctx = self.ctx()
+        input_cmds.cmd_type(ctx, ["\u20acX"])
+        # 435 = KEY_EURO, then Shift + 45 for the capital X
+        self.assertEqual(ctx._daemon.pressed(), [435, keymap.KEY_LEFTSHIFT, 45])
+        self.assertEqual(ctx._daemon.warnings, [])
+
+    def test_the_kernel_device_registers_every_code_the_character_table_can_ask_for(self):
+        """`uinput.keyboard()` registers keybits 1..255 plus every code the uploaded keymap binds above them
+        (wdotool/uinput.py:160) and the kernel silently drops an event on a code that was not registered, so
+        PLUS-MINUS (118) arrives on this sink and EUR (435) does not: `wdotool type EUR` on a plain `us`
+        session with /dev/uinput -- which is what `--vkbd auto`, the default, picks -- presses a key nobody
+        is listening for. Route 4, the kernel device we already create: register the UPLOADED_EXTRA_KEYS
+        codes too, at the cost of one UI_SET_KEYBIT each and one measurement nobody has made (evdev 435
+        through /dev/uinput into a native window on a `us` session). Filed in goal2/requests-batch-2.md
+        against wdotool/uinput.py, which batch 2 does not own; when it lands this test passes unexpectedly
+        and the decorator comes off."""
+        bits = kernel_keyboard_keybits()
+        self.assertIn(118, bits)
+        for ch, (code, _shifted) in sorted(keymap.UPLOADED_EXTRA_KEYS.items()):
+            self.assertIn(code, bits, "%r types through evdev %d and the device never registered it"
+                                      % (ch, code))
+
+    def test_a_character_no_keymap_here_binds_is_still_named_and_skipped(self):
+        """The other half stays honest: a snowman is on neither the US block nor the uploaded keymap, so it
+        is skipped with the character and the layout named. X types it (the pinned xdotool 4.20260303.1 put
+        `é☃X` into an xterm on Xvfb byte for byte, by rebinding a scratch keycode), so this is our gap and
+        vkbd.py names the rung-1 route that closes it."""
+        ctx = self.ctx()
+        input_cmds.cmd_type(ctx, ["a\u2603b"])
+        self.assertEqual(ctx._daemon.pressed(), [30, 48])
+        self.assertEqual(ctx._daemon.warnings,
+                         ["Can't type character '\u2603' (not on the US layout). Skipping."])
 
 
 class TestClick(unittest.TestCase):

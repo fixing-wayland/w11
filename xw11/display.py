@@ -40,6 +40,7 @@ import socket
 import stat
 import struct
 
+from w11common.errors import CmdError
 from wdotool import x11_mini
 
 #: Where the sockets live. Read at call time and not captured, so that a test
@@ -339,15 +340,41 @@ def allocate(display=None) -> Display:
 # -- the display file ---------------------------------------------------------
 
 
-def display_file_path() -> str:
+def display_file_path(uid=None) -> str:
+    """`$XDG_RUNTIME_DIR/xw11/display`, or -- with `uid` -- that user's.
+
+    `uid` is threaded through to `session.runtime_dir(uid=...)` and is None for
+    every caller inside a session: the answer is then byte-identical to what it
+    always was. It is not None in exactly one case, root looking for the seated
+    user's proxy, where the calling process's own runtime directory is
+    /run/user/0 or /tmp/wdotool-0 and holds nothing (goal2/recon/gaps.md §3d)."""
     from w11common import session
-    return os.path.join(session.runtime_dir(), DIR_NAME, FILE_NAME)
+    return os.path.join(session.runtime_dir(uid=uid), DIR_NAME, FILE_NAME)
 
 
-def read_display_file(path=None):
-    """`(":N", pid, upstream)` off the display file, or None."""
+def read_display_file(path=None, uid=None):
+    """`(":N", pid, upstream)` off the display file, or None.
+
+    A `CmdError` out of the path lookup is one of the Nones for the `uid`
+    lookup ONLY: `runtime_dir()` refuses a runtime directory that is not that
+    user's (a planted `/tmp/wdotool-<uid>`, which anyone may create first), and
+    for root looking into somebody else's session "no proxy" is the right
+    answer -- the wrapper runs the clone rather than raising in front of the
+    tool it was about to become. The caller's OWN runtime directory is not
+    swallowed: that refusal names a planted directory sitting in this user's
+    own session and it propagates exactly as it did before this parameter
+    existed, because a doomed spawn (the child would hit the same refusal) plus
+    a POLL_SECONDS wait is a worse answer than the message."""
+    if path is None:
+        if uid is None:
+            path = display_file_path()
+        else:
+            try:
+                path = display_file_path(uid)
+            except CmdError:
+                return None
     try:
-        with open(path or display_file_path(), "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             parts = f.readline().split()
     except (OSError, ValueError):
         return None
@@ -371,7 +398,7 @@ def _peer(sock):
         return None, None
 
 
-def read_display(path=None):
+def read_display(path=None, uid=None):
     """The `:N` of a running proxy, or None.
 
     The file is a hint and the socket is the proof: we dial the abstract name it
@@ -380,8 +407,17 @@ def read_display(path=None):
     goes down that socket is every keystroke a wrapped `xdotool type` sends --
     the same reason `DaemonClient._try_connect` checks SO_PEERCRED before it
     speaks (wdotool/daemon.py:2072).
+
+    `uid` is the seated user's, and only root ever passes one
+    (xw11/wrap.py:_seated_uid): it moves the file lookup into that user's
+    runtime directory AND makes their uid an acceptable peer, because the proxy
+    root is attaching to runs as them. The peer rule is otherwise untouched --
+    a process that is not root accepts nobody but itself, whatever `uid` says,
+    since for it "the seated user" is a guess and the socket carries
+    keystrokes. Root attaching to that user's session is not a new grant: root
+    already reads their cookie file and their runtime directory.
     """
-    got = read_display_file(path)
+    got = read_display_file(path, uid)
     if not got:
         return None
     name, pid, _upstream = got
@@ -401,7 +437,8 @@ def read_display(path=None):
     finally:
         s.close()
     if peer_uid is not None and peer_uid != os.geteuid():
-        return None
+        if not (uid is not None and peer_uid == uid and os.geteuid() == 0):
+            return None
     if peer_pid is not None and peer_pid != pid:
         return None
     return ":%d" % num
@@ -500,7 +537,28 @@ def xauth_remove(path: str, num: int) -> bool:
     return False
 
 
-def find_cookie(upstream_num: int):
+def seated_xauthority(uid) -> str | None:
+    """The cookie file of the session belonging to `uid`, for a caller that is
+    not that uid; None for everyone else.
+
+    `passthrough.find_xauthority(e, uid)` is the clones' own lookup and not a
+    second copy of it (w11common/passthrough.py:513): $XAUTHORITY when it names
+    a file that exists, then Mutter's `.mutter-Xwaylandauth.*` / GDM's `xauth_*`
+    / `gdm/Xauthority` in THAT uid's runtime dir, then their ~/.Xauthority, then
+    the session leader's own environment out of /proc. As root under `sudo` and
+    `ssh root@box` the first of those is empty and the rest are the seated
+    user's, which is the whole point: root's own /root/.Xauthority authorises
+    nothing on the session's Xwayland (goal2/recon/gaps.md §3d)."""
+    if uid is None or uid == os.geteuid():
+        return None
+    from w11common import passthrough
+    try:
+        return passthrough.find_xauthority(None, uid)
+    except Exception:                   # pragma: no cover - a lookup, never a failure
+        return None
+
+
+def find_cookie(upstream_num: int, uid=None):
     """`(path, cookie)` for the upstream display: the cookie
     `x11_mini._auth_candidates` prefers, and the file it is in -- the file the
     server was started with, which is the one it re-reads.
@@ -508,13 +566,20 @@ def find_cookie(upstream_num: int):
     `(None, None)` when there is none, which is the normal wlroots case and is
     not a failure: the cookie-less same-uid setup is forwarded and accepted
     (recon/env.md 2).
+
+    `uid` (the seated user's, passed by root alone) puts that user's cookie file
+    at the head of both searches -- the candidates `_auth_candidates` ranks and
+    the paths they are looked for in. Everything after it is unchanged, so a
+    caller inside the session reads exactly the files it read before.
     """
-    wanted = [(n, d) for n, d in x11_mini._auth_candidates(upstream_num)
+    seated = seated_xauthority(uid)
+    wanted = [(n, d) for n, d in x11_mini._auth_candidates(upstream_num, seated)
               if n == MIT_COOKIE and d]
     if not wanted:
         return None, None
     paths = []
-    for p in (os.environ.get("XAUTHORITY") or os.path.expanduser("~/.Xauthority"),
+    for p in (seated,
+              os.environ.get("XAUTHORITY") or os.path.expanduser("~/.Xauthority"),
               x11_mini._session_xauthority()):
         if p and p not in paths:
             paths.append(p)

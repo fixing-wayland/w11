@@ -1,8 +1,10 @@
 # live-smoke.d/cosmic.sh -- COSMIC (cosmic-comp, Smithay), on its own protocols.
 #
-# Two flavors run this file: fedora44-cosmic (Fedora 44, cosmic-comp 1.6.0-3.fc44) and
-# arch-cosmic (Arch 20260901, 1:1.7.0-1).  The driver appends `selinux` and `pkgverify` on
-# Fedora and `pkgverify` on Arch, so no branch on the distro is needed anywhere below.
+# Two flavors run this file: fedora44-cosmic (Fedora 44; the flavor was written at cosmic-comp
+# 1.6.0-3.fc44 and the golden as rebuilt on 2026-09-11 carries 1.8.0-1.fc44, `rpm -q` in the guest)
+# and arch-cosmic (Arch 20260901, 1:1.7.0-1), so the two flavors bracket 1.7.0 rather than repeat a
+# version.  The driver appends `selinux` and `pkgverify` on Fedora and `pkgverify` on Arch, so no
+# branch on the distro is needed anywhere below.
 #
 # COSMIC is the one desktop in this tree where a window backend had to be written from
 # nothing.  cosmic-comp publishes NO zwlr_foreign_toplevel_manager_v1 at all, so before
@@ -109,34 +111,55 @@ phase_windows() {
     out=$(await 30 '[0-9]' "wdotool search --class $EDITOR_CLASS | head -1" || true)
     WIN=$(printf '%s\n' "$out" | grep -E '^[0-9]+$' | head -1)
     if [ -z "$WIN" ]; then
-        fail "wdotool search --class $EDITOR_CLASS found no window (the whole backend is this line) [$(ev "$out")]"
+        fail "wdotool search --class $EDITOR_CLASS found no window (the whole backend is this \
+line) [$(ev "$out")]"
         return 1
     fi
     pass "wdotool search --class $EDITOR_CLASS -> $WIN"
-    # Ids are 30 bits of blake2b over the 32-character `identifier`, under 0x40000000 and out
-    # of Xwayland's range -- NOT 1000000 + arrival order, which is the wlr floor's and which
-    # renames the survivor when another window closes.  A floor-shaped id here would mean
+    # Ids are `ID_BASE | 30 bits of blake2b` over the 32-character `identifier`, so a minted id
+    # is at or ABOVE 0x40000000 (wdotool/backend.py:48-71) -- the whole point of the base being
+    # that Xwayland hands its own clients ids of the shape (client << 21) | serial, far below
+    # 2^30, so the two ranges cannot overlap in the listing views() joins them in.  And NOT
+    # 1000000 + arrival order, which is the wlr floor's and which renames the survivor when
+    # another window closes.  A floor-shaped id, or one down in X's own range, would mean
     # detection took the wrong branch, and that is worth catching before anything else does.
+    # This check read the other way round until 2026-09-11 and failed on every correct id:
+    # the measured 1081277706 = 0x40730C0A is exactly ID_BASE | blake2b [goal2/recon/flavors.md
+    # §5, CI rig-fedora44-cosmic.log].
     if [ "$WIN" -ge 1000000 ] && [ "$WIN" -le 1000099 ]; then
         fail "the id $WIN is in the wlr floor's 1000000+arrival range: this is not the cosmic backend"
-    elif [ "$WIN" -ge 1073741824 ]; then
-        # 0x40000000.  backend.mint_id keeps 30 bits so that a minted id can never collide with
-        # an Xwayland window's, which views() puts in the same listing.
-        fail "the id $WIN is at or above 0x40000000, where an XWayland id could collide with it"
+    elif [ "$WIN" -lt 1073741824 ]; then
+        # 0x40000000.  An id below the base is one an Xwayland client could also be given, and
+        # views() puts both planes in one listing.
+        fail "the id $WIN is below 0x40000000, in the range Xwayland gives its own clients"
     else
-        pass "the id $WIN is minted from the toplevel identifier: outside the floor's arrival \
-range and below 0x40000000"
+        pass "the id $WIN is minted from the toplevel identifier: at or above 0x40000000 and \
+outside the floor's arrival range"
     fi
     want "getwindowname is not empty" "." "$(guest "wdotool getwindowname $WIN" || true)"
-    # Geometry, sometimes.  zcosmic_toplevel_handle_v1.geometry arrives only alongside
-    # output_enter or on a change, and in the nested rig it never arrived at all -- not in 4 s
-    # and not after a maximize [recon2/cosmic 4].  So this is a `want` on a real rectangle and
-    # a note beside it: a run where the rectangle is the whole output is the backend falling
-    # back to the floor, and this line is where that shows.
+    # Geometry.  zcosmic_toplevel_handle_v1.geometry arrives alongside output_enter or on a
+    # change [recon2/cosmic 4], out of the same rate-limited refresh as `state`, and in the
+    # nested rig nobody waited for it -- not in 4 s and not after a maximize -- so this was an
+    # xwant "until a run on a KMS cosmic-comp says whether the geometry event arrives there at
+    # all".  That run happened: on the fedora44-cosmic golden (cosmic-comp 1.8.0-1.fc44, two
+    # heads, 2026-09-11) the event lands 152 ms after get_cosmic_toplevel and `wdotool
+    # getwindowgeometry` read 762,201 696x532 where it used to read 0,0 1920x1080, once
+    # CosmicBackend._await_state waited the STATE_WAIT out
+    # [goal2/recon/cosmic-state-probe.txt, vm/live-smoke.out/fedora44-cosmic-20260911-213252.log].
+    # So it is a plain want now: a rectangle that IS the whole output is the backend falling back
+    # to the floor, and this line is where that shows.
+    # STILL OWED, and a red here on arch-cosmic is that and not a regression: arch-cosmic
+    # (1:1.7.0-1) has not been run since the wait landed -- CI had it at FLOOR-FALLBACK
+    # [goal2/ci/rig-arch-cosmic.log:540] with the same unwaited-for client as Fedora's.  The
+    # rate-limited refresh the wait is written against is version-independent [R src/lib.rs:340-367]
+    # and the flavor that HAS been measured runs 1.8.0, newer than 1.7.0, so the two runs bracket
+    # it; the run itself is one `vm/live-smoke.sh arch-cosmic --phases windows` and nobody has
+    # spent the VM slot on it yet.
     # The fallback is a STRING we can build -- 0,0 plus some head's mode, and cosmic-randr
     # prints every head's mode -- so the reading is compared against it rather than against a
     # rectangle shape, which the fallback satisfies too.  No mode from cosmic-randr means the
-    # comparison could not be made, and that is an XFAIL and never an XPASS.
+    # comparison could not be made, and NO-HEAD-MODE fails: a check that cannot read its own
+    # oracle has not passed.
     local g floors verdict o
     g=$(win_geom "$WIN")
     floors=$(for o in $(oracle_outputs | awk '{print $1}'); do
@@ -148,9 +171,8 @@ range and below 0x40000000"
         else verdict="OWN-RECTANGLE"; fi
     fi
     note "getwindowgeometry: $g (the floor's fallbacks on this session: $(ev "$floors"))"
-    xwant "getwindowgeometry is the window's own rectangle and not 0,0 + a head's mode (until \
-a run on a KMS cosmic-comp says whether the geometry event arrives there at all)" \
-          "^OWN-RECTANGLE" "$verdict $g"
+    want "getwindowgeometry is the window's own rectangle and not 0,0 + a head's mode" \
+         "^OWN-RECTANGLE" "$verdict $g"
     # The four with no request behind them.  set_rectangle is a minimise-animation hint, so
     # NOT YET on move and resize: the lowest route on the AGENTS.md ladder that would give
     # them is 6, a patched cosmic-comp, and nobody has costed carrying that package.
@@ -166,7 +188,12 @@ prefix; the reason after it is batch 8's wording and is deliberately not pinned 
     same "windowactivate --sync then getactivewindow is that window" "$WIN" \
          "$(guest 'wdotool getactivewindow' | tr -d ' \n' || true)"
     # Workspaces, over ext_workspace_manager_v1: the recon's session had two, named `1` and `2`
-    # with coordinates [1] and [2] [recon2/cosmic 4].  The count is read and not assumed.
+    # with coordinates [1] and [2] [recon2/cosmic 4].  The count is read and not assumed --
+    # and on a MULTI-HEAD session it is not two: cosmic-comp publishes one workspace group per
+    # output, and the fedora44-cosmic golden with two heads had three (`1`, `2` on the first
+    # head and `1` on the second, both ones active), measured 2026-09-11.  Desktop numbers run
+    # group by group (CosmicBackend._ws_rows), so desktop 1 is the FIRST head's second
+    # workspace and this pair moves a head that is looking at it.
     local nd; nd=$(guest 'wwmctl -d' | grep -c '^[0-9]' || true)
     if [ "${nd:-0}" -lt 2 ]; then
         note "$nd workspace(s): the set_desktop pair needs two, skipped"

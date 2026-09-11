@@ -1,0 +1,51 @@
+# Plasma 6.7.5 / KWin 6.7.5 on the arch-kde golden, instance kde-b6, one 1920x1080 head,
+# 2026-09-11 21:04 UTC.  Two `xterm -T fwtwin -e sh -c 'sleep 600'` (pids 2387 and 2388)
+# on that session's Xwayland -- :1, Xwayland pid 570, already running with `-rootless`
+# before any X client -- and then, in one shell on the guest:
+#
+#     xprop -root _NET_CLIENT_LIST
+#     W11_PASSTHROUGH=never PYTHONPATH=/tmp/w11src python3 -c '<dump>'
+#
+# where <dump> is KwinBackend()._raw() (the KWin script's own window list, every field
+# the matcher reads), ._x_clients(._x11()) in _NET_CLIENT_LIST order, ._x_ratio(),
+# ._xids(raw) and ._screen_info(soft=True) -- one JSON object per line.  Everything
+# below the first line that does not start with `#` is that run's output, byte for byte.
+# Read by tests/test_backend_kwin.py (KWIN_675_RAW / KWIN_675_CLIENTS / KWIN_675_XIDS).
+_NET_CLIENT_LIST(WINDOW): window id # 0xe00012, 0x1000012
+RAW:
+  {"u": "9418ca77-1d12-4279-8cb2-044d14d30509", "t": "", "c": "plasmashell", "n": "plasmashell", "p": 615, "xid": 0, "ix": 0, "so": 0, "x": 0, "y": 0, "w": 1920, "h": 1080, "ty": 1}
+  {"u": "3afbbacc-28fd-4446-9de6-8dd6ad19c26c", "t": "fwtwin", "c": "XTerm", "n": "xterm", "p": 2387, "xid": 0, "ix": 2, "so": 1, "x": 718, "y": 345, "w": 484, "h": 344, "ty": 0}
+  {"u": "0b364979-1a8c-49be-bbc5-a4afb4539de2", "t": "fwtwin", "c": "XTerm", "n": "xterm", "p": 2388, "xid": 0, "ix": 3, "so": 2, "x": 758, "y": 367, "w": 484, "h": 344, "ty": 0}
+  {"u": "1b5ab91d-665b-4114-96ef-f5b14d0d6450", "t": "", "c": "plasmashell", "n": "plasmashell", "p": 615, "xid": 0, "ix": 1, "so": 3, "x": 0, "y": 1018, "w": 1920, "h": 62, "ty": 2}
+CLIENTS (in _NET_CLIENT_LIST order):
+  {"xid": 14680082, "pid": 2387, "inst": "xterm", "cls": "XTerm", "name": "fwtwin", "geo": [718, 373, 484, 316]}
+  {"xid": 16777234, "pid": 2388, "inst": "xterm", "cls": "XTerm", "name": "fwtwin", "geo": [758, 395, 484, 316]}
+ratio: 1.0
+xids: {"3afbbacc-28fd-4446-9de6-8dd6ad19c26c": 14680082, "0b364979-1a8c-49be-bbc5-a4afb4539de2": 16777234}
+screen: {"w": 1920, "h": 1080, "areas": [[0, 0, 1920, 1034]]}
+# ---------------------------------------------------------------------------------------
+# The run before this one, on the SAME session an hour earlier, quoted verbatim out of the
+# probe log: the two xterms started the way vm/live-smoke.d/kde.sh used to start them, with
+# no `-e`, so Arch's /etc/bash.bashrc rewrote the title `-T fwtwin` set.  It is why the
+# 2026-09-11 rig run counted 0 -- and `xdotool search --name fwtwin`, the oracle, printed
+# nothing on that same session in the same second.  The lines are comments here because
+# they are not JSON (the xids dict is a Python repr); nothing parses them.
+#
+#     === pgrep xterm
+#     971 xterm -T fwtwin
+#     972 xterm -T fwtwin
+#     === xprop -root _NET_CLIENT_LIST
+#     _NET_CLIENT_LIST(WINDOW): window id # 0x1000012, 0xe00012
+#     _NET_CLIENT_LIST_STACKING(WINDOW): window id # 0x1000012, 0xe00012
+#     === xdotool (the oracle, if it runs here)
+#     === wdotool search --name fwtwin
+#     === KWin raw window list (the script payload)
+#     {"u": "ced83d4e-2135-4195-8cde-4857f3bb5f7f", "t": "test@kde-b6:~", "c": "XTerm", "n": "xterm", "p": 971, "xid": 0, "ix": 1, "x": 718, "y": 368, "w": 484, "h": 344, "ty": 0}
+#     {"u": "e67925fb-0f1b-4365-8cfa-047218324760", "t": "test@kde-b6:~", "c": "XTerm", "n": "xterm", "p": 972, "xid": 0, "ix": 2, "x": 758, "y": 391, "w": 484, "h": 344, "ty": 0}
+#     xids: {'e67925fb-0f1b-4365-8cfa-047218324760': 14680082, 'ced83d4e-2135-4195-8cde-4857f3bb5f7f': 16777234}
+#     xwayland_running: True
+#     x_info: (':1', '/run/user/1000/xauth_wQfSRv')
+#
+# So both runs have the X list in windowList()'s own order (run 1: pid 971 first in both,
+# holding 0x1000012; this run: pid 2387 first in both, holding 0x00e00012), and WHICH id
+# falls to which process is not stable across two starts of the same pair.

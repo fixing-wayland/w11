@@ -68,7 +68,7 @@ WLROOTS_SUPPORTED = (
     "_NET_CLIENT_LIST_STACKING",
 )
 
-#: The 25 names the proxy appends to those 19, written out rather than filtered
+#: The 26 names the proxy appends to those 19, written out rather than filtered
 #: out of `policy.SUPPORTED` with the same rule the code uses: an expectation
 #: computed by the code's own comprehension passes for a table that lost a name,
 #: and the whole point of `_NET_SUPPORTED` here is that dropping one name turns
@@ -76,7 +76,8 @@ WLROOTS_SUPPORTED = (
 #: change to the table changes this list too.
 OURS_APPENDED = (
     "_NET_NUMBER_OF_DESKTOPS", "_NET_CURRENT_DESKTOP", "_NET_DESKTOP_NAMES",
-    "_NET_DESKTOP_GEOMETRY", "_NET_WM_NAME", "_NET_WM_PID", "_NET_WM_DESKTOP",
+    "_NET_DESKTOP_GEOMETRY", "_NET_DESKTOP_VIEWPORT",
+    "_NET_WM_NAME", "_NET_WM_PID", "_NET_WM_DESKTOP",
     "_NET_WM_WINDOW_TYPE", "_NET_FRAME_EXTENTS", "_NET_WM_WINDOW_TYPE_NORMAL",
     "_NET_WM_WINDOW_TYPE_DESKTOP", "_NET_WM_WINDOW_TYPE_DOCK",
     "_NET_WM_WINDOW_TYPE_DIALOG", "_NET_WM_WINDOW_TYPE_TOOLBAR",
@@ -701,7 +702,8 @@ class ListPropertiesRootUnion(ReadCase):
                                    "_XKB_RULES_NAMES"])
         self.assertEqual(got[6:], ["_NET_NUMBER_OF_DESKTOPS",
                                    "_NET_CURRENT_DESKTOP",
-                                   "_NET_DESKTOP_GEOMETRY"])
+                                   "_NET_DESKTOP_GEOMETRY",
+                                   "_NET_DESKTOP_VIEWPORT"])
 
     def test_no_name_is_listed_twice(self):
         got = self.names_of_root()
@@ -804,6 +806,72 @@ class DesktopGeometryAndNames(ReadCase):
         self.assertEqual(bytes(body)[:nitems], b"one\0001\0")
 
 
+class DesktopViewport(ReadCase):
+    """`_NET_DESKTOP_VIEWPORT`: one `0,0` pair per desktop, unconditionally.
+
+    Real `wmctrl -d` prints `VP:` from `[2i]`/`[2i+1]` for row i and `N/A`
+    where the array is too short, so a root without the property prints `N/A`
+    on EVERY row while the clone prints `0,0` on the current one -- two routes
+    disagreeing over eight bytes a desktop [M goal2/recon/gaps.md 3a, a
+    hand-built EWMH root on Xvfb :77, 2026-09-11: the same root prints
+    `VP: 0,0` on both rows with the property and `VP: N/A` on both without].
+    X is the oracle and an X WM that has viewports publishes an origin for
+    each desktop, so the proxy does.
+    """
+
+    num, upstream_num = 672, 673
+
+    def viewport(self):
+        pkt, body = self.get_property(self.root, "_NET_DESKTOP_VIEWPORT")
+        type_atom, after, nitems = struct.unpack_from("<III", pkt, 8)
+        self.assertEqual((pkt[1], type_atom, after), (32, self.atom("CARDINAL"), 0))
+        return list(struct.unpack("<%dI" % nitems, bytes(body)[:4 * nitems]))
+
+    def test_the_pair_count_follows_the_number_of_desktops(self):
+        """`wmctrl -d` indexes `[2i]` for row i: a pair short of the desktop
+        count is an `N/A` on the last row, so the two root answers are read
+        back off the same wire and compared rather than each pinned to a
+        constant."""
+        self.backend.desktop_ = 0
+        self.backend.num_ = 3
+        self.shadows.refresh()
+        vals = self.viewport()
+        _pkt, body = self.get_property(self.root, "_NET_NUMBER_OF_DESKTOPS")
+        (desktops,) = struct.unpack("<I", bytes(body)[:4])
+        self.assertEqual((desktops, len(vals)), (3, 6))
+        self.assertEqual(vals, [0] * 6)
+
+    def test_a_compositor_on_a_desktop_it_does_not_count_still_gets_a_pair(self):
+        """`num_desktops` is `max(num, current + 1)` (xw11/shadow.py:529), and
+        the viewport array is packed off that same number -- sway answers 1
+        workspace while sitting on index 2 and every row still prints `0,0`."""
+        self.backend.desktop_ = 2
+        self.backend.num_ = 2
+        self.shadows.refresh()
+        self.assertEqual(self.viewport(), [0] * 6)
+
+    def test_the_answer_never_goes_upstream(self):
+        """An `OVERRIDES` name is answered from the registry whether or not
+        upstream has it (design section 4.6): Xwayland's root carries no
+        viewport and the compositor is the single source.
+
+        Upstream is given a well-formed WRONG array first, the shape
+        test_a_root_name_the_proxy_does_not_own_still_goes_upstream uses to
+        prove the other direction: a pass-through would then come back as
+        `[5, 5, 5, 5]` and not as a malformed reply, so the value and the
+        untouched upstream log each fail on their own claim."""
+        self.rig.upstream.set_prop(self.rig.upstream.ROOTS[0],
+                                   "_NET_DESKTOP_VIEWPORT", "CARDINAL", 32,
+                                   struct.pack("<4I", 5, 5, 5, 5))
+        before = [row for row in self.rig.upstream.log
+                  if row[0] == "GetProperty" and row[2] == "_NET_DESKTOP_VIEWPORT"]
+        got = self.viewport()
+        after = [row for row in self.rig.upstream.log
+                 if row[0] == "GetProperty" and row[2] == "_NET_DESKTOP_VIEWPORT"]
+        self.assertEqual((got, before, after), ([0, 0], [], []),
+                         "upstream's [5, 5, 5, 5] came back, or the request went there as well")
+
+
 class SupportedUnion(ReadCase):
     num, upstream_num = 658, 659
 
@@ -830,7 +898,7 @@ class SupportedUnion(ReadCase):
         got = self.read_supported()
         self.assertEqual(len(got), len(set(got)))
         self.assertEqual(got[19:], list(OURS_APPENDED))
-        self.assertEqual(len(got), 19 + 25)
+        self.assertEqual(len(got), 19 + 26)
 
     def test_the_five_names_the_dead_commands_gate_on_are_in_it(self):
         """`xdotool get_desktop` and `wmctrl -d` read `_NET_SUPPORTED` first
@@ -1613,7 +1681,7 @@ class SupportedUnionUnit(unittest.TestCase):
         got = shadow_mod.supported_union(upstream, atoms)
         self.assertEqual(got[:19], upstream)
         self.assertEqual(got[19:], [atoms.atom_id(n) for n in OURS_APPENDED])
-        self.assertEqual(len(got), 44)
+        self.assertEqual(len(got), 45)
 
     def test_a_name_the_proxy_cannot_intern_is_left_out(self):
         """Atom 0 is `None` on the wire; a `_NET_SUPPORTED` carrying it makes
