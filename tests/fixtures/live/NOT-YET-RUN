@@ -19,4 +19,3 @@
 # phase has been run; the run that records one deletes its own line in the same
 # commit that adds the recording.  resolute-sway was the first, on 2026-09-11:
 # 27 pass, 0 fail, recorded as resolute-sway-1.11-windows-wm-proxy-replay.txt.
-proxy:noble-kde

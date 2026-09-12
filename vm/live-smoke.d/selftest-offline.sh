@@ -386,7 +386,11 @@ recorded_tokens() {
     done
 }
 rec=$(recorded_tokens | sort -u)
-nyr=$(grep -v '^#' "$NYR" | grep . | sort -u)
+# `|| true`: NOT-YET-RUN is empty once every flavor is recorded (the goal state),
+# and `grep .` on no lines exits 1, which under `set -e` would abort pass 5 with its
+# header printed and no token lines -- the whole point of pass 5 is to confirm exactly
+# that empty state, so an empty list is success, not an error.
+nyr=$(grep -v '^#' "$NYR" | grep . | sort -u || true)
 for f in "$HERE"/*.sh; do
     tok=$(basename "$f" .sh)
     case $tok in common|selftest-offline|guest-*) continue ;; esac

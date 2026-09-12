@@ -129,6 +129,23 @@ write_files:
     content: "PermitRootLogin prohibit-password\n"
   - path: /etc/modules-load.d/uinput.conf
     content: "uinput\n"
+  # cosmic-comp renders through Mesa here (no GPU / render node on the CI runner).
+  # The llvmpipe SIGSEGV that hits arch-cosmic (Signal 11 in libgallium's per-output
+  # worker threads) is intermittent on Fedora's mesa too: fedora44-cosmic was green
+  # on CI runs 34688228778 and 34698985468 and crashed the same way on 34704305466
+  # (74 pass/9 fail, "no Wayland session found" -- the compositor gone), on the same
+  # cached golden.  Same rung-4 GL-stack fix as arch-cosmic: GALLIUM_DRIVER=softpipe
+  # is Mesa's reference rasterizer -- no JIT, no worker threads, a different code path
+  # from the one that faults -- with LP_NUM_THREADS=0 as a belt.  greetd's PAM reads
+  # /etc/environment; the service drop-in is the belt.
+  - path: /etc/environment
+    content: "GALLIUM_DRIVER=softpipe\nLP_NUM_THREADS=0\n"
+    append: true
+  - path: /etc/systemd/system/greetd.service.d/vmctl-cosmic-llvmpipe.conf
+    content: |
+      [Service]
+      Environment=GALLIUM_DRIVER=softpipe
+      Environment=LP_NUM_THREADS=0
   - path: /etc/vmctl-build.env
     content: |
       FLAVOR=fedora44-cosmic
