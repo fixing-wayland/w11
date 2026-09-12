@@ -25,10 +25,26 @@
 #   nix-full     the two expensive NixOS VM checks (nixos-gnome, nixos-kde), scope=all only
 #   vm           ONE JOB PER FLAVOR of the QEMU rig, KVM on the runner: the golden image from
 #                the GHCR cache or built here (ISO installs and the NixOS build included),
-#                then vm/live-smoke.sh --pkg with the package this run built from this tree
+#                then vm/live-smoke.sh --pkg --record with the package this run built here
+#   recordings   ONE JOB PER FLAVOR again: the capture that rig job left beside its log,
+#                replayed through vm/live-smoke.d/fake-vmctl -- the pipeline that turns a
+#                run into tests/fixtures/live/*-replay.txt, exercised on every push
 #
-# 26.10 is a development release and Arch is rolling: both move under the flavor, so their
-# jobs may fail without failing the run. Everything else must be green.
+# NOTHING in this file is continue-on-error. It carried nine such keys until 2026-09-12 and
+# every one of them is now either a pin or a measurement: every base image is pinned by
+# digest in the `plan` step below, which hashes those digests into the image key so a bump
+# rebuilds instead of reusing a cached tag; the Arch image syncs against a frozen
+# archive.archlinux.org snapshot instead of a live mirror; Arch's wmctrl 1.07-6 --help was
+# counted (6801 bytes, the same as nixpkgs' plain 1.07); and the headless-sway probe passed
+# in all four installer jobs of run 34628777544 -- deb-install on three releases, rpm and
+# nix in [recon/gaps.md 4], pkgbuild in job 103360336842 of that run, which printed
+# `xw11 --print-display: :20 then :20 (upstream DISPLAY=:0)`. A red job here is a red push.
+#
+# fedora rawhide is NOT built or installed anywhere and that is a gap with a route, not a
+# policy: a noarch rpm built on 44 requires `python(abi) = 3.14` and rawhide has moved to
+# 3.15 (run 34390127394: "nothing provides python(abi) = 3.14"), so covering rawhide means
+# BUILDING there -- a second `rpm` job in a rawhide container, rung 4 of AGENTS.md's
+# ladder, perhaps an hour of runner time a push. Not yet, and filed as work.
 #
 # The rig runs the `# vmctl-ci: push` flavors on a push. The rest -- ISO installs, the
 # desktops nobody has measured twice -- go with `workflow_dispatch` and `scope: all`, or by
@@ -81,9 +97,25 @@ jobs:
           scope=$WANTED
           if [ "$LABELLED" = true ]; then scope=all; fi
           if [ "$scope" = all ]; then flavors=$all; else flavors=$push; fi
-          key=$(sha256sum .github/ci/Dockerfile | cut -c1-12)
-          keyf=$(sha256sum .github/ci/Dockerfile.fedora | cut -c1-12)
-          keya=$(sha256sum .github/ci/Dockerfile.arch | cut -c1-12)
+          # Every base image, pinned by digest, in ONE place: a floating `ubuntu:26.10` or
+          # `archlinux:base-devel` is a different image every week, which is the whole of
+          # what made four of this file's nine continue-on-error keys look reasonable. The
+          # `image` and `deb-install` matrices below repeat these references (a matrix
+          # cannot read a variable of this step) and tests/test_ci_images.py compares the
+          # lists character for character. They are hashed INTO the image key because the
+          # cached image is named after that key: a digest bumped in the matrix alone would
+          # find the old tag and build nothing at all.
+          u2404=ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
+          u2604=ubuntu:26.04@sha256:513c074113a871b51a8d16ab445c88779d6452d937a164fb5cc479f32668a41d
+          u2610=ubuntu:26.10@sha256:49077a16b772f8bc6e6f160ad2bfc218919f3455037387ed19a8309174328603
+          fed=fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
+          # the reference is 110 characters on its own, so the dated tag and its digest are
+          # joined on a second line rather than written past this file's 120th column
+          arch=archlinux:base-devel-20260906.0.587075
+          arch=$arch@sha256:61f7de2dd88cc4ba1fe36c24cfe1a503c3936984492d6405eeab013ce6ac68c5
+          key=$( { sha256sum .github/ci/Dockerfile; echo "$u2404 $u2604 $u2610"; } | sha256sum | cut -c1-12)
+          keyf=$( { sha256sum .github/ci/Dockerfile.fedora; echo "$fed"; } | sha256sum | cut -c1-12)
+          keya=$( { sha256sum .github/ci/Dockerfile.arch; echo "$arch"; } | sha256sum | cut -c1-12)
           { echo "files=$files"; echo "flavors=$flavors"; echo "scope=$scope";
             echo "image_key=$key"; echo "image_key_fedora=$keyf"; echo "image_key_arch=$keya"; } >> "$GITHUB_OUTPUT"
 
@@ -93,25 +125,30 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # The same five references the `plan` step above pins and hashes into `key`;
+        # tests/test_ci_images.py compares the two lists character for character, so a
+        # digest bumped here alone is a red unit test rather than a cached image nobody
+        # rebuilt. The arch row runs past 120 columns because the reference alone is 110
+        # characters and a matrix value cannot be split.
         include:
           - distro: "24.04"
-            base: ubuntu:24.04
+            base: ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
             dockerfile: Dockerfile
             key: ${{ needs.plan.outputs.image_key }}
           - distro: "26.04"
-            base: ubuntu:26.04
+            base: ubuntu:26.04@sha256:513c074113a871b51a8d16ab445c88779d6452d937a164fb5cc479f32668a41d
             dockerfile: Dockerfile
             key: ${{ needs.plan.outputs.image_key }}
           - distro: "26.10"
-            base: ubuntu:26.10
+            base: ubuntu:26.10@sha256:49077a16b772f8bc6e6f160ad2bfc218919f3455037387ed19a8309174328603
             dockerfile: Dockerfile
             key: ${{ needs.plan.outputs.image_key }}
           - distro: fedora44
-            base: fedora:44
+            base: fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
             dockerfile: Dockerfile.fedora
             key: ${{ needs.plan.outputs.image_key_fedora }}
           - distro: arch
-            base: archlinux:base-devel
+            base: archlinux:base-devel-20260906.0.587075@sha256:61f7de2dd88cc4ba1fe36c24cfe1a503c3936984492d6405eeab013ce6ac68c5
             dockerfile: Dockerfile.arch
             key: ${{ needs.plan.outputs.image_key_arch }}
     steps:
@@ -196,8 +233,12 @@ jobs:
       fail-fast: false
       matrix:
         file: ${{ fromJSON(needs.plan.outputs.files) }}
-    # 26.10 is the development Ubuntu and may fail without failing the run
-    continue-on-error: true
+    # 26.10 is the development Ubuntu. It was continue-on-error until 2026-09-12 for
+    # that word alone, and the run it was measured on says the word was wrong: on run
+    # 34628777544 every 26.10 file was green except test_nixos_golden, which failed on
+    # 24.04 and 26.04 too [recon/gaps.md 4]. The image is built from a digest-pinned
+    # ubuntu:26.10 (the `plan` step above) and cached in GHCR under a key that digest is
+    # hashed into, so what runs here moves when somebody moves it.
     name: 26.10 ${{ matrix.file }}
     container:
       image: ghcr.io/${{ github.repository_owner }}/w11-ci:26.10-${{ needs.plan.outputs.image_key }}
@@ -224,8 +265,11 @@ jobs:
   # alone; a red Fedora job for a leak in another file is a job nobody reads, and a leak is
   # not what this job is here to measure. The recon measured discover at 234.6 s for the
   # suite in an Arch chroot [recon2/pkg-arch.md]; the loop pays 105 interpreter startups on
-  # top of that, measured at 1.0 s in total on the author's box. Arch is rolling, so its
-  # job may fail without failing the run.
+  # top of that, measured at 1.0 s in total on the author's box. Arch is rolling, and the
+  # arch row of this matrix was continue-on-error for that word until 2026-09-12; the image
+  # now builds off a dated base tag and an archive.archlinux.org snapshot of the same date
+  # (.github/ci/Dockerfile.arch), so `pacman -Syu` resolves to the same bytes on every
+  # build and the row is red when it is red.
   unit-distro:
     needs: [plan, image]
     runs-on: ubuntu-24.04
@@ -241,7 +285,6 @@ jobs:
             image: fedora44-${{ needs.plan.outputs.image_key_fedora }}
           - distro: arch
             image: arch-${{ needs.plan.outputs.image_key_arch }}
-    continue-on-error: ${{ matrix.distro == 'arch' }}
     name: ${{ matrix.distro }} every test file
     container:
       image: ghcr.io/${{ github.repository_owner }}/w11-ci:${{ matrix.image }}
@@ -275,7 +318,7 @@ jobs:
       # compares the pinned xdotool/wmctrl THROUGH the proxy with the clones on one
       # headless sway; the four before them are the Xvfb half this job has always run.
       - run: sudo find /etc/apt/sources.list.d -type f ! -name ubuntu.sources -delete; sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends xvfb x11-utils xterm wmctrl sway xwayland foot
-      - name: the pinned oracles, then scripts/parity-oracle.sh twice
+      - name: the pinned oracles, then scripts/parity-oracle.sh three times
         run: |
           nix build --no-link --print-out-paths --inputs-from . nixpkgs#xdotool nixpkgs#wmctrl > /tmp/oracles
           W11_ORACLE_PATH=$(sed 's|$|/bin|' /tmp/oracles | paste -sd:); export W11_ORACLE_PATH
@@ -284,23 +327,29 @@ jobs:
           # must differ only in their `Ran N tests in` lines, which is what makes this the
           # framing's regression test rather than a second copy of the first.
           W11_PARITY_PROXY=1 sh scripts/parity-oracle.sh
+          # ...and a third time with the proxy in the mode a SESSION runs it in -- no
+          # --passthrough, so every request is answered out of the shadow -- in front of a
+          # headless sway's Xwayland rather than an Xvfb. Until 2026-09-12 nobody had ever
+          # run the byte-parity set against the proxy's own answers; it is byte-identical
+          # there too and costs 5.3 s on the author's box, 6.4 s in the recon
+          # [recon/recordings.md 2.2]. The packages it needs are the three installed above.
+          W11_PARITY_SWAY=1 W11_PARITY_PROXY=native sh scripts/parity-oracle.sh
 
   # The same comparison against a DISTRO's binary rather than a nix build. Arch is the only
   # one shipping xdotool 4.20260303.1 and wmctrl 1.07, the two versions this project clones
   # [recon2/pkg-arch.md]; Fedora's xdotool is 3.20211022.1, so test_cli_parity SKIPs there
   # [recon2/fedora.md] and there is no fedora twin of this job.
   #
-  # One thing here is NOT measured yet and this is the honest place for it:
-  # scripts/parity-oracle.sh gates on `wmctrl --help` being 6801 bytes, which is nixpkgs'
-  # plain 1.07 -- Ubuntu's 1.07+git20240228 is 7179 [scripts/parity-oracle.sh]. Arch ships
-  # 1.07-6 and nobody has counted its help. If this job dies at that gate the fix is a
-  # second accepted size in parity-oracle.sh, not a skip; continue-on-error is what keeps
-  # the first run from turning the push red while somebody counts it.
+  # The gate that used to make this job continue-on-error is counted now:
+  # scripts/parity-oracle.sh wants `wmctrl --help` to be 6801 bytes, which is nixpkgs'
+  # plain 1.07 (Ubuntu's 1.07+git20240228 is 7179), and Arch's wmctrl 1.07-6 is 6801 --
+  # measured on 2026-09-12 by running the 1.07-6 binary out of the very snapshot this
+  # image is pinned to (archive.archlinux.org/repos/2026/09/06). No second accepted size
+  # was needed. The job had also SUCCEEDED twice by then, both passes [recon/gaps.md 4].
   parity-arch:
     needs: [plan, image]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    continue-on-error: true
     container:
       image: ghcr.io/${{ github.repository_owner }}/w11-ci:arch-${{ needs.plan.outputs.image_key_arch }}
       credentials:
@@ -328,27 +377,49 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: build the package and prove it is the tree
+      - name: build the package
         run: |
           git config --global --add safe.directory "$PWD"
           sh scripts/build-deb.sh --no-deps
-          python3 tests/test_release_deb.py
+      # The upload comes BEFORE the release test, in all three package jobs, and run
+      # 34662004383 is why: a stale test-count pin in test_release_rpm/test_release_pkgbuild
+      # failed those jobs, nothing was uploaded, and twelve fedora-*/arch-* rig jobs then
+      # died at `download-artifact` with "Artifact not found" -- twelve desktops that
+      # measured nothing because of a number in a unit test. The job still goes red on its
+      # own test below; what changes is that the rigs get the package that was built.
       - uses: actions/upload-artifact@v4
         with:
           name: deb
           path: release/*.deb
+      - name: the package is the tree
+        run: python3 tests/test_release_deb.py
 
   deb-install:
     needs: [plan, image, deb]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
+      # By digest, and the same three references the `plan` step pins -- they are written
+      # twice because a matrix cannot read that step's shell, and tests/test_ci_images.py
+      # compares the two lists character for character. A plain
+      # `ubuntu:26.10` here is a different image every week, which is the whole of what
+      # made this job's 26.10 row continue-on-error until 2026-09-12; it had SUCCEEDED
+      # on run 34628777544 all the same [recon/gaps.md 4]. What is still live here is
+      # the apt archive the step below updates from (ca-certificates, sway, xwayland);
+      # if a 26.10 archive ever breaks this job the route is snapshot.ubuntu.com in a
+      # sources.list, the same trick the Arch image plays with archive.archlinux.org --
+      # not yet, because it has never happened.
       matrix:
-        distro: ["24.04", "26.04", "26.10"]
-    continue-on-error: ${{ matrix.distro == '26.10' }}
+        include:
+          - distro: "24.04"
+            image: ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254
+          - distro: "26.04"
+            image: ubuntu:26.04@sha256:513c074113a871b51a8d16ab445c88779d6452d937a164fb5cc479f32668a41d
+          - distro: "26.10"
+            image: ubuntu:26.10@sha256:49077a16b772f8bc6e6f160ad2bfc218919f3455037387ed19a8309174328603
     name: apt install on ${{ matrix.distro }}
     container:
-      image: ubuntu:${{ matrix.distro }}
+      image: ${{ matrix.image }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -370,11 +441,12 @@ jobs:
       # Measured in exactly this shape on the development box on 2026-09-11 against sway
       # 1.11 and Xwayland 24.1.10: `:20` twice, and the original `xdotool
       # getdisplaygeometry` through it printed `1280 720`.
-      # continue-on-error, the way parity-arch carries its own unmeasured gate: that
-      # measurement is a desktop's and NOT one of these containers', so the first run here
-      # is the measurement rather than a reason to turn a push red.
+      # It was continue-on-error until 2026-09-12, the way parity-arch carried its own
+      # unmeasured gate. The measurement has been taken: on run 34628777544 this step
+      # passed in every job that carries it -- deb-install on all three Ubuntu releases,
+      # rpm, and nix [recon/gaps.md 4] -- so the marker came off and a proxy that cannot
+      # start in a container turns the push red, which is what it is for.
       - name: xw11 --print-display under a headless sway
-        continue-on-error: true
         run: |
           # this container has no unprivileged user, so sway runs as root here
           apt-get install -y -qq --no-install-recommends sway xwayland >/dev/null
@@ -419,11 +491,19 @@ jobs:
       options: --user root --init
     steps:
       - uses: actions/checkout@v4
-      - name: scripts/build-rpm.sh --no-deps --lint, then the payload against the tree
+      - name: scripts/build-rpm.sh --no-deps --lint
         run: |
           chown -R ci "$PWD"
           runuser -u ci -- env HOME=/home/ci W11_PASSTHROUGH=never \
               sh scripts/build-rpm.sh --no-deps --lint
+      # before the release test, for the reason written out in the `deb` job: run
+      # 34662004383 lost six fedora rigs to a test-count pin that ran first
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpms
+          path: dist/*.rpm
+      - name: the payload against the tree
+        run: |
           runuser -u ci -- env HOME=/home/ci W11_PASSTHROUGH=never \
               python3 tests/test_release_rpm.py
       # The proxy against a real compositor, in the container that has just built or
@@ -435,11 +515,12 @@ jobs:
       # Measured in exactly this shape on the development box on 2026-09-11 against sway
       # 1.11 and Xwayland 24.1.10: `:20` twice, and the original `xdotool
       # getdisplaygeometry` through it printed `1280 720`.
-      # continue-on-error, the way parity-arch carries its own unmeasured gate: that
-      # measurement is a desktop's and NOT one of these containers', so the first run here
-      # is the measurement rather than a reason to turn a push red.
+      # It was continue-on-error until 2026-09-12, the way parity-arch carried its own
+      # unmeasured gate. The measurement has been taken: on run 34628777544 this step
+      # passed in every job that carries it -- deb-install on all three Ubuntu releases,
+      # rpm, and nix [recon/gaps.md 4] -- so the marker came off and a proxy that cannot
+      # start in a container turns the push red, which is what it is for.
       - name: xw11 --print-display under a headless sway
-        continue-on-error: true
         run: |
           # the tree's own xw11: this job builds the rpm, rpm-install is what installs one
           cat > /tmp/xw11-probe.sh <<'PROBE'
@@ -466,10 +547,6 @@ jobs:
           PROBE
           runuser -u ci -- env HOME=/home/ci XDG_RUNTIME_DIR=/tmp/xdg-ci \
               PYTHONPATH="$PWD" XW11="python3 -m xw11" sh /tmp/xw11-probe.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: rpms
-          path: dist/*.rpm
 
   rpm-install:
     needs: [plan, rpm]
@@ -479,11 +556,21 @@ jobs:
       matrix:
         # not rawhide: a noarch rpm built on 44 requires python(abi) = 3.14 and rawhide has
         # moved on (run 34390127394: "nothing provides python(abi) = 3.14"); installing there
-        # means building there, which is a job of its own when someone wants it
-        tag: ["43", "44"]
+        # means building there, which is a job of its own when someone wants it.
+        #
+        # By digest, for the reason deb-install's three are: this job has never been
+        # continue-on-error, but "a plain tag is a different image every week" is as true of
+        # `fedora:44` as it was of `ubuntu:26.10`, and 44's digest is the one the `rpm` job
+        # BUILT the package in. What is still live here is dnf's own archive, the way apt's
+        # is in deb-install -- not yet pinned, and never a failure so far.
+        include:
+          - tag: "43"
+            image: fedora:43@sha256:a651ddf48ea28a06ed4e1e6519f51c9f47e7a5a138722ade87369b8fbb7e5b42
+          - tag: "44"
+            image: fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
     name: dnf install on fedora ${{ matrix.tag }}
     container:
-      image: fedora:${{ matrix.tag }}
+      image: ${{ matrix.image }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -505,12 +592,16 @@ jobs:
 
   # Arch in one job -- build, namcap, install, every tool answers, remove -- because makepkg
   # cannot run as root and the container already has the `ci` user that cannot either.
-  # continue-on-error for the reason the arch-* rig flavors are: `pacman -Syu` pins nothing.
+  # It was continue-on-error for the reason the arch-* rig flavors were: `pacman -Syu`
+  # pinned nothing. The image it runs in now syncs against a frozen
+  # archive.archlinux.org/repos/2026/09/06 snapshot off a base tag of the same date
+  # (.github/ci/Dockerfile.arch), so the packages under this job are the same bytes on
+  # every build and the marker came off on 2026-09-12. It had SUCCEEDED on run
+  # 34628777544 [recon/gaps.md 4].
   pkgbuild:
     needs: [plan, image]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    continue-on-error: true
     container:
       image: ghcr.io/${{ github.repository_owner }}/w11-ci:arch-${{ needs.plan.outputs.image_key_arch }}
       credentials:
@@ -519,11 +610,19 @@ jobs:
       options: --user root --init
     steps:
       - uses: actions/checkout@v4
-      - name: scripts/build-pkgbuild.sh --no-deps --lint, then pacman -U and -R
+      - name: scripts/build-pkgbuild.sh --no-deps --lint
         run: |
           chown -R ci "$PWD"
           runuser -u ci -- env HOME=/home/ci W11_PASSTHROUGH=never \
               sh scripts/build-pkgbuild.sh --no-deps --lint
+      # before the release test, for the reason written out in the `deb` job: run
+      # 34662004383 lost six arch rigs to a test-count pin that ran first
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg
+          path: dist/*.pkg.tar.zst
+      - name: the payload against the tree, then pacman -U and -R
+        run: |
           runuser -u ci -- env HOME=/home/ci W11_PASSTHROUGH=never \
               python3 tests/test_release_pkgbuild.py
           pacman -U --noconfirm dist/w11-*.pkg.tar.zst
@@ -557,15 +656,18 @@ jobs:
           $XW11 --stop
           PROBE
           # the same probe the other three installers run, as the `ci` user, against the
-          # xw11 pacman just installed. `|| echo`: this job is continue-on-error for Arch's
-          # own reasons and the removal below has to be reached whatever sway does here.
+          # xw11 pacman just installed. It passed here on run 34628777544 like the other
+          # three -- job 103360336842, `xw11 --print-display: :20 then :20 (upstream
+          # DISPLAY=:0)` -- which is the measurement this job's own marker was waiting on.
+          # Its failure is REMEMBERED rather than immediate,
+          # because `pacman -R` below is this job's other claim and has to be reached
+          # either way; the job is no longer continue-on-error, so the last line is what
+          # turns a proxy that would not start into a red push, like the other three.
+          probe=0
           runuser -u ci -- env HOME=/home/ci XDG_RUNTIME_DIR=/tmp/xdg-ci sh /tmp/xw11-probe.sh \
-              || echo "xw11 --print-display did not run in this container"
+              || { probe=1; echo "xw11 --print-display did not run in this container"; }
           pacman -R --noconfirm w11 && ! command -v wdotool
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pkg
-          path: dist/*.pkg.tar.zst
+          [ "$probe" = 0 ]
 
   # The flake, on a runner with nix: the five packages, `nix run`, the live half of
   # tests/test_flake.py, and the three checks that do not boot a NixOS VM. The two that do
@@ -597,11 +699,12 @@ jobs:
       # Measured in exactly this shape on the development box on 2026-09-11 against sway
       # 1.11 and Xwayland 24.1.10: `:20` twice, and the original `xdotool
       # getdisplaygeometry` through it printed `1280 720`.
-      # continue-on-error, the way parity-arch carries its own unmeasured gate: that
-      # measurement is a desktop's and NOT one of these containers', so the first run here
-      # is the measurement rather than a reason to turn a push red.
+      # It was continue-on-error until 2026-09-12, the way parity-arch carried its own
+      # unmeasured gate. The measurement has been taken: on run 34628777544 this step
+      # passed in every job that carries it -- deb-install on all three Ubuntu releases,
+      # rpm, and nix [recon/gaps.md 4] -- so the marker came off and a proxy that cannot
+      # start in a container turns the push red, which is what it is for.
       - name: xw11 --print-display under a headless sway
-        continue-on-error: true
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends sway xwayland >/dev/null
           nix build --no-link --print-out-paths .#w11 > /tmp/w11out
@@ -645,13 +748,13 @@ jobs:
   vm:
     needs: [plan, deb, rpm, pkgbuild]
     # `needs` alone skips every dependant when a needed job FAILS, and that is exactly what
-    # a Fedora rpm build going wrong would do here: 25 Ubuntu rig jobs and 2 NixOS ones
-    # skipped over a package none of them installs. (`pkgbuild` and the arch flavors could
-    # not do that -- a continue-on-error job reports `success` to its dependants and merely
-    # leaves its artifact missing -- so `rpm` is the one this condition is written for; its
-    # own distro's rigs then fail at the download, which is where a missing rpm belongs.)
-    # The condition is the documented way to say "run anyway": plan and deb are the two
-    # every flavor really needs.
+    # a Fedora rpm or an Arch pkg build going wrong would do here: 25 Ubuntu rig jobs and 2
+    # NixOS ones skipped over a package none of them installs. (Until 2026-09-12 `pkgbuild`
+    # could not do that, being continue-on-error, and `rpm` was the one job this condition
+    # was written for; now neither is, and it guards both.) A flavor whose own distro's
+    # package is missing fails at its download step, which is where a missing package
+    # belongs. The condition is the documented way to say "run anyway": plan and deb are
+    # the two every flavor really needs.
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.deb.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 150
@@ -659,7 +762,22 @@ jobs:
       fail-fast: false
       matrix:
         flavor: ${{ fromJSON(needs.plan.outputs.flavors) }}
-    continue-on-error: ${{ startsWith(matrix.flavor, 'stonking-') || startsWith(matrix.flavor, 'arch-') }}
+    # No continue-on-error since 2026-09-12. It read `stonking-* || arch-*` -- the
+    # unreleased Ubuntu and the rolling distro -- and the two halves come off on different
+    # evidence, which is worth writing down. stonking-gnome and stonking-kde were green on
+    # BOTH of the last two runs, 34628777544 and 34662004383 (the portal call the note
+    # worried about is already excused by common.sh:775-781): that is the two consecutive
+    # green runs asked for. The four red arch flavors were fixed IN THE TREE in this wave
+    # (arch-kde's duplicate titles, COSMIC's id range and workspaces, Hyprland 0.56's
+    # apply, arch-river's golden) and no arch rig has run on CI since -- all twelve
+    # fedora-*/arch-* jobs of 34662004383 died at `download-artifact`, which the package
+    # jobs above are reordered to prevent -- so the first CI measurement of those four is
+    # the push after 2026-09-12. If one of them is red there for something this wave did
+    # not touch, that is a bug to fix and not a key to put back. Their goldens
+    # are built from a dated Arch cloud image (`# vmctl-base:
+    # Arch-Linux-x86_64-cloudimg-20260901.583572.qcow2`) and not from the rolling `latest`
+    # name, the same way this file's Arch container is pinned. A rig that goes red now is a
+    # desktop that broke.
     name: rig ${{ matrix.flavor }}
     env:
       VMDATA: /mnt/vm-data
@@ -717,11 +835,92 @@ jobs:
           extra-conf: system-features = nixos-test benchmark big-parallel kvm
       - name: the golden image, from the cache or built here
         run: scripts/ci-golden.sh ${{ matrix.flavor }}
-      - name: vm/live-smoke.sh --pkg --remove
-        run: vm/live-smoke.sh ${{ matrix.flavor }} --pkg --remove --heads 3 --cpus 2 --mem 3G
+      # --record pairs vm/live-smoke.d/capture-from-run with the log by stamp, so every
+      # guest command of this run and the bytes it answered land in
+      # vm/live-smoke.out/<flavor>-<stamp>-capture.txt. Measured on resolute-sway
+      # 2026-09-12: 134 s, 59 pass / 0 fail, a 24 KB capture beside the log -- so about
+      # 1 MB across the 38 flavors. Without it every push measures 38 desktops and then
+      # deletes the evidence, and tests/fixtures/live/NOT-YET-RUN can never empty.
+      - name: vm/live-smoke.sh --pkg --remove --record
+        run: vm/live-smoke.sh ${{ matrix.flavor }} --pkg --remove --record --heads 3 --cpus 2 --mem 3G
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: live-smoke-${{ matrix.flavor }}
           path: vm/live-smoke.out/
           if-no-files-found: ignore
+
+  # What the rig job records, replayed. `--record` leaves every guest command of a run and
+  # the bytes it answered beside the log, the `live-smoke-<flavor>` artifact above already
+  # ships the whole of vm/live-smoke.out/, and scripts/rig-recordings.sh is what turns that
+  # into a tests/fixtures/live/<flavor>-<version>-<phases>-replay.txt: it names the file
+  # from the log's own `phases:` line and the capture's `w11-desktop-version:` note, replays
+  # it through vm/live-smoke.d/fake-vmctl with FAKE_VMCTL_STRICT=1 in the mode the run was
+  # made in, and keeps it only when the replay reproduces the tally the log recorded.
+  #
+  # This job runs all of that and then throws the fixture away (RIG_REC_OUT and RIG_REC_NYR
+  # point at a scratch directory): the 38 files land in ONE commit of their own, and what
+  # every push proves here is that the machine behind that commit still works -- on every
+  # flavor, against that push's own desktops. A flavor whose rig job never produced an
+  # artifact is printed and not counted as a problem; that failure belongs to the rig job.
+  #
+  # Cost: the replay sets LIVE_SMOKE_SLEEP=0 itself (scripts/rig-recordings.sh -- the
+  # phases' sleeps exist for a real compositor, not for a transcript), which replayed nine
+  # recordings twice each in 34.7 s on the author's box on 2026-09-12; one flavor is
+  # seconds. Nothing depends on this job, and it is a plain job rather than a
+  # continue-on-error one because this file no longer has any of those: a replay that goes
+  # red is the pipeline behind tests/fixtures/live broken on that push, which is a thing to
+  # fix that day.
+  recordings:
+    needs: [plan, vm]
+    # the same "run anyway" the vm job carries: a rig that went red still uploaded its
+    # artifact (`if: always()` above), and a recording of a red run is exactly as
+    # replayable as one of a green run -- rig-recordings.sh compares against the tally
+    # that run's own log recorded, fails included.
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: ${{ fromJSON(needs.plan.outputs.flavors) }}
+    name: replay ${{ matrix.flavor }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RIG_REC_GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: flavor
+        name: what this flavor installs
+        run: |
+          y=vm/flavors/${{ matrix.flavor }}.yaml
+          echo "distro=$(sed -n 's/^#[[:space:]]*vmctl-distro:[[:space:]]*//p' "$y" | head -1)" >> "$GITHUB_OUTPUT"
+      # the same three guarded downloads the rig job does, and for a sharper reason: a
+      # --pkg run's recording covers phase_install and phase_remove, and the replay of
+      # those needs the package file ON THIS HOST (rig-recordings.sh drops both halves
+      # with a printed reason when it is not there, and 12 of the 38 flavors would then
+      # replay a third less than they recorded)
+      - uses: actions/download-artifact@v4
+        if: steps.flavor.outputs.distro == 'ubuntu'
+        with:
+          name: deb
+          path: release
+      - uses: actions/download-artifact@v4
+        if: steps.flavor.outputs.distro == 'fedora'
+        with:
+          name: rpms
+          path: dist
+      - uses: actions/download-artifact@v4
+        if: steps.flavor.outputs.distro == 'arch'
+        with:
+          name: pkg
+          path: dist
+      - name: scripts/rig-recordings.sh, into a scratch tree
+        run: |
+          mkdir -p /tmp/rec
+          cp tests/fixtures/live/NOT-YET-RUN /tmp/rec/NOT-YET-RUN
+          RIG_REC_OUT=/tmp/rec RIG_REC_NYR=/tmp/rec/NOT-YET-RUN \
+              scripts/rig-recordings.sh ${{ github.run_id }} ${{ matrix.flavor }}
+          # the fixture is the harvest commit's to land, not this job's: nothing under
+          # tests/ may have moved here
+          git diff --exit-code -- tests/

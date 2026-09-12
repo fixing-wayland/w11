@@ -55,6 +55,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 CI = os.path.join(ROOT, ".github", "ci")
+WORKFLOW = os.path.join(ROOT, ".github", "workflows", "ci.yml")
 #: distro -> the Dockerfile that builds its image.  The keys are the `distro`
 #: values of ci.yml's `image` matrix, which test_ci_workflow.py pins from the
 #: other side.
@@ -247,6 +248,194 @@ class TheLiveCompositors(unittest.TestCase):
                 self.assertTrue(os.path.exists(full), path)
                 with open(full, encoding="utf-8") as fh:
                     self.assertIn("Headless", fh.read(), path)
+
+
+class TheBasePins(unittest.TestCase):
+    """Every base image is pinned by digest, in the places that have to agree.
+
+    ci.yml pins the five references ONCE, in its `plan` step, and hashes them
+    into the image key beside the Dockerfile's own sha256 -- because the built
+    image is cached in GHCR under `<distro>-<key>`, so a digest bumped without
+    that would find the cached tag and build nothing, and the pin would be a
+    string nobody acted on.  The `image` and `deb-install` matrices repeat the
+    references, a matrix being unable to read that step's shell, and this class
+    is what keeps the copies identical.
+
+    This is what replaced `continue-on-error` on `unit-2610` and the 26.10 row
+    of `deb-install` on 2026-09-12: "the development Ubuntu moves" was true of
+    a floating tag and is not true of a digest.  The Arch image needed a second
+    pin as well, because its packages move under an unchanged base -- see
+    TheArchSnapshot below."""
+
+    def workflow(self):
+        with open(WORKFLOW, encoding="utf-8") as fh:
+            return fh.read()
+
+    def block(self, job, nextjob):
+        return self.workflow().split("\n  %s:\n" % job, 1)[1].split("\n  %s:\n" % nextjob, 1)[0]
+
+    def matrix_bases(self):
+        """dockerfile -> the base references ci.yml's `image` matrix builds it
+        from, in file order."""
+        image = self.block("image", "lint")
+        rows = re.findall(r"^          - distro: .*?\n            base: (\S+)\n"
+                          r"            dockerfile: (\S+)$", image, re.M | re.S)
+        out = {}
+        for base, dockerfile_name in rows:
+            out.setdefault(dockerfile_name, []).append(base)
+        return out
+
+    def plan_step(self):
+        return self.block("plan", "image")
+
+    def test_every_base_the_workflow_builds_from_is_pinned_by_digest(self):
+        """A tag alone is a different image every week.  `archlinux:base-devel`
+        was exactly that until 2026-09-12."""
+        bases = self.matrix_bases()
+        self.assertEqual(sorted(bases), sorted(IMAGES.values()))
+        for dockerfile_name, refs in sorted(bases.items()):
+            for ref in refs:
+                with self.subTest(ref):
+                    self.assertRegex(ref, r"^[^@]+@sha256:[0-9a-f]{64}$",
+                                     "%s is built from an unpinned %s"
+                                     % (dockerfile_name, ref))
+
+    def test_the_plan_step_hashes_every_base_digest_into_the_image_key(self):
+        """The load-bearing half of the pin.  `plan` computes each key as the
+        sha256 of a Dockerfile AND of the base(s) it is built from, so moving a
+        digest moves the GHCR tag and the image is rebuilt; without that line
+        the `image` job would find the cached tag, skip the build, and every
+        unit job would run on the base the pin was supposed to replace.
+
+        Asserted per key rather than "the digests appear somewhere", because a
+        variable set and not folded in is exactly the failure this describes."""
+        plan = self.plan_step()
+        for key, dockerfile_name, variables in (
+                ("key", "Dockerfile", ("$u2404", "$u2604", "$u2610")),
+                ("keyf", "Dockerfile.fedora", ("$fed",)),
+                ("keya", "Dockerfile.arch", ("$arch",))):
+            with self.subTest(key):
+                line = re.search(r"^          %s=\$\(.*$" % key, plan, re.M)
+                self.assertIsNotNone(line, plan)
+                line = line.group(0)
+                self.assertIn(".github/ci/%s" % dockerfile_name, line)
+                for var in variables:
+                    self.assertIn(var, line, line)
+
+    def test_the_matrix_builds_from_the_references_the_plan_pinned(self):
+        """Character for character, both directions: a digest in the matrix and
+        not in `plan` is a pin that rebuilds nothing, and one in `plan` and not
+        in the matrix is a key that moved for an image nobody changed."""
+        pinned = set(re.findall(r"sha256:[0-9a-f]{64}", self.plan_step()))
+        built = set()
+        for refs in self.matrix_bases().values():
+            built.update(ref.split("@", 1)[1] for ref in refs)
+        self.assertEqual(pinned, built)
+        self.assertEqual(len(pinned), 5, pinned)
+
+    def test_the_arch_dockerfile_default_is_the_reference_ci_builds_it_from(self):
+        """`docker build -f Dockerfile.arch` by hand has to get the image CI
+        got, dated tag and digest: this is the file whose packages are the
+        parity oracle, and an Arch image built off `latest` by somebody
+        reproducing a failure is a different distro."""
+        m = re.search(r"^ARG BASE=(\S+)$", dockerfile("arch"), re.M)
+        self.assertIsNotNone(m)
+        self.assertEqual([m.group(1)], self.matrix_bases()["Dockerfile.arch"])
+
+    def test_the_other_two_defaults_name_a_tag_the_workflow_builds(self):
+        """The Ubuntu and Fedora files carry a plain `ubuntu:26.04` /
+        `fedora:44` default -- the release the packages were measured on -- and
+        CI always passes `--build-arg BASE=` over it.  What is pinned here is
+        that the default is one of the tags the matrix builds and not a fourth
+        image nothing tests."""
+        for distro in ("ubuntu", "fedora"):
+            with self.subTest(distro):
+                m = re.search(r"^ARG BASE=(\S+)$", dockerfile(distro), re.M)
+                self.assertIsNotNone(m, distro)
+                tags = [ref.split("@", 1)[0]
+                        for ref in self.matrix_bases()[IMAGES[distro]]]
+                self.assertIn(m.group(1), tags)
+
+    def test_the_apt_installer_job_uses_the_same_three_ubuntu_references(self):
+        """`deb-install` runs in a plain `ubuntu:<release>` container rather
+        than in one of our images, and it was the 26.10 row of THAT matrix
+        which carried the second `continue-on-error` of the two the
+        development release was given.  One set of three references for both."""
+        block = self.block("deb-install", "rpm")
+        used = re.findall(r"^            image: (\S+)$", block, re.M)
+        self.assertEqual(sorted(used), sorted(self.matrix_bases()["Dockerfile"]))
+        self.assertIn("image: ${{ matrix.image }}", block)
+
+    def test_the_dnf_installer_job_is_pinned_the_same_way(self):
+        """`rpm-install` was never continue-on-error, but "a plain tag is a
+        different image every week" is as true of `fedora:44` as it was of
+        `ubuntu:26.10`, and 44 is the release the rpm it installs was BUILT on:
+        that row has to be the same digest the `image` matrix builds from.  43
+        is pinned too and has no twin, being installed on and built nowhere."""
+        block = self.block("rpm-install", "pkgbuild")
+        used = re.findall(r"^            image: (\S+)$", block, re.M)
+        self.assertEqual(len(used), 2, block)
+        for ref in used:
+            with self.subTest(ref):
+                self.assertRegex(ref, r"^fedora:\d+@sha256:[0-9a-f]{64}$")
+        self.assertIn(self.matrix_bases()["Dockerfile.fedora"][0], used)
+        self.assertIn("image: ${{ matrix.image }}", block)
+
+
+class TheArchSnapshot(unittest.TestCase):
+    """The Arch image's second pin: where `pacman -Sy` syncs from.
+
+    A dated base tag alone pins nothing here -- the first `pacman -Syu` in the
+    build resolves against whatever the live mirrors hold that hour, which is
+    the literal reason `unit-distro`'s arch row, `pkgbuild` and `parity-arch`
+    were all continue-on-error until 2026-09-12.  The mirrorlist is rewritten
+    to an archive.archlinux.org snapshot of the same date as the base tag, so
+    the packages in the image are the same bytes on every rebuild.
+
+    Measured in the 2026/09/06 snapshot on 2026-09-12: xdotool 4.20260303.1 --
+    the generation tests/test_cli_parity.py compares bytes against, which is
+    the whole reason this image exists -- and wmctrl 1.07-6, whose `--help` is
+    6801 bytes, the same as the nixpkgs 1.07 scripts/parity-oracle.sh gates
+    on."""
+
+    def setUp(self):
+        self.text = dockerfile("arch")
+
+    def snapshot(self):
+        m = re.search(r"^ARG ARCH_SNAPSHOT=(\S+)$", self.text, re.M)
+        self.assertIsNotNone(m, ".github/ci/Dockerfile.arch: no ARG ARCH_SNAPSHOT")
+        return m.group(1)
+
+    def test_the_mirrorlist_is_an_archive_snapshot_and_not_a_live_mirror(self):
+        """One `Server =` line, built from ARCH_SNAPSHOT, written over the
+        image's own mirrorlist.  `$repo` and `$arch` are pacman's variables and
+        stay literal, which is why the line is a printf format with one `%s`
+        in it."""
+        self.assertRegex(self.snapshot(), r"^\d{4}/\d{2}/\d{2}$")
+        self.assertRegex(self.text, r"Server = https://archive\.archlinux\.org/repos/"
+                                    r"%s/\$repo/os/\$arch")
+        self.assertIn('"${ARCH_SNAPSHOT}"', self.text)
+        self.assertIn("> /etc/pacman.d/mirrorlist", self.text)
+        # written before anything syncs, or the sync it is there to pin has
+        # already happened against the live mirrors
+        self.assertLess(self.text.index("/etc/pacman.d/mirrorlist"),
+                        self.text.index("pacman-key --init"), self.text)
+
+    def test_the_base_tag_and_the_snapshot_are_the_same_date(self):
+        """A snapshot OLDER than the base image makes `pacman -Syu` a
+        downgrade and a newer one a partial upgrade; both are shapes nobody
+        wants to debug from a CI log, and both are avoided by moving the two
+        numbers together."""
+        m = re.search(r"^ARG BASE=archlinux:base-devel-(\d{8})\.", self.text, re.M)
+        self.assertIsNotNone(m, "the Arch base is not a dated tag")
+        self.assertEqual(m.group(1), self.snapshot().replace("/", ""))
+
+    def test_it_is_a_full_upgrade_and_not_a_bare_sync(self):
+        """`-Sy` plus an install is Arch's classic breakage: new packages
+        linked against libraries the image has not upgraded.  Against a frozen
+        mirror the `-u` costs nothing and removes the hazard."""
+        self.assertIn("pacman -Syu --noconfirm --needed", self.text)
+        self.assertNotIn("pacman -Sy --noconfirm", self.text)
 
 
 class ThePackagingBuildDeps(unittest.TestCase):

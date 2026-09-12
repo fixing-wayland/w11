@@ -450,7 +450,7 @@ class WlrBackend(XPlaneViews, WindowBackend):
     # -- WindowBackend ------------------------------------------------------
 
     def list(self) -> list[Window]:
-        """The toplevels, with the X server's rectangle folded into the rows it has one for.
+        """The toplevels, with the X server's rectangle and pid folded into the rows it has them for.
 
         AGENTS.md route 5. `zwlr_foreign_toplevel_management_v1` carries no rectangle, so before this every
         row read `0,0` plus the widest output's mode -- measured on the resolute-labwc golden 2026-09-12,
@@ -467,6 +467,18 @@ class WlrBackend(XPlaneViews, WindowBackend):
         readers of a rectangle are `getwindowgeometry` (through `find()`) and `hit_test`, which is
         `getmouselocation`'s `window:` field, and both go through `list()` and never through `views()`.
         (`search --onlyvisible` reads `w.visible` alone -- no rectangle is involved there.)
+
+        The pid rides the same join and for the same reason. `_NET_WM_PID` is on the X window and the
+        toplevel protocol carries no pid at all, so `wdotool getwindowpid` on an XWayland window answered
+        `window 1000000 has no pid associated with it` while `wwmctl -lGpx` -- which reads `views()`, where
+        the pid was already folded -- printed `0x0040000c -1 2045 718 395 484 316` for that very window on
+        the resolute-labwc golden, 2026-09-12 [M goal2/requests-batch-12.md 4]. X answers it, so we owe it,
+        and it is the same assignment in the same loop. It turns `getwindowpid` and `windowkill` into
+        working commands for XWayland windows on labwc, river, Budgie, Xfce-on-Wayland and LXQt-on-Wayland
+        (`WindowBackend.kill` sends SIGKILL to `find(wid).pid`). A native toplevel keeps pid 0 and keeps
+        xdotool's own refusal, which is the byte the original prints for an X window with no `_NET_WM_PID`:
+        NOT YET, rung 1, a foreign-toplevel protocol that carries the pid -- the same missing protocol field
+        as the rectangle, at the same cost of wlroots writing and shipping it.
 
         Two XWayland windows the join cannot tell apart -- two xterms under the default title, which is a
         common shape on this floor -- both keep the floor, because `match_xids` hands out no id on a tie
@@ -500,7 +512,7 @@ class WlrBackend(XPlaneViews, WindowBackend):
                 # reported one it was not told.
                 self.geometry_is_floor = True
                 continue
-            w.x, w.y, w.w, w.h = c["geo"]
+            w.pid, (w.x, w.y, w.w, w.h) = int(c["pid"]), c["geo"]
         return wins
 
     def activate(self, wid: int):

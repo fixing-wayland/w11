@@ -71,6 +71,13 @@ in
     enable = true;
     x11Tools.enable = true;
     wlMirror.enable = true;
+    # The overlap extension installed and enabled for nobody, so the GNOME
+    # rig's `gnome-extensions enable w11-overlap@w11` is the same second step
+    # it is after the .deb (gnome.sh phase_overlap).  It lands here, not in the
+    # gnome flavor, because that flavor file is eval'd standalone by
+    # test_flake and would not have the module's option there (CI run
+    # 34662004383: nixos-gnome's overlap phase, exit 2, extension unknown).
+    gnomeOverlap.enable = true;
     # The .deb ships warandr and its .desktop; a rig image that did not would
     # be a picture of a different package.  It is the option and not the
     # package by hand because that is the route a user takes.

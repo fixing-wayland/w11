@@ -24,6 +24,8 @@ resize when it acks the configure, so the same command chain read the old size b
 seconds later [M cinnamon.md §4]. `resize_lag` is that, in list replies.
 """
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -43,6 +45,7 @@ from test_xkbmap import _FakeService
 from wdotool import backend, backend_cinnamon, backend_gnome, cinnamon_js as js
 from wdotool.backend_cinnamon import CinnamonBackend
 from wdotool.ctx import NoSessionError
+from wwmctl import core
 
 os.environ["W11_PASSTHROUGH"] = "never"
 
@@ -852,6 +855,56 @@ class Events(CinnamonCase):
         b = self.backend()
         seen = self.drain(b, [lambda: self.svc.by_seq(1).update(title="other")])
         self.assertEqual({c for _wid, c in seen}, {"title"})
+
+
+class TheDesktopColumnOffThisBackend(CinnamonCase):
+    """`wwmctl -l` over a real `CinnamonBackend`: the sticky background windows that were the one red
+    check on resolute-cinnamon-wayland (76 pass / 1 fail).
+
+    The number is muffin's own, taken on the `resolute-cinnamon` X11 golden 2026-09-12: `nemo-desktop`
+    0x02a00030 carried `_NET_WM_STATE = SKIP_PAGER, SKIP_TASKBAR, STICKY`, `_NET_WM_DESKTOP: not found.`
+    and `_WIN_WORKSPACE: not found.`, and real `wmctrl -l` printed `0x02a00030  0 ... Desktop` -- wmctrl
+    falls through to 0 for a window carrying neither property. On the WAYLAND session muffin publishes no
+    `_NET_WM_DESKTOP` on the X window at all, so the same 0 is owed there.
+
+    This is the backend half of `tests/test_wwmctl_cli.py`'s gate tests: `core.NO_NET_WM_DESKTOP_XWM` is
+    keyed on `CinnamonBackend.name`, and nothing else in the tree ties the 0 to the backend it was
+    measured on."""
+
+    def rows(self):
+        b = self.backend()
+        c = core.Core()
+        c._backend = b
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(c.list_windows(False, False, False), 0)
+        return out.getvalue().splitlines()
+
+    def nemo_desktop(self):
+        """The golden's window, in this file's model: an X client (`ct:1`, a real xid) that muffin
+        reports on all workspaces, which `cinnamon_js.LIST` turns into `ws:-1`."""
+        self.svc.windows[:] = [win(3, meta_id=3070932382, xwindow=0x02A00030, title="Desktop",
+                                   wm_class="Nemo-desktop", instance="nemo-desktop", pid=1234,
+                                   client_type=1, x=0, y=0, w=1920, h=1080, on_all=True)]
+
+    def test_a_sticky_x_window_prints_the_0_real_wmctrl_printed_for_it(self):
+        self.nemo_desktop()
+        self.assertEqual(self.rows(), ["0x02a00030  0 %s Desktop" % core.hostname()])
+
+    def test_the_backend_itself_still_reports_minus_one(self):
+        """The guard that keeps the test above from being a tautology of the backend: the -1 is what
+        `CinnamonBackend.list()` really says (`ws:(w.is_on_all_workspaces()?-1:...)`), and the 0 is
+        `Core._desktop_column` translating it into the original's byte."""
+        self.nemo_desktop()
+        self.assertEqual([w.desktop for w in self.backend().list()], [-1])
+
+    def test_a_native_sticky_row_keeps_the_minus_one(self):
+        """foot with `on_all`: the only original that can see a native window reads it through xw11,
+        whose shadow publishes `_NET_WM_DESKTOP = 0xFFFFFFFF`, which wmctrl prints as -1. Measured on a
+        headless labwc 2026-09-12: `0x00600001 -1 ... gfoot` from the original for the row this column
+        prints -1 for. So the 0 is for X-plane rows and not a blanket."""
+        self.svc.windows[:] = [dict(FOOT, on_all=True)]
+        self.assertEqual(self.rows(), ["0x00000001 -1 %s yans@w11: ~/code" % core.hostname()])
 
 
 if __name__ == "__main__":

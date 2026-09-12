@@ -201,11 +201,18 @@ class WwmctlLiveTest(unittest.TestCase):
             for row in (xrow, frow):
                 pid = int(row.split()[2])
                 self.assertTrue(os.path.exists("/proc/%d" % pid), row)
-            # geometry: two tiles side by side on the 1280x720 output
-            xg = xrow.split()[3:7]
-            fg = frow.split()[3:7]
+            # geometry: two tiles side by side on the 1280x720 output, read through `--true-geometry`.
+            # Plain `-lG` is the ORIGINAL's arithmetic and doubles the origin: sway's xwm does not
+            # reparent (`xwininfo -tree` on a headless sway 1.11 on this guest, 2026-09-12, answered
+            # `Parent window id: 0x234 (the root window)`) and a native row is only ever reachable by
+            # the original through xw11, whose shadows are root children too.  The claim here is about
+            # where sway put the two windows, so the flag that answers that is the one to read.
+            xg = self.xterm_row(["--true-geometry", "-lGpx"], nox=nox).split()[3:7]
+            fg = self.foot_row(["--true-geometry", "-lGpx"], nox=nox).split()[3:7]
             self.assertEqual(xg, ["0", "0", "640", "720"], xrow)
             self.assertEqual(fg, ["640", "0", "640", "720"], frow)
+            # ...and the plain column really is the doubled one for the window that is not at the origin.
+            self.assertEqual(frow.split()[3:7], ["1280", "0", "640", "720"], frow)
 
     @unittest.skipUnless(shutil.which("wmctrl"), "oracle wmctrl not on PATH")
     def test_02_oracle_agrees_on_x_rows(self):
@@ -329,10 +336,14 @@ class WwmctlLiveTest(unittest.TestCase):
             self.assertTrue(self.wait(lambda: (
                 self.view(name=XTERM_TITLE)["rect"]["x"],
                 self.view(name=XTERM_TITLE)["rect"]["y"]) == (200, 90)))
-            # our -lG reports the compositor truth in both modes
+            # our -lG reports the compositor truth in both modes -- under `--true-geometry`, the flag
+            # wmctrl never had.  Plain `-lG` is the original's doubled origin on this xwm (test_02's
+            # parenthesis is the same quirk), which is what the second assertion pins.
             for nox in (False, True):
-                g = self.xterm_row(["-lG"], nox=nox).split()[2:6]
+                g = self.xterm_row(["--true-geometry", "-lG"], nox=nox).split()[2:6]
                 self.assertEqual(g[:2], ["200", "90"], g)
+                doubled = self.xterm_row(["-lG"], nox=nox).split()[2:6]
+                self.assertEqual(doubled[:2], ["400", "180"], doubled)
         finally:
             self.swaymsg("[class=XTerm] floating disable")
 

@@ -832,6 +832,11 @@ class XPlaneGeometry(FakeXPlane, WlrTest):
         tie. The literal below is what shipped before this batch (`xid_match.match_xids`, unchanged)."""
         line = ("wdotool: 2 XWayland window(s) could not be told apart from each other in the X client "
                 "list; their X ids are left unset\n")
+        # The prefix is whatever main() last named the process (wwmctl's CLI tests leave it at
+        # "wwmctl" when the whole suite runs in one interpreter, run 2026-09-12); pin it for this test.
+        from wdotool import backend as backend_mod
+        self.addCleanup(backend_mod.set_program, backend_mod.program())
+        backend_mod.set_program("wdotool")
         self.x_server(clients=self.TIED)
         _comp, b = self.backend(toplevels=(top("same", "xterm"), top("same", "xterm")))
         floor = io.StringIO()
@@ -861,6 +866,82 @@ class XPlaneGeometry(FakeXPlane, WlrTest):
         wins = b.list()
         self.assertEqual(backend.hit_test(wins, 730, 400), BASE_ID)
         self.assertEqual(backend.hit_test(wins, 10, 10), 0)
+
+
+class XPlanePid(FakeXPlane, WlrTest):
+    """The other half of the same route-5 join: `_NET_WM_PID`, and the two commands that were dead without it.
+
+    `zwlr_foreign_toplevel_management_v1` carries no pid, so `list()` handed out 0 for every window and
+    `wdotool getwindowpid` on an XWayland window answered `window 1000000 has no pid associated with it`
+    while the X plane in the same process knew the number: on the resolute-labwc golden, 2026-09-12,
+    `wwmctl -lGpx` -- which reads `views()`, where the pid was already folded -- printed
+    `0x0040000c -1 2045 718 395 484 316` for that very window [M goal2/requests-batch-12.md 4]. X answers
+    it, so we owe it, and the fixture below is that row: pid 2045 at 718,395 484x316.
+
+    The native half stays at 0 and keeps xdotool's own sentence, which is what the original prints for an X
+    window with no `_NET_WM_PID`. NOT YET, rung 1: a foreign-toplevel protocol that carries the pid."""
+
+    XTERM = 0x40000C
+    CLIENTS = ((0x40000C, "xterm", "XTerm", "xtermwin", 2045, (718, 395, 484, 316)),)
+    TOPLEVELS = (top("xtermwin", "xterm"), top("footwin", "foot"))
+
+    def test_the_listing_carries_the_x_servers_pid_for_the_xwayland_row(self):
+        """`list()` and not `views()`: every xdotool command reads the listing, and `getwindowpid` reads
+        `find()`, which is `list()`."""
+        self.x_server()
+        _comp, b = self.backend()
+        self.assertEqual([w.pid for w in b.list()], [2045, 0])
+        self.assertEqual(b.find(BASE_ID).pid, 2045)
+
+    def test_getwindowpid_prints_the_number_where_it_used_to_refuse(self):
+        self.x_server()
+        _comp, b = self.backend()
+        ctx = Context()
+        ctx._backend = b
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = cli.run_chain(ctx, "wdotool", ["getwindowpid", str(BASE_ID)])
+        self.assertEqual((rc, out.getvalue()), (0, "2045\n"))
+
+    def test_a_native_toplevel_still_refuses_in_the_originals_own_words(self):
+        """The half route 5 does not reach: no X server has heard of the foot window. The sentence is
+        xdotool's byte for byte -- the original prints it for an X window with no `_NET_WM_PID`, so parity
+        and honesty are the same string here."""
+        self.x_server()
+        _comp, b = self.backend()
+        ctx = Context()
+        ctx._backend = b
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc = cli.run_chain(ctx, "wdotool", ["getwindowpid", str(BASE_ID + 1)])
+        self.assertEqual(rc, 1)
+        self.assertEqual(err.getvalue(),
+                         "window %d has no pid associated with it.\n" % (BASE_ID + 1))
+
+    def test_windowkill_reaches_the_x_clients_pid(self):
+        """`WindowBackend.kill` sends SIGKILL to `find(wid).pid`, so the fold is what turns `windowkill`
+        from `no pid for window 1000000` into a signal. The kill itself is faked -- 2045 is the golden's
+        pid and not this box's -- and what is asserted is the number the command reached for."""
+        self.x_server()
+        _comp, b = self.backend()
+        with mock.patch("os.kill") as killed:
+            b.kill(BASE_ID)
+        self.assertEqual(killed.call_args[0][0], 2045)
+
+    def test_windowkill_on_a_native_toplevel_is_still_refused_and_signals_nobody(self):
+        self.x_server()
+        _comp, b = self.backend()
+        with mock.patch("os.kill") as killed:
+            with self.assertRaises(CmdError):
+                b.kill(BASE_ID + 1)
+        self.assertEqual(killed.call_count, 0, "a refusal must not have signalled anything first")
+
+    def test_an_x_client_that_pairs_with_nobody_hands_out_no_pid(self):
+        """The same rule the rectangle follows: a client whose WM_CLASS agrees with no toplevel is not this
+        window's pid, and a row that took it would name a process that is not the window's."""
+        self.x_server(clients=((0x40000C, "gedit", "Gedit", "xtermwin", 9, (11, 22, 33, 44)),))
+        _comp, b = self.backend()
+        self.assertEqual([w.pid for w in b.list()], [0, 0])
 
 
 class ViewFlags(FakeXPlane, WlrTest):

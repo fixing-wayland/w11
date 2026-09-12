@@ -304,10 +304,41 @@ needs both -- id '$(ev "$wid")', X id '$(ev "$xid")')"
         same "getwindowgeometry on the XWayland window is the X server's own rectangle \
 (route 5), not the floor's 0,0 + a head's mode" "$theirs" "$ours"
     fi
-    # Recorded, not asserted: the pid for an X row comes from the X server once views() exists,
-    # so this is where a `0` pid would show.
+    # The PID, the other half of the same route-5 join.  `_NET_WM_PID` is on the X window and
+    # zwlr_foreign_toplevel_management_v1 carries no pid at all, so `wdotool getwindowpid` on
+    # this xterm answered `window 1000000 has no pid associated with it` while the X plane in
+    # the same process knew the number -- `wwmctl -lGpx` printed `0x0040000c -1 2045 718 395
+    # 484 316` for that very window on the resolute-labwc golden 2026-09-12
+    # [goal2/requests-batch-12.md 4].  The oracle is the ORIGINAL wmctrl's own pid column for
+    # the same X id, read over its own connection to the X server.
+    local theirrow ourpid theirpid
+    theirrow=$(guest 'wmctrl -lGpx' | grep -i xterm || true)
+    theirpid=$(printf '%s\n' "$theirrow" | awk '{ print $3 }')
+    if [ -n "$wid" ] && [ -n "$xid" ]; then
+        ourpid=$(guest "wdotool getwindowpid $wid 2>&1" | tr -d ' \r\n' || true)
+    fi
+    # Exactly two answers degrade to a note, and NEITHER of them is a pid: nothing at all, and
+    # `fake-vmctl: nothing recorded for ...` (guest() folds the fake's stderr into its stdout,
+    # live-smoke.sh:352), which is what a recording cut before this command existed replies under
+    # FAKE_VMCTL_STRICT=1.  Everything else goes through `same` -- above all the refusal sentence
+    # `window 1000000 has no pid associated with it`, which is the regression this check exists to
+    # catch and which an "is it all digits?" guard would have waved through as a note.  A live run
+    # with no id is already red one line earlier, at the X-id `want`.
+    case "${ourpid:-}" in
+        ""|*nothingrecorded*)
+            note "(no getwindowpid answer for the xterm -- ours '$(ev "${ourpid:-}")', the original \
+wmctrl '$(ev "${theirpid:-}")': a recording cut before this check answers neither)" ;;
+        *)
+            if [ -n "$theirpid" ]; then
+                same "getwindowpid on the XWayland window is the X server's _NET_WM_PID (route 5), \
+not the floor's 0" "$theirpid" "$ourpid"
+            else
+                note "(the original wmctrl printed no pid column for the xterm, so it cannot be the \
+oracle here -- ours '$(ev "$ourpid")')"
+            fi ;;
+    esac
     note "ours:   $row"
-    note "theirs: $(guest 'wmctrl -lGpx' | grep -i xterm || true)"
+    note "theirs: $theirrow"
     guest "pkill -x xterm; true" >/dev/null 2>&1 || true
 }
 

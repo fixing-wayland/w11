@@ -43,6 +43,37 @@ WMCTRL_VERSION = "1.07"
 OPTSTRING_107 = "FGVvhlupidmxa:r:s:c:t:w:k:o:n:g:e:b:N:I:T:R:"
 OPTSTRING = ("FGVvhSlupidjmxa:r:s:c:t:w:k:o:n:g:e:y:b:z:E:N:I:T:LR:Y:M:")
 
+#: The one option of ours, and wmctrl has never had it: `-G` prints the ORIGINAL's doubled origin (bug and
+#: all -- `core.Core._geometry_column` has the measurement), and this prints the rectangle `xdotool
+#: getwindowgeometry` and `xwininfo` agree on. Named the way `wxrandr --persistent` is named, and kept out
+#: of `help_text()` for the same reason that one is kept out of xrandr's: the help text is the oracle's
+#: bytes. Two things key on this tuple -- `getopt` takes it as the long-option list, and `main()` asks
+#: whether the argv carries one before either handover, because an option of ours means our code and the
+#: original would answer `invalid option` to it.
+OWN_FLAGS = ("true-geometry",)
+
+def own_flags_in(args) -> list:
+    """The options of OWN_FLAGS this argv really carries, in the order they appear.
+
+    A scan of the whole argv, `wxrandr.own_flags_in`'s shape, and it needs no value-tracking the way that
+    one does: every wmctrl option that takes a value takes a window title, a class, a state argument or a
+    number, and none of those begins with `--`, while `xrandr --output --persistent --off` really can name
+    an output after our own flag.
+
+    An unambiguous PREFIX counts, because that is what `getopt` itself accepts a few lines below -- `wwmctl
+    --true -lG` parses as `--true-geometry` there, so it has to be ours here too or an X11 session would
+    hand it to a wmctrl that answers `invalid option`. `--true-geometry=x` counts as well: it is ours, and
+    the usage error it earns is ours to print."""
+    out = []
+    for a in args:
+        if not a.startswith("--") or a == "--":
+            continue
+        name = a[2:].split("=", 1)[0]
+        if name and len([f for f in OWN_FLAGS if f.startswith(name)]) == 1:
+            out.append(a)
+    return out
+
+
 HELP = '''wmctrl 1.07
 Usage: wmctrl [OPTION]...
 Actions:
@@ -392,25 +423,30 @@ def main(argv=None) -> int:
     back)."""
     stdio.repair_std()      # fd 1 or 2 closed before Python started
     backend.set_program("wwmctl")
-    # X11 session: hand over to the real wmctrl (argv here is already
-    # sys.argv[1:], wmctrl's own convention).
-    rc = passthrough.maybe_exec_real("wmctrl", sys.argv[1:] if argv is None else argv, entry=argv is None)
-    if rc is not None:
-        return rc
-    # Wayland with the original installed: the original ITSELF, run against
-    # the xw11 display, which answers for the whole desktop (design section
-    # 8.1).  Imported here and not at the top of the file: on an X11 session
-    # main() has already left above, so `xw11.wrap` is never imported there --
-    # and the wwmctl zipapp carries no xw11/ (scripts/build-pyz.sh).
-    try:
-        from xw11.wrap import maybe_exec_through_proxy
-    except ImportError:                 # pragma: no cover - a bundle without xw11/
-        maybe_exec_through_proxy = None
-    if maybe_exec_through_proxy is not None:
-        rc = maybe_exec_through_proxy(
-            "wmctrl", sys.argv[1:] if argv is None else argv, entry=argv is None)
+    args = list(sys.argv[1:] if argv is None else argv)
+    # An option of ours means our code, on either kind of session -- the same rule wxrandr's main() applies
+    # before its own two handovers, and for the same reason: the original has never heard of the option and
+    # would answer `wmctrl: invalid option -- '-'` to a command line we understand.  `--true-geometry` is
+    # the whole list (OWN_FLAGS); everything else in this argv is a byte wmctrl takes too.
+    if not own_flags_in(args):
+        # X11 session: hand over to the real wmctrl (argv here is already
+        # sys.argv[1:], wmctrl's own convention).
+        rc = passthrough.maybe_exec_real("wmctrl", args, entry=argv is None)
         if rc is not None:
             return rc
+        # Wayland with the original installed: the original ITSELF, run against
+        # the xw11 display, which answers for the whole desktop (design section
+        # 8.1).  Imported here and not at the top of the file: on an X11 session
+        # main() has already left above, so `xw11.wrap` is never imported there --
+        # and the wwmctl zipapp carries no xw11/ (scripts/build-pyz.sh).
+        try:
+            from xw11.wrap import maybe_exec_through_proxy
+        except ImportError:             # pragma: no cover - a bundle without xw11/
+            maybe_exec_through_proxy = None
+        if maybe_exec_through_proxy is not None:
+            rc = maybe_exec_through_proxy("wmctrl", args, entry=argv is None)
+            if rc is not None:
+                return rc
     quiet = False
     try:
         rc = _run(argv)
@@ -449,7 +485,7 @@ def _run(argv=None) -> int:
             return 0
 
     try:
-        opts, _positional = getopt.gnu_getopt(argv, OPTSTRING)
+        opts, _positional = getopt.gnu_getopt(argv, OPTSTRING, list(OWN_FLAGS))
     except getopt.GetoptError as e:
         opt = getattr(e, "opt", "") or ""
         if len(opt) > 1:
@@ -468,12 +504,16 @@ def _run(argv=None) -> int:
 
     show_pid = show_geometry = show_class = False
     match_by_id = match_by_cls = full_match = False
-    verbose = force_utf8 = False
+    verbose = force_utf8 = true_geometry = False
     param_window = None
     param = None
     action = None
 
     for name, val in opts:
+        if name.startswith("--"):
+            # ours, not wmctrl's; `getopt` has already rejected every other long spelling
+            true_geometry = true_geometry or name[2:] == "true-geometry"
+            continue
         c = name[1:]
         if c == "F":
             full_match = True
@@ -524,7 +564,7 @@ def _run(argv=None) -> int:
     if action is None:  # e.g. plain `wwmctl -p`: options but nothing to do
         return 0
 
-    ctl = core.Core(verbose=verbose, utf8=envir_utf8)
+    ctl = core.Core(verbose=verbose, utf8=envir_utf8, true_geometry=true_geometry)
     try:
         if action == "l":
             return ctl.list_windows(show_pid, show_geometry, show_class)

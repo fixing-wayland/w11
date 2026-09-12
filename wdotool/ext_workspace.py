@@ -15,10 +15,18 @@ sway 1.11 publishes no workspace protocol (it has an IPC socket instead) and Way
 either, so a backend binds this only when the global is there and keeps its old refusal otherwise
 [M recon2/labwc.md §2, recon2/wayfire.md §1.1].
 
-Ordering is the one rule that has to cover both shapes: workspaces sort by their coordinates when they carry
-any and by arrival order when they do not, which is one comparison -- `(coordinates, arrival)` -- and not two
-code paths. Nothing here dispatches on its own; the caller owns the connection and its round trips, the same
-contract `backend_wlr.py` has with `wayland_mini`."""
+Ordering is the one rule that has to cover both shapes, and it is two comparisons because the protocol has
+two axes. Within a group, workspaces sort by their coordinates when they carry any and by arrival order when
+they do not -- `(coordinates, arrival)`, `_live()`. Across groups they sort by the group's own first arrival,
+because a compositor may publish one `ext_workspace_group_handle_v1` PER OUTPUT: cosmic-comp does, and on the
+fedora44-cosmic golden with two heads on 2026-09-11 that was groups 4278190084 (workspaces `1` [1] and `2`
+[2]) and 4278190087 (`1` [1]), both `1`s active. Sorting those three by coordinates alone interleaves the
+heads into `1, 1, 2`, so desktop 1 was the other head's already-active workspace, `wdotool set_desktop 1`
+activated something that was already active and `get_desktop` answered 0 -- the fedora44-cosmic CI failure
+[M goal2/recon/flavors.md 5, goal2/ci/rig-fedora44-cosmic.log, goal2/requests-batch-5.md]. `_rows()` is that
+order and it is what every public method below counts in; it changes nothing for labwc, Budgie,
+Xfce-on-Wayland or LXQt-on-Wayland, which publish a single group. Nothing here dispatches on its own; the
+caller owns the connection and its round trips, the same contract `backend_wlr.py` has with `wayland_mini`."""
 
 import struct
 
@@ -166,22 +174,42 @@ class WorkspaceClient:
     # -- what a backend asks --------------------------------------------------
 
     def _live(self) -> list[_Workspace]:
-        """Every workspace still there, in the order the desktop numbers run.
+        """Every workspace still there, in the order ONE group runs in.
 
         `(coordinates, arrival)`: COSMIC's `[1]`/`[2]` decide there, labwc and Budgie send no coordinates and
-        fall back to the order the compositor announced them in, which is the order their own panels show."""
+        fall back to the order the compositor announced them in, which is the order their own panels show.
+        This is not the desktop order on a session with a group per output -- `_rows()` is, and every public
+        method counts in that one. The two are kept apart because the difference is the whole of the
+        fedora44-cosmic fix: `tests/test_backend_cosmic.py::GroupedWorkspaces` reads this flat order to prove
+        that the grouped one really is a different list, which is the guard on the sort key below."""
         rows = [r for r in self.workspaces.values() if not r.removed]
         rows.sort(key=lambda r: (r.coords, r.arrival))
         return rows
 
+    def _rows(self) -> list[_Workspace]:
+        """Every workspace still there, in DESKTOP order: every group's workspaces contiguous, coordinates
+        within the group, the groups themselves in the order the compositor first announced one of their
+        workspaces (the module docstring's measurement).
+
+        The group key is the group's EARLIEST arrival and not the first one this list happens to meet, so it
+        does not depend on the coordinate sort above having put the group's own rows in arrival order."""
+        rows = self._live()
+        first: dict = {}
+        for r in rows:
+            got = first.get(r.group)
+            if got is None or r.arrival < got:
+                first[r.group] = r.arrival
+        rows.sort(key=lambda r: (first.get(r.group, r.arrival), r.coords, r.arrival))
+        return rows
+
     def count(self) -> int:
-        return len(self._live())
+        return len(self._rows())
 
     def workspace_list(self) -> list[Workspace]:
         """The `backend.Workspace` rows `wwmctl -d` prints. `work_area` stays (0,0,0,0): the protocol carries
         no geometry, and a workspace's group may cover several outputs."""
         return [Workspace(index=i, name=r.name, active=bool(r.state & STATE_ACTIVE))
-                for i, r in enumerate(self._live())]
+                for i, r in enumerate(self._rows())]
 
     def handles(self) -> list[int]:
         """The `ext_workspace_handle_v1` object ids, in the same desktop-number order `workspace_list()`
@@ -192,22 +220,22 @@ class WorkspaceClient:
         `zcosmic_toplevel_handle_v1.workspace_enter` names a workspace by object id, which is the only way a
         window gets a desktop number there, and `move_to_ext_workspace` (opcode 13) takes one
         [requests-batch-8.md item 1]."""
-        return [r.oid for r in self._live()]
+        return [r.oid for r in self._rows()]
 
     def active_handles(self) -> set[int]:
         """The oids of the workspaces whose state carries `active`; empty when none of them says so.  A
         window is visible when it sits on one of these, which is a set membership and not an index."""
-        return {r.oid for r in self._live() if r.state & STATE_ACTIVE}
+        return {r.oid for r in self._rows() if r.state & STATE_ACTIVE}
 
     def active_index(self) -> int:
         """The active workspace's 0-based index, or -1 when none of them says it is active."""
-        for i, r in enumerate(self._live()):
+        for i, r in enumerate(self._rows()):
             if r.state & STATE_ACTIVE:
                 return i
         return -1
 
     def can_activate(self, index: int) -> bool:
-        rows = self._live()
+        rows = self._rows()
         return 0 <= index < len(rows) and bool(rows[index].caps & CAP_ACTIVATE)
 
     def activate(self, index: int) -> bool:
@@ -217,7 +245,7 @@ class WorkspaceClient:
 
         `activate` alone changes nothing: ext-workspace is a double-buffered protocol and the manager's
         `commit` is what applies the batch [M recon2/labwc.md §6a: activate + commit moved the active bit]."""
-        rows = self._live()
+        rows = self._rows()
         if not (0 <= index < len(rows)):
             return False
         rec = rows[index]

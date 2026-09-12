@@ -44,7 +44,7 @@ from w11common import session
 from w11common.errors import CmdError
 from w11common.wayland_mini import WlConn
 from wdotool import ext_workspace
-from wdotool.backend import Window, WindowBackend, Workspace, mint_map
+from wdotool.backend import Window, WindowBackend, mint_map
 from wdotool.backend_wlr import XPlaneViews
 
 EXT_LIST = "ext_foreign_toplevel_list_v1"
@@ -116,11 +116,6 @@ NO_SUCH_STATE = ("the COSMIC toplevel protocol carries maximized, minimized, act
 OLD_MANAGER = ("this cosmic-comp's %s is version %d and %s arrived in version %d; not yet here, and the "
                "route is that version of the protocol it already speaks (AGENTS.md route 1), which "
                "costs a newer cosmic-comp and no code of ours")
-
-#: `ext_workspace_handle_v1.activate` and `ext_workspace_manager_v1.commit` -- the pair
-#: `ext_workspace.WorkspaceClient.activate` sends.  Re-sent here because the desktop NUMBER this backend
-#: hands out is not the index that client counts in; see `_ws_rows`.
-_WS_ACTIVATE, _WS_COMMIT = 1, 0
 
 #: How long a fresh connection waits for the first `state` array of every toplevel it attached to.
 #:
@@ -480,44 +475,27 @@ class CosmicBackend(XPlaneViews, WindowBackend):
             ))
         return wins
 
-    def _ws_rows(self) -> list:
-        """The live workspace records in DESKTOP order: every group's workspaces contiguous, coordinates
-        within the group, announcement order between groups.
-
-        cosmic-comp publishes one `ext_workspace_group_handle_v1` PER OUTPUT, each with its own workspaces
-        and its own active one. Measured on the fedora44-cosmic golden with two heads, 2026-09-11: three
-        workspaces, `1` (coordinates [1]) and `2` ([2]) in group 4278190084 and `1` ([1]) in group
-        4278190087, with BOTH ones active -- one per head. `WorkspaceClient._live()` sorts by
-        `(coordinates, arrival)` alone, which interleaves the groups into `1, 1, 2`: desktop 1 was then the
-        other head's already-active workspace, `wdotool set_desktop 1` activated a workspace that was
-        already active, nothing moved, and `get_desktop` answered 0 -- the CI failure
-        [M goal2/recon/flavors.md §5, goal2/ci/rig-fedora44-cosmic.log]. Grouping first makes desktop 1 the
-        first head's second workspace, which is the switch X's `wmctrl -s 1` makes.
-
-        The ordering belongs in `ext_workspace.WorkspaceClient` itself, where labwc and Budgie (one group
-        each, so nothing there changes) would inherit it; that file is another batch's this wave, so the
-        request is filed (goal2/requests-batch-5.md) and this is the COSMIC-local order until it lands."""
-        if self.ws is None:
-            return []
-        rows = [r for r in self.ws.workspaces.values() if not r.removed]
-        first = {}
-        for r in rows:
-            first.setdefault(r.group, r.arrival)
-        rows.sort(key=lambda r: (first.get(r.group, r.arrival), r.coords, r.arrival))
-        return rows
-
     def _ws_handles(self) -> "list[int]":
         """The `ext_workspace_handle_v1` oids in desktop-number order, or [].
 
+        The order is `ext_workspace.WorkspaceClient._rows()`: every group's workspaces contiguous, the
+        groups in the order the compositor first announced one of their workspaces. cosmic-comp publishes
+        one `ext_workspace_group_handle_v1` PER OUTPUT, which is the session that ordering exists for --
+        measured on the fedora44-cosmic golden with two heads, 2026-09-11: three workspaces, `1`
+        (coordinates [1]) and `2` ([2]) in group 4278190084 and `1` ([1]) in group 4278190087, with BOTH
+        ones active, one per head [M goal2/recon/flavors.md 5, goal2/ci/rig-fedora44-cosmic.log]. It lived
+        here as a COSMIC-local copy until the client took it (goal2/requests-batch-5.md, batch 17); labwc
+        and Budgie publish a single group and nothing changed for them either way.
+
         The oid is what this backend needs and the public `backend.Workspace` deliberately does not carry:
         `workspace_enter` names a workspace by oid, and `move_to_ext_workspace` takes one."""
-        return [r.oid for r in self._ws_rows()]
+        return [] if self.ws is None else self.ws.handles()
 
     def _active_workspaces(self) -> "set[int]":
         """The handle oids of the workspaces that say they are active; empty when none does.
 
         A set and not an index: with one group per output, several workspaces are on screen at once."""
-        return {r.oid for r in self._ws_rows() if r.state & ext_workspace.STATE_ACTIVE}
+        return set() if self.ws is None else self.ws.active_handles()
 
     def _desktop_of(self, rec: _Top) -> int:
         if rec.workspace is None:
@@ -602,44 +580,40 @@ class CosmicBackend(XPlaneViews, WindowBackend):
     # -- desktops -------------------------------------------------------------
 
     def get_desktop(self) -> int:
-        """The first active workspace in `_ws_rows()` order, or -1.
+        """The first active workspace in `_ws_handles()` order, or -1.
 
         The first and not the only one: with a group per output, every head's current workspace says it is
         active, and wwmctl/core.py takes the first active row as the current desktop and prints `*` on each
         (backend_hypr's `_active_workspace_id` carries the same sentence for Hyprland's per-monitor
-        workspaces)."""
+        workspaces). `WorkspaceClient.active_index()` is that same first-active scan over the same rows."""
         if self.ws is None:
             self._not_yet("get_desktop", NO_WORKSPACES)
         self._pump()
-        for i, r in enumerate(self._ws_rows()):
-            if r.state & ext_workspace.STATE_ACTIVE:
-                return i
-        return -1
+        return self.ws.active_index()
 
     def set_desktop(self, n: int):
         """`activate` on desktop `n`'s own handle, then the manager's `commit`.
 
         ext-workspace is double-buffered: `activate` alone changes nothing and `commit` applies the batch
-        [M recon2/labwc.md §6a]. The pair is sent here rather than through `WorkspaceClient.activate`
-        because that counts in its own index (see `_ws_rows`), and the activate is pumped twice: once to put
-        the requests on the wire, once to read the `state` the compositor sends back, which is up to 150 ms
-        later (STATE_WAIT's paragraph)."""
+        [M recon2/labwc.md §6a]. `WorkspaceClient.activate` sends exactly that pair and counts in the same
+        rows `_ws_handles()` does, so this is one call again; it went out by hand only while the grouped
+        order lived in this file. False is both refusals the client has -- an index off the end and a
+        workspace whose capabilities do not carry `activate` -- and both are the one sentence
+        `vm/live-smoke.d/cosmic.sh` greps for. The activate is pumped twice: once to put the requests on
+        the wire, once to read the `state` the compositor sends back, which is up to 150 ms later
+        (STATE_WAIT's paragraph)."""
         if self.ws is None:
             self._not_yet("set_desktop", NO_WORKSPACES)
         self._pump()
-        rows = self._ws_rows()
-        if not 0 <= n < len(rows):
-            raise CmdError("cosmic backend: cannot activate workspace %d" % n)
-        rec = rows[n]
-        if not rec.caps & ext_workspace.CAP_ACTIVATE:
-            raise CmdError("cosmic backend: cannot activate workspace %d" % n)
+        handles = self._ws_handles()
         try:
-            self.c.send(rec.oid, _WS_ACTIVATE)
-            self.c.send(self.ws.mgr, _WS_COMMIT)
+            ok = 0 <= n < len(handles) and self.ws.activate(n)
         except OSError as e:
             raise CmdError("cosmic backend: %s" % e) from None
+        if not ok:
+            raise CmdError("cosmic backend: cannot activate workspace %d" % n)
         self._pump()
-        self._await_workspace(rec.oid)
+        self._await_workspace(handles[n])
 
     def _await_workspace(self, oid: int):
         """Read until the workspace `oid` says it is active, or `STATE_WAIT` runs out.
@@ -665,16 +639,15 @@ class CosmicBackend(XPlaneViews, WindowBackend):
         if self.ws is None:
             self._not_yet("get_num_desktops", NO_WORKSPACES)
         self._pump()
-        return len(self._ws_rows())
+        return self.ws.count()
 
     def workspaces(self):
-        """The `wwmctl -d` rows, in `_ws_rows()` order. `work_area` stays (0,0,0,0): the protocol carries no
-        geometry, and a group may cover several outputs."""
+        """The `wwmctl -d` rows, in `_ws_handles()` order. `work_area` stays (0,0,0,0): the protocol carries
+        no geometry, and a group may cover several outputs."""
         if self.ws is None:
             return None
         self._pump()
-        return [Workspace(index=i, name=r.name, active=bool(r.state & ext_workspace.STATE_ACTIVE))
-                for i, r in enumerate(self._ws_rows())]
+        return self.ws.workspace_list()
 
     def set_window_desktop(self, wid: int, n: int):
         """`move_to_ext_workspace`, which is the v4 spelling of the capability the manager advertises as 6.

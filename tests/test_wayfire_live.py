@@ -230,14 +230,23 @@ class WayfireLive(unittest.TestCase):
     def test_12_the_listing_carries_the_pid_and_the_real_geometry(self):
         vid = self.foot("fwlist")
         info = self.view(vid)
-        out = self.ok("wwmctl", "-l", "-p", "-G")
+        geo = [info["geometry"][k] for k in ("x", "y", "width", "height")]
+        out = self.ok("wwmctl", "--true-geometry", "-l", "-p", "-G")
         row = [ln for ln in out.splitlines() if ln.endswith("fwlist")]
         self.assertEqual(len(row), 1, out)
         fields = row[0].split()
         self.assertEqual(int(fields[0], 16), vid)
         self.assertEqual(int(fields[2]), info["pid"])
-        self.assertEqual([int(f) for f in fields[3:7]],
-                         [info["geometry"][k] for k in ("x", "y", "width", "height")])
+        self.assertEqual([int(f) for f in fields[3:7]], geo)
+        # `--true-geometry` for the rectangle, because this foot is a NATIVE window and the plain `-G`
+        # column is wmctrl's own arithmetic: the only original that can see a native window reads it
+        # through xw11, whose shadows are children of the root, so the origin comes back doubled
+        # (`wwmctl.core.Core._geometry_column`).  Both are asserted off the same view.
+        doubled = self.ok("wwmctl", "-l", "-p", "-G")
+        drow = [ln for ln in doubled.splitlines() if ln.endswith("fwlist")]
+        self.assertEqual([int(f) for f in drow[0].split()[3:7]],
+                         [geo[0] * 2, geo[1] * 2, geo[2], geo[3]],
+                         "the original's doubled origin, its untouched size")
 
     def xterm(self, title):
         """One real X client on Wayfire's Xwayland, whose view id comes back. Skips where there is none."""

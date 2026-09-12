@@ -324,6 +324,71 @@ class TestParseKeyseq(unittest.TestCase):
         self.assertEqual(keys, [(29, False), (30, True)])
 
 
+class TypingUnderALiveGermanGroup(unittest.TestCase):
+    """The four characters that came out wrong on resolute-cinnamon-wayland, and the keys that type them.
+
+    Measured live on the golden 2026-09-12 (Cinnamon 6.4.13, muffin 6.4.1, Xwayland 24.1.13,
+    `org.cinnamon.desktop.input-sources` = `[('xkb','us'),('xkb','de')]` with `current` 1, one xterm
+    running `cat`), `wdotool keys explain --chars 'zy:@'` reading the compositor's own keymap off the
+    wire -- `layout: German -- group 2 of 2, from wayland + cinnamon input-sources`:
+
+        'z'  press key 21 <AD06>                                     -> 'z'
+        'y'  press key 44 <AB01>                                     -> 'y'
+        ':'  press key 52 <AB09> with shift (key 42 <LFSH>)          -> ':'
+        '@'  press key 16 <AD01> with level3 (key 100 <RALT>)        -> '@'
+
+    Those are German positions, not US ones, and the compensation is right: with muffin's own layout
+    group locked to the German one (`org.Cinnamon.Eval` of `Meta.get_backend().lock_layout_group(1)`,
+    AGENTS.md route 2) `wdotool type --delay 30 -- 'de: yz@'` arrived BYTE-EXACT through /dev/uinput on
+    that session. The `de> zyñ` that batch 13 recorded is the same German keycodes read back under a US
+    group -- muffin locked group 0 while Cinnamon's `current` said 1 -- and the three-way table is in
+    `vm/live-smoke.d/cinnamon-wayland.sh`'s layout phase.
+
+    The fixture is `tests/fixtures/keymaps/us_de.xkb`, a real `wl_keyboard.keymap` off a `us,de` session
+    (group 1 English (US), group 2 German), so these are the keys a compositor's own map yields and not
+    a table written here."""
+
+    @classmethod
+    def setUpClass(cls):
+        from wdotool import xkbmap
+        path = os.path.join(ROOT, "tests", "fixtures", "keymaps", "us_de.xkb")
+        with open(path, encoding="utf-8") as f:
+            cls.text = f.read()
+        cls.xkbmap = xkbmap
+        cls.de = xkbmap.build(cls.text, 2)
+        cls.us = xkbmap.build(cls.text, 1)
+
+    def test_the_four_characters_are_the_keys_the_live_session_named(self):
+        self.assertEqual(self.de.name, "German")
+        self.assertEqual(self.de.lookup_char("z"), [(21, 0)])
+        self.assertEqual(self.de.lookup_char("y"), [(44, 0)])
+        self.assertEqual(self.de.lookup_char(":"), [(52, self.xkbmap.MOD_SHIFT)])
+        self.assertEqual(self.de.lookup_char("@"), [(16, self.xkbmap.MOD_LEVEL3)])
+
+    def test_the_modifier_keycodes_are_the_ones_the_live_session_named(self):
+        """`shift = key 42 <LFSH>   level3 = key 100 <RALT>` off the same run: the mask is nothing until
+        it names real keys to press, and AltGr is the key `@` needs."""
+        self.assertEqual(self.de.modifier_keycodes(self.xkbmap.MOD_SHIFT), [42])
+        self.assertEqual(self.de.modifier_keycodes(self.xkbmap.MOD_LEVEL3), [100])
+
+    def test_group_1_of_the_same_keymap_is_the_us_answer(self):
+        """The guard on the whole thing: these are not German keys because the keymap only has German
+        ones. Group 1 of the very same file types all four the US way -- y and z the other way round,
+        `:` on 39 and `@` on 3 with shift -- which is what arrives when the group is wrong."""
+        self.assertEqual(self.us.lookup_char("z"), [(44, 0)])
+        self.assertEqual(self.us.lookup_char("y"), [(21, 0)])
+        self.assertEqual(self.us.lookup_char(":"), [(39, self.xkbmap.MOD_SHIFT)])
+        self.assertEqual(self.us.lookup_char("@"), [(3, self.xkbmap.MOD_SHIFT)])
+
+    def test_the_us_group_agrees_with_the_built_in_table_it_replaces(self):
+        """And group 1 agrees with `keymap.CHAR_TO_KEY`, which is why a one-group `us` session takes the
+        bypass and never builds a map at all."""
+        for ch in "zy:@":
+            code, shifted = keymap.char_to_key(ch)
+            want = [(code, self.xkbmap.MOD_SHIFT if shifted else 0)]
+            self.assertEqual(self.us.lookup_char(ch), want, ch)
+
+
 class TestModifierTable(unittest.TestCase):
     def test_eight_modifiers(self):
         self.assertEqual(len(keymap.MODIFIER_KEYCODES), 8)

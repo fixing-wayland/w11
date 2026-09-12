@@ -312,10 +312,15 @@ class TheTwoFlavors(unittest.TestCase):
                 self.assertIn("vm/build-nixos-golden.sh %s" % name, str(e.exception))
 
     def test_the_distro_desktop_and_ci_headers_are_what_the_rig_reads(self):
-        """nixos-gnome is on demand and nixos-sway per push: a GNOME image is
-        ~15 min of build against sway's ~10, and the module's GNOME half
-        already has a per-push proof in `nix flake check`'s nixos-gnome
-        [recon2/pkg-nix §7]."""
+        """BOTH are per push.  nixos-gnome was `on-demand` when this file was
+        written -- a GNOME image is ~15 min of build against sway's ~10, and
+        the module's GNOME half already had a per-push proof in `nix flake
+        check`'s nixos-gnome [recon2/pkg-nix §7] -- and the assertions below
+        were changed to `push` when every flavor went on every push, while
+        this sentence was not [recon/gaps.md §5].  A golden that is cached in
+        GHCR is built once and then pulled, which is what made the argument
+        moot; nixos-gnome smoked 94 pass / 14 fail on run 34662004383, which
+        is the other half of why it is worth a push."""
         self.assertEqual(self.mod.flavor_distro("nixos-sway"), "nixos")
         self.assertEqual(self.mod.flavor_distro("nixos-gnome"), "nixos")
         self.assertEqual(self.mod.flavor_desktop("nixos-sway"), "sway")

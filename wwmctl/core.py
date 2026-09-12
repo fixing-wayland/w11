@@ -51,6 +51,27 @@ _X_SETTLE = 0.4
 SELECT_WINDOW_MAGIC = ":SELECT:"
 ACTIVE_WINDOW_MAGIC = ":ACTIVE:"
 
+#: Backends whose Xwayland window manager is MEASURED not to reparent, so that the original wmctrl's
+#: doubled `-G` origin (`Core._geometry_column`) is what it prints there. 2026-09-12, this guest and the
+#: committed recordings: sway 1.11 and labwc 0.9.3 headless both answered `xwininfo -tree` with
+#: `Parent window id: 0x234 (the root window)` for an xterm; `resolute-hypr-0.53.3-...-replay.txt` has the
+#: original printing `600 400` for the xmessage our clone read at `300 200`; the same file for
+#: resolute-labwc/-budgie/-lxqt-wayland (all the `wlr` backend) has `1436 790` against `718 395` and the
+#: two other pairs. GNOME is measured the OTHER way and is deliberately not here (mutter frames every
+#: decorated X11 window on Wayland too). kwin, cinnamon, wayfire and cosmic are NOT YET measured and are
+#: out until they are: one `xwininfo -id <xterm> -tree` on each golden, rung 4, minutes apiece.
+NON_REPARENTING_XWM = frozenset(("wlr", "sway", "hypr"))
+
+#: Backends whose Xwayland window manager never puts `_NET_WM_DESKTOP` on the window, so the original
+#: falls back to `_WIN_WORKSPACE` and then to a flat 0 (`Core._desktop_column`). Measured 2026-09-12:
+#: muffin on both session kinds (the `resolute-cinnamon` golden and goal2/requests-batch-13.md), and
+#: sway 1.11 / labwc 0.9.3 headless on this guest, where `xprop _NET_WM_DESKTOP` on an xterm answers
+#: `no such atom on any window` -- the wlroots xwm does not even intern it. GNOME publishes
+#: 0xFFFFFFFF and is deliberately not here. kwin, hypr, wayfire and cosmic are NOT YET measured and are
+#: out until they are: one `xprop -id <xterm> _NET_WM_DESKTOP` after a `wmctrl -b add,sticky` on each
+#: golden, rung 4, minutes apiece.
+NO_NET_WM_DESKTOP_XWM = frozenset(("cinnamon", "wlr", "sway"))
+
 
 # -- injection seams (unit tests monkeypatch these) --------------------------
 
@@ -99,12 +120,15 @@ class UWindow:
 
 
 class Core:
-    def __init__(self, backend=None, verbose=False, utf8=False):
+    def __init__(self, backend=None, verbose=False, utf8=False, true_geometry=False):
         self._backend = backend
         self._x11 = "unset"
         self._views_seen = None  # last views() outcome: True/False/None
         self.verbose = verbose
         self.utf8 = utf8         # wmctrl's envir_utf8: a UTF-8 locale or -u
+        #: `--true-geometry`, a flag wmctrl never had: print the real origin in the -G column
+        #: instead of the original's doubled one (see `_geometry_column`)
+        self.true_geometry = true_geometry
         self._id_clash_warned = False
 
     def vprint(self, msg: str):
@@ -707,11 +731,12 @@ class Core:
     def _list_row(self, w: UWindow, show_pid: bool, show_geometry: bool,
                   show_class: bool, machine_len: int) -> str:
         """One `-l` row. Column widths count BYTES like printf's %*s."""
-        line = "0x%08x %2d" % (w.id, w.desktop)
+        line = "0x%08x %2d" % (w.id, self._desktop_column(w))
         if show_pid:
             line += " %-6d" % (w.pid if w.pid > 0 else 0)
         if show_geometry:
-            line += " %-4d %-4d %-4d %-4d" % (w.x, w.y, w.w, w.h)
+            gx, gy = self._geometry_column(w)
+            line += " %-4d %-4d %-4d %-4d" % (gx, gy, w.w, w.h)
         if show_class:
             cls = w.class_ if w.class_ is not None else "N/A"
             line += " %s%s " % (cls, " " * max(0, 20 - _blen(cls)))
@@ -719,6 +744,112 @@ class Core:
         return line + " %s%s %s" % (" " * max(0, machine_len - _blen(machine)),
                                     machine,
                                     w.title if w.title is not None else "N/A")
+
+    def _desktop_column(self, w: UWindow) -> int:
+        """The desktop number the `-l` column prints, which for an X-plane row is the ORIGINAL's own.
+
+        wmctrl reads `_NET_WM_DESKTOP` off the window, falls back to `_WIN_WORKSPACE`, and prints **0**
+        when neither is there -- not -1. Measured 2026-09-12 on Xvfb :79 on this guest: an openbox window
+        with both properties removed by `xprop -remove` printed `0x0040000c  0` from the pinned wmctrl
+        1.07 and from Ubuntu's 1.07+git20240228 alike.
+
+        muffin never writes 0xFFFFFFFF, even for a window it marks sticky. Measured on the
+        `resolute-cinnamon` golden (Cinnamon 6.4.13, muffin 6.4.1, wmctrl 1.07+git20240228, 2026-09-12,
+        an X11 session so this is muffin's own X path and not Xwayland's):
+
+            nemo-desktop 0x02a00030   _NET_WM_DESKTOP: not found.  _WIN_WORKSPACE: not found.
+                                      _NET_WM_STATE = SKIP_PAGER, SKIP_TASKBAR, STICKY
+                                      wmctrl -l -> `0x02a00030  0 ... Desktop`
+            an xterm made sticky with `wmctrl -b add,sticky`:
+                                      _NET_WM_DESKTOP(CARDINAL) = 0   (unchanged)
+                                      _NET_WM_STATE = STICKY, FOCUSED
+                                      wmctrl -l -> `0x02c0000e  0 ... stickytest`
+            the same xterm moved with `wmctrl -t 2`:
+                                      _NET_WM_DESKTOP(CARDINAL) = 2, wmctrl -l -> `2`
+
+        So on Cinnamon the original's answer for a sticky window is 0 on both session kinds -- on Wayland
+        muffin publishes no `_NET_WM_DESKTOP` on the X window at all and the property-absent rule gives
+        the same 0 [M goal2/requests-batch-13.md, six csd-background/nemo-desktop windows, 76 pass /
+        1 fail]. Our backends report -1 for "on all workspaces, or no workspace object"
+        (`cinnamon_js.py:55`, and the same convention everywhere), and printing that made `wwmctl -l`
+        disagree with `wmctrl -l` on exactly those six rows -- the one red check on that flavor.
+
+        The rule is therefore the original's: an X-plane row whose compositor gives no workspace prints
+        0. A NATIVE row keeps the -1, because the only original that can see one reads it through the
+        proxy, whose shadow publishes `_NET_WM_DESKTOP = 0xFFFFFFFF` for it (`xw11/shadow.py`) and which
+        wmctrl prints as -1 -- measured on a headless labwc on this guest the same day, a `foot` shadow
+        `0x00600001 -1` from the original and `-1` from this column. Both sides already agree there and
+        a blanket 0 would have broken it. `_NET_WM_STATE_STICKY` is where "on every desktop" lives in
+        either case, and `wxprop` still prints it.
+
+        Which xwms those are is a MEASUREMENT and not a guess, because Mutter is the other way round:
+        on `noble-gnome` (mutter 46.2, GNOME Wayland, 2026-09-12) an xterm given `wmctrl -b add,sticky`
+        came back `_NET_WM_DESKTOP(CARDINAL) = 4294967295` and the original printed `0x00800020 -1
+        gnome-dbg stickytest`, which is exactly what this column already said off the gnome backend's
+        own -1 [M goal2/recon/b17-review-measurements.md 1]. So the fallback is confined to
+        `NO_NET_WM_DESKTOP_XWM`. kwin, hypr, wayfire and cosmic are NOT YET measured: one
+        `xprop -id <xterm> _NET_WM_DESKTOP` on each golden beside a `wmctrl -b add,sticky` settles it,
+        rung 4 (the X server beside the compositor) and about ten minutes of one VM apiece."""
+        if w.desktop >= 0 or not w.is_x:
+            return w.desktop
+        if self.backend().name not in NO_NET_WM_DESKTOP_XWM:
+            return w.desktop
+        return 0
+
+    def _geometry_column(self, w: UWindow) -> "tuple[int, int]":
+        """The x and y the `-G` column prints: the ORIGINAL's number, bug and all.
+
+        wmctrl 1.07's `-G` is `XGetGeometry` for the size and then `XTranslateCoordinates` fed with the
+        window's OWN x,y as the source point instead of 0,0 (main.c, `list_windows`), so the offset is
+        counted twice: what it prints is `absolute origin + origin relative to the X parent`. Under a
+        REPARENTING window manager the relative half is only the frame border and the error is a few
+        pixels -- measured 2026-09-12 on this guest, one xterm placed at 398,215 with `wmctrl -e`, Xvfb
+        :77-:79 with three real X window managers:
+
+            openbox   absolute 399,235  relative 1,20   -> wmctrl -lG printed 400  255
+            xfwm4     absolute 403,244  relative 5,29   -> wmctrl -lG printed 408  273
+            marco     absolute 404,242  relative 16,37  -> wmctrl -lG printed 420  279
+
+        Under a NON-reparenting one the X parent is the root, the relative half IS the absolute one, and
+        the number doubles. The wlroots xwm is non-reparenting (`xwininfo -tree` on a headless sway 1.11
+        and a headless labwc 0.9.3 on this guest both answered `Parent window id: 0x234 (the root
+        window)`), and so is the shadow plane this tree's own proxy publishes. Measured the same day on a
+        headless labwc 0.9.3, one xterm at 398,215 484x316, all four readings of the same window:
+
+            pinned wmctrl 1.07 -lGpx   0x0040000c 0 3144704 796  430  484  316  xterm.XTerm
+            Ubuntu wmctrl 1.07-7       0x0040000c 0 3144704 796  430  484  316  xterm.XTerm
+            through xw11 (W11_PROXY)   0x0040000c 0 3153979 796  430  484  316  xterm.XTerm
+            pinned xdotool 4.2026      Position: 398,215 (screen: 0) / Geometry: 484x316
+            xwininfo                   Absolute upper-left X: 398  Y: 215
+
+        AGENTS.md: byte parity with the original is the oracle and the originals' bugs are reproduced,
+        because a script that reads this column and halves it is a script that must keep working. So this
+        prints what wmctrl prints, and `--true-geometry` -- a flag wmctrl never had, the way `wxrandr
+        --persistent` is one -- prints the rectangle `xdotool getwindowgeometry` and `xwininfo` agree on.
+        `wdotool getwindowgeometry` is NOT this column: xdotool translates from 0,0, so the xdotool clone
+        was right as it stood [M goal2/requests-batch-12.md 2].
+
+        A NATIVE row doubles on every backend: the only original that can see one reads it through xw11,
+        whose shadows are children of the root (`xw11/req_read.py` answers `TranslateCoordinates` with
+        `x + src_x`, which is what a real root child does), and the two programs printing the same four
+        numbers for the same `foot` is the parity claim `tests/test_xw11_live.py` pins.
+
+        An X-PLANE row doubles only where the xwm is MEASURED not to reparent -- `NON_REPARENTING_XWM`.
+        Mutter frames its Xwayland windows on Wayland as well: on `noble-gnome` (mutter 46.2,
+        2026-09-12) the same xterm read `Parent window id: 0xa00004` against a root of `0x221`,
+        `xwininfo` put it at absolute 398,252 with a relative origin of 14,49, and BOTH originals printed
+        `412 301` -- `absolute + parent-relative`, not `796 504` [M goal2/recon/b17-review-measurements.md
+        1]. So this column gives back the absolute origin there, which is within 14,49 of the original and
+        is what it printed before this rule existed; kwin, cinnamon, wayfire and cosmic are the same NOT
+        YET. The exact term is one field away: `x11_mini.get_geometry` already reads the parent-relative
+        `x, y` off GetGeometry and throws it away, so returning it is rung 5 and a two-line change in a
+        file this batch does not own (`_NET_FRAME_EXTENTS` is NOT a substitute -- marco 6,6,27,7 for a
+        relative origin of 16,37; mutter 0,0,37,0 for 14,49)."""
+        if self.true_geometry:
+            return w.x, w.y
+        if w.is_x and self.backend().name not in NON_REPARENTING_XWM:
+            return w.x, w.y
+        return w.x * 2, w.y * 2
 
     def list_one_window(self, w: UWindow, show_pid: bool, show_geometry: bool, show_class: bool) -> int:  # -L
         """1.07+git's `-r <WIN> -L`: the window's own `-l` row. Its machine column is sized from that one window

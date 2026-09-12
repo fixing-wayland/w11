@@ -4,9 +4,29 @@
 # oracle is -- so tests/test_cli_parity.py compares real bytes here and the
 # `parity-arch` job of ci.yml exists for exactly that [recon2/pkg-arch.md].
 #
-# Rolling, so this image and every job that runs in it are continue-on-error in
-# ci.yml: `pacman -Syu` at build time pins nothing, and a package that moves
-# under an unchanged Dockerfile must not turn the run red on its own.
+# Arch is rolling, and until 2026-09-12 that was the reason every job running in
+# this image was `continue-on-error` in ci.yml: `pacman -Syu` at build time
+# resolved against whatever the mirrors held that hour, so a package moving under
+# an unchanged Dockerfile could turn a push red for nothing to do with the push.
+# Both halves are pinned now instead of excused:
+#
+#   * the base image is a DATED tag pinned by digest.  ci.yml passes it as BASE
+#     out of its `image` matrix and its `plan` step hashes it INTO the image key
+#     beside this file, because the cached image is named after that key: a
+#     digest bumped without it would find the old tag and build nothing.  The
+#     ARG default below is that same reference, so a `docker build` by hand gets
+#     the image CI got; tests/test_ci_images.py compares the two;
+#   * every `pacman -Sy` goes to an archive.archlinux.org SNAPSHOT of the same
+#     date rather than to a live mirror, so `pacman -Syu` resolves to the same
+#     bytes today and in six months.
+#
+# The snapshot and the base tag move together, by hand, and their date is the one
+# number to change.  Measured in the 2026/09/06 snapshot on 2026-09-12: xdotool
+# 4.20260303.1 (the generation tests/test_cli_parity.py is written against -- this
+# image exists for that), wmctrl 1.07-6 whose `--help` is 6801 bytes (byte for byte
+# nixpkgs' plain 1.07, which is what scripts/parity-oracle.sh gates on), sway
+# 1:1.12-4, python 3.14.7, xorg-xwayland 24.1.13.
+#
 # The recon measured `python3 -m unittest discover -s tests` at 234.6 s for
 # 3163 tests in an Arch chroot [recon2/pkg-arch.md].  The unit-distro job runs
 # the same files one process at a time rather than under discover, which costs
@@ -17,10 +37,22 @@
 # labwc, wayfire, i3 and openbox stay out for the same reason as in
 # Dockerfile.fedora: the live compositor files run on the Ubuntu image, and there
 # only on the releases whose packages are the measured versions.
-ARG BASE=archlinux:base-devel
+ARG BASE=archlinux:base-devel-20260906.0.587075@sha256:61f7de2dd88cc4ba1fe36c24cfe1a503c3936984492d6405eeab013ce6ac68c5
 FROM ${BASE}
 ARG NODE=v22.22.1
+#: the archive.archlinux.org snapshot every sync in this file resolves against.
+#: Same date as the base tag above: a snapshot OLDER than the image would make
+#: `pacman -Syu` a downgrade and a newer one a partial upgrade, and both are
+#: shapes nobody wants to debug from a CI log.
+ARG ARCH_SNAPSHOT=2026/09/06
 ENV LANG=C.UTF-8
+# The mirrorlist first, then one full upgrade against it: `-Syu` and not `-Sy`,
+# because a sync that installs new packages beside un-upgraded ones is Arch's
+# classic breakage.  Against a frozen mirror the upgrade is deterministic, which
+# is the whole point of the two pins.
+RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "${ARCH_SNAPSHOT}" \
+        > /etc/pacman.d/mirrorlist \
+    && cat /etc/pacman.d/mirrorlist
 RUN pacman-key --init && pacman -Syu --noconfirm --needed \
         python python-gobject gtk3 gtk4 \
         sway xorg-xwayland xterm foot xorg-server-xvfb xorg-xauth \

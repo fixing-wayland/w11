@@ -42,7 +42,7 @@ SCRIPT = os.path.join(ROOT, "scripts", "parity-oracle.sh")
 #: `Ran 139 tests in 1.594s` -- the only line a rerun of the same thing changes.
 RAN = re.compile(r"^Ran (\d+) tests in [\d.]+s$")
 #: The line the proxy run prints about itself, and nothing else prints.
-THROUGH = "parity-oracle: through xw11 on DISPLAY="
+THROUGH = "parity-oracle: through xw11 --passthrough on DISPLAY="
 
 
 def oracle_prefix():

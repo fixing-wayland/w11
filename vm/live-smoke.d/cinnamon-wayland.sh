@@ -346,6 +346,24 @@ layout_phase() {
     guest "gsettings set org.cinnamon.desktop.input-sources sources \"[('xkb','us'),('xkb','de')]\"" \
         >/dev/null 2>&1 || true
     guest "gsettings set org.cinnamon.desktop.input-sources current 1" >/dev/null 2>&1 || true
+    # ...and the two halves those settings do NOT do, both measured on this golden 2026-09-12 on a
+    # freshly booted session.  Writing them alone leaves ONE group on the wire (`wdotool keys explain`
+    # reads `layout: English (US) -- group 1 of 1, from wayland`): neither csd-keyboard nor muffin 6.4
+    # turns the second source into a second keymap group.  And even with two groups there, `current`
+    # does not move the group muffin DECODES keystrokes under -- it stayed locked to 0 while the setting
+    # said 1.  Two `org.Cinnamon.Eval` calls are what apply the layout, AGENTS.md route 2, the
+    # compositor's own scripting surface (the rung hypr.sh's config apply uses):
+    #
+    #   set_keymap("us,de", "", "")   the second group arrives on the wire, and wdotool then reads
+    #                                 `layout: German -- group 2 of 2, from wayland + cinnamon
+    #                                 input-sources` -- the NAME off the keymap, the INDEX off `current`
+    #   lock_layout_group(1)          muffin decodes keystrokes under that group
+    #
+    # muffin 6.4 exposes both setters on MetaBackend and NO getter for either (`get_keymap_layout_group`
+    # -> undefined, measured), which is why these are writes the phase makes and not state it reads.
+    cin_eval 'imports.gi.Meta.get_backend().set_keymap("us,de", "", ""); String(1)' >/dev/null 2>&1 || true
+    sleep 2
+    cin_eval 'imports.gi.Meta.get_backend().lock_layout_group(1); String(1)' >/dev/null 2>&1 || true
     sleep 3
     local ex; ex=$(guest 'wdotool keys explain --chars z' || true)
     want "keys explain reads the keymap off the wire and names the group" \
@@ -353,35 +371,58 @@ layout_phase() {
     # Measured 2026-09-09 on the Xwayland-less session: `layout: English (US) -- group 1 of 1, from
     # wayland`, and the reason offered then was that csd-keyboard never registered ("Application
     # 'cinnamon-settings-daemon-keyboard.desktop' failed to register before timeout") on a session whose
-    # Xwayland had died.  RE-MEASURED 2026-09-12 with Xwayland 24.1.13 in the golden: csd-keyboard IS
-    # running (it is in `ps -u test` beside the other fifteen csd-*), and the wire STILL has one group
-    # -- `sources` two entries, `current` uint32 1, and `DISPLAY=:0 setxkbmap -query` on the session's
-    # own Xwayland answering `layout: us`.  Neither csd-keyboard nor muffin 6.4 puts the second source
-    # on the wire at all, so the deb bought the registration and not the layout.
+    # Xwayland had died.  RE-MEASURED 2026-09-12 with Xwayland 24.1.13 in the golden, and with a
+    # /dev/uinput keyboard alive (that last part is the one every earlier reading was missing: muffin
+    # advertises NO wl_seat keyboard capability on a session with no keyboard device, so `keys explain`
+    # answered `layout: US (built-in table) -- group 1 of 1, from built-in` with the note `the
+    # compositor's keymap could not be read (the seat has no keyboard capability)` until the first
+    # `wdotool type` created one).  With a keyboard on the seat AND the `set_keymap` Eval above, wdotool
+    # reads `layout: German -- group 2 of 2, from wayland + cinnamon input-sources` -- the group NAME off
+    # the keymap, the group INDEX off `current`.  With the settings and no Eval, on a freshly booted
+    # session, it reads `layout: English (US) -- group 1 of 1, from wayland`: the settings alone buy
+    # nothing on the wire.
     #
-    # The route is AGENTS.md 2 and it is MEASURED, not guessed: one `org.Cinnamon.Eval` of
-    # `Meta.get_backend().set_keymap("us,de", "", "")` turns the wire into two groups, after which
-    # wdotool reads exactly what these two lines want -- `layout: German -- group 2 of 2, from wayland
-    # + cinnamon input-sources` (measured on this session, 2026-09-12).  What stops the phase from
-    # doing that today is the check three lines below: with that German group live, `wdotool type --
-    # 'de: yz@'` arrives as `de> zy^[q` -- the uinput path presses the US positions and does not
-    # compensate for the compositor's active group.  So the cost of promoting these two is fixing
-    # wdotool's typing against a non-US group first; the rig arranging a keymap it cannot then type
-    # into would be a green phase measuring nothing.
-    xwant "the group came from Cinnamon's input-sources (until the phase sets the keymap itself: route 2, \
-one Eval of Meta.get_backend().set_keymap, which needs wdotool type to compensate for the live group)" \
-          "from wayland \+ cinnamon input-sources" "$ex"
-    xwant "the second source is the live group (until the same route 2: csd-keyboard runs now and still \
-does not apply it)" \
-          "group 2 of [0-9]+" "$ex"
+    # What `current` does NOT do either is move the group muffin decodes keystrokes under, and that was
+    # the whole of the typing gap.  Three trials on this session, same text, same sink (/dev/uinput;
+    # muffin 6.4 has no virtual-keyboard protocol), reading back out of an xterm running `cat`:
+    #
+    #   muffin locked group 1 (de), wdotool using group 2 (German)   -> `de: yz@`   byte-exact
+    #   muffin locked group 0 (us), wdotool using group 2 (German)   -> `de> zyñ`
+    #   muffin locked group 0 (us), wdotool pinned WDOTOOL_XKB_GROUP=1 -> `de: yz@`  byte-exact
+    #
+    # So the uinput path compensates correctly -- it presses GERMAN positions (key 21 for `z`, key 44
+    # for `y`, 52+shift for `:`, 16+AltGr for `@`, `wdotool keys explain --chars 'zy:@'` on this very
+    # session) and the middle row is those German keycodes read back under a US group, not US positions
+    # pressed.  The missing half was the lock, which the Eval above now makes.
+    # tests/test_keymap.py::TypingUnderALiveGermanGroup pins the four keys off
+    # tests/fixtures/keymaps/us_de.xkb.
+    want "the group came from Cinnamon's input-sources" \
+         "from wayland \+ cinnamon input-sources" "$ex"
+    want "the second source is the live group" "group 2 of [0-9]+" "$ex"
     editor_clear
     guest "wdotool type --delay 30 -- $(sq 'de: yz@')" >/dev/null || true
     sleep 0.6; editor_save; sleep 1
-    # Byte-exact because there is ONE group on the wire: this is the plain uinput path and not the
-    # compensation a live second layout would ask for (measured 2026-09-09 and again 2026-09-12:
-    # `de: yz@` arrives exactly, group 1 of 1).  With the second group really live -- the route-2 Eval
-    # above -- the same call arrives as `de> zy^[q`, which is the gap the xwants name.
-    same "wdotool type is byte-exact with the second source selected" "de: yz@" "$(editor_text)"
+    # Byte-exact WITH A LIVE GERMAN GROUP, which is the claim that was worth arranging: the keystrokes
+    # are German positions chosen against the compositor's own keymap and muffin decodes them under the
+    # group the Eval locked.  Before the lock the same call arrived as `de> zyñ`.
+    same "wdotool type is byte-exact under the live German group" "de: yz@" "$(editor_text)"
+    # Put the session back the way the two Evals found it -- the display, persistent and root phases run
+    # after this one and `--reuse` runs the whole file again on the same instance.  The lock first, so
+    # that nothing a later phase types is decoded under a group whose keymap has just gone.
+    # muffin 6.4 has no keymap getter (`get_keymap_layout_group` -> undefined, measured), so what the
+    # keymap is restored TO is read out of the one thing that does answer: the `sources` setting the
+    # phase captured into $src0 before it wrote anything.  This golden answers `@a(ss) []` -- the key is
+    # unset, Cinnamon falls back to the system layout, and `us` is the restore (the recorded transcript's
+    # `set_keymap("us", "", "")` is this branch).  A flavor whose `sources` names its layouts restores
+    # THOSE, instead of a literal that would quietly leave the session on the wrong keymap for the
+    # display, persistent and root phases and for a `--reuse` rerun.
+    local lay0
+    lay0=$(printf '%s\n' "$src0" | grep -o "'xkb', *'[^']*'" | sed "s/^.*'\([^']*\)'$/\1/" \
+           | tr '\n' ',' | sed 's/,$//')
+    [ -n "$lay0" ] || lay0=us
+    cin_eval 'imports.gi.Meta.get_backend().lock_layout_group(0); String(1)' >/dev/null 2>&1 || true
+    cin_eval "imports.gi.Meta.get_backend().set_keymap(\"$lay0\", \"\", \"\"); String(1)" \
+        >/dev/null 2>&1 || true
     guest "gsettings set org.cinnamon.desktop.input-sources current 0" >/dev/null 2>&1 || true
     # `guest` merges stderr, so the recorded value is only trusted when it looks like the GVariant list
     # gsettings prints (`[('xkb', 'us')]`); anything else -- an error line, an empty answer -- resets the

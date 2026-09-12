@@ -69,8 +69,33 @@ def oracle_xdotool():
     return hit or shutil.which("xdotool")
 
 
+def oracle_wmctrl():
+    """The pinned wmctrl 1.07, or whatever `wmctrl` PATH has, or None.
+
+    `oracle_xdotool`'s search, one store path over: the flake pins `wmctrl-1.07` and
+    `scripts/parity-oracle.sh` and `tests/test_xw11_parity.py` both glob for exactly that directory.
+    Ubuntu 26.04 ships 1.07+git20240228, which prints the same `-lG` bytes as 1.07 for the columns this
+    file reads -- both were measured printing `796 430 484 316` for the same xterm on 2026-09-12 -- so PATH
+    is a usable fallback and not a skip."""
+    got = os.environ.get("W11_ORACLE_PATH")
+    names = [os.environ.get("W11_ORACLE_PATH_FILE"), os.path.join(ROOT, "scripts", "nixpath")]
+    for name in [] if got else names:
+        if name and os.path.isfile(name):
+            with open(name, encoding="utf-8") as f:
+                got = f.read().strip()
+            break
+    if not got:
+        import glob
+        got = ":".join(sorted(glob.glob("/nix/store/*-wmctrl-1.07/bin")))
+    hit = shutil.which("wmctrl", path=got + ":" + os.environ.get("PATH", "")) if got else None
+    return hit or shutil.which("wmctrl")
+
+
 #: The oracle this file measured against, and the version it was: see `oracle_xdotool`.
 ORACLE_XDOTOOL = oracle_xdotool()
+#: The wmctrl oracle for the `-lG` column, which is a different program from the xdotool one and
+#: disagrees with it about that column on purpose: see `TheGeometryColumn`.
+ORACLE_WMCTRL = oracle_wmctrl()
 
 
 def tool(rig, *args, timeout=60):
@@ -260,6 +285,154 @@ class LabwcWindowsTest(unittest.TestCase):
         rc, out, _err = tool(self.rig, "wxrandr", "--print-backend", "--verbose")
         self.assertEqual(rc, 0)
         self.assertEqual(out.splitlines()[0], "wlr")
+
+    def test_getwindowpid_on_the_xwayland_window_is_the_pid_the_x_server_knows(self):
+        """Route 5's pid half, live. The toplevel protocol carries no pid, so this answered `window
+        1000000 has no pid associated with it` while `wwmctl -lGpx` -- the same process, the same X plane,
+        a different reader -- printed `0x0040000c -1 2045 718 395 484 316` on the resolute-labwc golden,
+        2026-09-12 [M goal2/requests-batch-12.md 4]. The oracle is the X server's own `_NET_WM_PID`, read
+        with the real `xprop`, and it is checked against /proc as well: a number that agrees with a stale
+        property and with nothing running would prove nothing."""
+        if not shutil.which("xprop"):
+            self.skipTest("xprop not on PATH")
+        xid = "0x%x" % x_client_list(self.rig)[0]
+        p = subprocess.run(["xprop", "-id", xid, "_NET_WM_PID"], env=self.rig.env,
+                           capture_output=True, text=True, timeout=30)
+        theirs = re.search(r"= *(\d+)", p.stdout)
+        self.assertIsNotNone(theirs, p.stdout)
+        rc, out, err = tool(self.rig, "wdotool", "getwindowpid", self.our_id(XTERM_TITLE))
+        self.assertEqual((rc, err), (0, ""), out)
+        self.assertEqual(out.strip(), theirs.group(1))
+        self.assertTrue(os.path.exists("/proc/%s" % out.strip()), "a pid that is really running")
+
+    def test_getwindowpid_on_the_native_window_still_refuses_in_the_originals_words(self):
+        """The half route 5 does not reach: no X server has heard of the foot window, and
+        zwlr_foreign_toplevel_management_v1 carries no pid. The sentence is xdotool's own -- what the
+        original prints for an X window with no `_NET_WM_PID` -- so parity and honesty are one string.
+        NOT YET, rung 1: a foreign-toplevel protocol that carries the pid, at the cost of wlroots writing
+        and shipping it."""
+        wid = self.our_id(FOOT_TITLE)
+        rc, _out, err = tool(self.rig, "wdotool", "getwindowpid", wid)
+        self.assertEqual(rc, 1)
+        self.assertEqual(err, "window %s has no pid associated with it.\n" % wid)
+
+
+@unittest.skipUnless(shutil.which("labwc"), "labwc not on PATH")
+@unittest.skipUnless(shutil.which("xterm"), "xterm not on PATH")
+class TheGeometryColumn(unittest.TestCase):
+    """`wwmctl -lG` against the original `wmctrl -lG`, on a FLOATING window placed away from 0,0.
+
+    This is the one shape the parity oracle never saw, and it is why the bug survived: wmctrl 1.07 feeds
+    the window's own x,y into `XTranslateCoordinates` instead of 0,0, so the origin is counted twice
+    wherever the X parent is the root -- and a window tiled at 0,0 doubles to 0,0. Measured 2026-09-12 on
+    a headless labwc 0.9.3 on this guest, one xterm placed at 398,215 484x316 with the original's own
+    `wmctrl -e`, four readings of that one window:
+
+        pinned wmctrl 1.07 -lGpx   0x0040000c 0 3144704 796  430  484  316  xterm.XTerm
+        Ubuntu wmctrl 1.07-7       0x0040000c 0 3144704 796  430  484  316  xterm.XTerm
+        pinned xdotool 4.2026      Position: 398,215 (screen: 0) / Geometry: 484x316
+        xwininfo                   Absolute upper-left X: 398   Y: 215
+
+    Under a REPARENTING X11 window manager the doubling shrinks to the frame border and is invisible,
+    which is the other half of the same measurement (Xvfb :77-:79 the same day: openbox printed 400 255
+    for a window at 399,235 with relative origin 1,20; xfwm4 408 273 for 403,244 relative 5,29; marco
+    420 279 for 404,242 relative 16,37 -- `absolute + parent-relative` in all three).
+
+    AGENTS.md: the originals' bugs are reproduced, and the better thing goes behind a flag the original
+    never had. Its own labwc, because placing a window is a session-wide change."""
+
+    XTERM_TITLE = "lbfloat"
+    #: where the window is put, and what the original therefore prints
+    PLACE = (398, 215, 484, 316)
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rig = HeadlessLabwc(need_display=True)
+        cls.procs = [subprocess.Popen(
+            ["xterm", "-T", cls.XTERM_TITLE, "-e", "sh", "-c", "sleep 600"],
+            env=cls.rig.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)]
+        if not wait_for(lambda: cls.XTERM_TITLE in tool(cls.rig, "wwmctl", "-l")[1]):
+            cls.tearDownClass()
+            raise unittest.SkipTest("the xterm never appeared (XWayland broken?)")
+
+    @classmethod
+    def tearDownClass(cls):
+        for p in getattr(cls, "procs", []):
+            p.kill()
+            p.wait(timeout=10)
+        cls.rig.stop()
+
+    def setUp(self):
+        if not ORACLE_WMCTRL:
+            self.skipTest("the original wmctrl is not on PATH")
+        x, y, w, h = self.PLACE
+        # placed with OUR tool, read with theirs: the placement is not the claim, the reading is
+        rc, out, err = tool(self.rig, "wwmctl", "-i", "-r", self.xid(), "-e",
+                            "0,%d,%d,%d,%d" % (x, y, w, h))
+        self.assertEqual(rc, 0, out + err)
+        if not wait_for(lambda: self.theirs()[:2] == [str(x * 2), str(y * 2)], 5.0):
+            self.skipTest("labwc did not place the window at %d,%d (it reads %s)"
+                          % (x, y, self.theirs()))
+
+    def xid(self) -> str:
+        return "0x%x" % x_client_list(self.rig)[0]
+
+    def theirs(self) -> list:
+        """The four `-lG` numbers the ORIGINAL prints for the xterm, over its own X connection."""
+        p = subprocess.run([ORACLE_WMCTRL, "-lG"], env=self.rig.env,
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        row = [ln for ln in p.stdout.splitlines() if ln.endswith(self.XTERM_TITLE)]
+        self.assertEqual(len(row), 1, p.stdout)
+        return row[0].split()[2:6]
+
+    def ours(self, *flags) -> list:
+        rc, out, err = tool(self.rig, "wwmctl", *flags, "-lG")
+        self.assertEqual((rc, err), (0, ""), out)
+        row = [ln for ln in out.splitlines() if ln.endswith(self.XTERM_TITLE)]
+        self.assertEqual(len(row), 1, out)
+        return row[0].split()[2:6]
+
+    def test_the_G_column_is_the_originals_doubled_one_byte_for_byte(self):
+        """The claim, against the original itself over its own connection: the two programs print the
+        same four numbers for the same window, and they are the doubled ones."""
+        x, y, w, h = self.PLACE
+        self.assertEqual(self.theirs(), [str(x * 2), str(y * 2), str(w), str(h)],
+                         "the original's own arithmetic, which is the oracle")
+        self.assertEqual(self.ours(), self.theirs())
+
+    def test_true_geometry_prints_what_xwininfo_and_xdotool_agree_on(self):
+        """The flag the original never had. Its answer is checked against two OTHER programs reading the
+        same X server -- xwininfo's `Absolute upper-left` and xdotool's `Position:` -- so it is not this
+        clone agreeing with itself."""
+        if not shutil.which("xwininfo"):
+            self.skipTest("xwininfo not on PATH")
+        p = subprocess.run(["xwininfo", "-id", self.xid()], env=self.rig.env,
+                           capture_output=True, text=True, timeout=30)
+        abs_x = int(re.search(r"Absolute upper-left X:\s+(-?\d+)", p.stdout).group(1))
+        abs_y = int(re.search(r"Absolute upper-left Y:\s+(-?\d+)", p.stdout).group(1))
+        x, y, w, h = self.PLACE
+        self.assertEqual([abs_x, abs_y], [x, y], "xwininfo reads the window where we put it")
+        self.assertEqual(self.ours("--true-geometry"), [str(x), str(y), str(w), str(h)])
+        self.assertNotEqual(self.ours("--true-geometry"), self.theirs(),
+                            "a window at the origin would hide the whole difference")
+
+    @unittest.skipUnless(ORACLE_XDOTOOL, "the original xdotool is not on PATH")
+    def test_the_xdotool_clone_is_not_this_column_and_did_not_move(self):
+        """xdotool translates from 0,0 and never doubled, so `getwindowgeometry` was right as it stood
+        and must stay byte-identical to the original's [M goal2/requests-batch-12.md 2]."""
+        p = subprocess.run([ORACLE_XDOTOOL, "getwindowgeometry", "--shell", self.xid()],
+                           env=self.rig.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        kv = dict(ln.split("=", 1) for ln in p.stdout.splitlines() if "=" in ln)
+        theirs = tuple(int(kv[k]) for k in ("X", "Y", "WIDTH", "HEIGHT"))
+        self.assertEqual(theirs, self.PLACE)
+        rc, out, err = tool(self.rig, "wdotool", "search", "--name", self.XTERM_TITLE)
+        self.assertEqual((rc, err), (0, ""), out)
+        rc, out, err = tool(self.rig, "wdotool", "getwindowgeometry", "--shell", out.split()[0])
+        self.assertEqual((rc, err), (0, ""), out)
+        kv = dict(ln.split("=", 1) for ln in out.splitlines() if "=" in ln)
+        self.assertEqual(tuple(int(kv[k]) for k in ("X", "Y", "WIDTH", "HEIGHT")), theirs)
 
 
 @unittest.skipUnless(shutil.which("labwc"), "labwc not on PATH")

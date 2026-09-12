@@ -219,7 +219,37 @@ class ListingTests(GnomeCliBase):
                          ["ListWorkspaces", "ListWindows", "XInfo"])
 
     def test_lpGx_without_x_plane(self):
+        """The three NATIVE rows carry wmctrl's own doubled origin and the X row does not, which on GNOME
+        is the whole of `wwmctl.core.Core._geometry_column`.
+
+        A native window is only ever reachable by the original through xw11, whose shadows are children
+        of the root, so wmctrl's `XTranslateCoordinates`-from-x,y bug doubles there: 300,200 -> 600,400,
+        500,300 -> 1000,600. Mutter's Xwayland windows are FRAMED (measured on `noble-gnome`, mutter
+        46.2, 2026-09-12: `Parent window id: 0xa00004` against root `0x221`, and the original printed
+        `412 301` for a window at absolute 398,252 with a relative origin of 14,49 -- `absolute +
+        parent-relative`, not `796 504`), so the xterm keeps 100,80 and is 14,49-ish short of what the
+        original would print. `--true-geometry` is the flag that prints Mutter's own rectangles; the test
+        below reads it [M goal2/recon/b17-review-measurements.md 1]."""
         rc, out, _e = self.wm(["-lpGx"], x11=None)
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.splitlines(), [
+            "0x003ffffd  0 900    0    0    1920 1080 Gjs.Gjs               "
+            "testhost Desktop",
+            "0x00400002  0 1300   600  400  800  600  "
+            "org.gnome.TextEditor.org.gnome.TextEditor  "
+            "testhost Untitled Document 1 - Text Editor",
+            "0x00400003  1 1400   1000 600  400  500  "
+            "org.gnome.Calculator.org.gnome.Calculator  testhost Calculator",
+            # the bridge's WM_CLASS pair stands in when X is unreachable
+            "0x00400005  0 1201   100  80   640  480  xterm.XTerm           "
+            "testhost test@vm: ~",
+        ])
+
+    def test_lpGx_with_true_geometry_prints_mutters_own_rectangles(self):
+        """The same four rows through the flag wmctrl never had: the origins Mutter really reports
+        (300,200 / 500,300), with every other column byte-identical to the row above -- and the X row
+        unmoved, because it was never doubled."""
+        rc, out, _e = self.wm(["--true-geometry", "-lpGx"], x11=None)
         self.assertEqual(rc, 0)
         self.assertEqual(out.splitlines(), [
             "0x003ffffd  0 900    0    0    1920 1080 Gjs.Gjs               "
@@ -229,7 +259,6 @@ class ListingTests(GnomeCliBase):
             "testhost Untitled Document 1 - Text Editor",
             "0x00400003  1 1400   500  300  400  500  "
             "org.gnome.Calculator.org.gnome.Calculator  testhost Calculator",
-            # the bridge's WM_CLASS pair stands in when X is unreachable
             "0x00400005  0 1201   100  80   640  480  xterm.XTerm           "
             "testhost test@vm: ~",
         ])

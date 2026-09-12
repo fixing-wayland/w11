@@ -1,6 +1,22 @@
+# Cut on instance `cinn-w-b17` (resolute-cinnamon-wayland golden, Cinnamon 6.4.13, muffin 6.4.1,
+# Xwayland 24.1.13, one 1920x1080 head), 2026-09-12, `CAPLOG=...
+# LIVE_SMOKE_VMCTL=vm/live-smoke.d/capture-from-run vm/live-smoke.sh resolute-cinnamon-wayland
+# --reuse --keep --phases xwayland,windows,wm,input,display`: 43 pass, 0 fail live.
+# It replaces the recording of 2026-09-09, which was cut on a session whose Xwayland had been moved
+# aside and before the layout phase applied the second source itself, so it answered `wdotool keys
+# explain` with `group 1 of 1` and could not drive the two input-source checks batch 17 promoted to
+# plain `want`s.  The two `org.Cinnamon.Eval` calls that apply the layout (set_keymap("us,de", "",
+# "") and lock_layout_group(1), AGENTS.md route 2) are in this transcript; `fake-vmctl` reads `### `
+# sections only, so this comment answers no command.
 ### true
 ### rc=0
 ### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### printf 'w11-desktop-version: '; muffin --version
+w11-desktop-version: mutter 6.4.1
+Copyright © 2001-2011 Havoc Pennington, Red Hat, Inc., and others
+This is free software; see the source for copying conditions.
+There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 ### rc=0
 ### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon                              --method org.Cinnamon.Eval 'String(1+1)' 2>&1
 (true, '"2"')
@@ -10,40 +26,40 @@
 ### rm -f $HOME/w11-smoke.txt; setsid nohup gnome-terminal -- sh -c 'cat >> $HOME/w11-smoke.txt'            >/dev/null 2>&1 </dev/null & sleep 4; true
 ### rc=0
 ### wdotool search --class 'gnome[-.]terminal' | head -1
-8
+4
 ### rc=0
-### wdotool getwindowname 8
+### wdotool getwindowname 4
 Terminal
 ### rc=0
-### wdotool windowmove 8 100 100; wdotool windowsize 8 800 600
+### wdotool windowmove 4 100 100; wdotool windowsize 4 800 600
 ### rc=0
-### wdotool getwindowgeometry 8
-Window 8
+### wdotool getwindowgeometry 4
+Window 4
   Position: 100,100 (screen: 0)
   Geometry: 798x591
 ### rc=0
-### wdotool getwindowpid 8
-2788
+### wdotool getwindowpid 4
+2859
 ### rc=0
-### test -d /proc/2788
+### test -d /proc/2859
 ### rc=0
-### wdotool windowactivate --sync 8
+### wdotool windowactivate --sync 4
 ### rc=0
 ### wdotool getactivewindow
-8
-### rc=0
-### wdotool windowminimize 8
-### rc=0
-### wdotool getactivewindow 2>&1
 4
 ### rc=0
-### wdotool windowmap 8; wdotool windowactivate --sync 8
+### wdotool windowminimize 4
+### rc=0
+### wdotool getactivewindow 2>&1
+2
+### rc=0
+### wdotool windowmap 4; wdotool windowactivate --sync 4
 ### rc=0
 ### wwmctl -d
-0  * DG: 3840x2160  VP: 0,0  WA: 0,0 1920x1040  Workspace 1
-1  - DG: 3840x2160  VP: N/A  WA: 0,0 1920x1040  Workspace 2
-2  - DG: 3840x2160  VP: N/A  WA: 0,0 1920x1040  Workspace 3
-3  - DG: 3840x2160  VP: N/A  WA: 0,0 1920x1040  Workspace 4
+0  * DG: 1920x1080  VP: 0,0  WA: 0,0 1920x1040  Workspace 1
+1  - DG: 1920x1080  VP: N/A  WA: 0,0 1920x1040  Workspace 2
+2  - DG: 1920x1080  VP: N/A  WA: 0,0 1920x1040  Workspace 3
+3  - DG: 1920x1080  VP: N/A  WA: 0,0 1920x1040  Workspace 4
 ### rc=0
 ### wdotool set_desktop 1
 ### rc=0
@@ -58,12 +74,12 @@ Window 8
 ### wdotool get_desktop
 0
 ### rc=0
-### wdotool windowactivate --sync 8
+### wdotool windowactivate --sync 4
 ### rc=0
 ### wdotool mousemove 300 300
 ### rc=0
 ### wdotool getmouselocation
-x:300 y:300 screen:0 window:8
+x:300 y:300 screen:0 window:4
 ### rc=0
 ### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'global.get_pointer().slice(0, 2).join(",")'
 (true, '"300,300"')
@@ -73,24 +89,16 @@ x:300 y:300 screen:0 window:8
 ### setsid nohup xterm -T smokex -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 3; true
 ### rc=0
 ### wwmctl -l -x
-0x01000034 -1 nemo-desktop.Nemo-desktop  resolute-cinnamon-wayland-smoke nemo-desktop
-0x01000030 -1 nemo-desktop.Nemo-desktop  resolute-cinnamon-wayland-smoke nemo-desktop
-0x01000028 -1 nemo-desktop.Nemo-desktop  resolute-cinnamon-wayland-smoke Desktop
-0x00e00004 -1 csd-background.Csd-background  resolute-cinnamon-wayland-smoke csd-background
-0x00e00008 -1 csd-background.Csd-background  resolute-cinnamon-wayland-smoke csd-background
-0x00e0000c -1 csd-background.Csd-background  resolute-cinnamon-wayland-smoke csd-background
-0x00000008  0 org.gnome.Terminal.org.gnome.Terminal  resolute-cinnamon-wayland-smoke Terminal
-0x0120000c  0 xterm.XTerm           resolute-cinnamon-wayland-smoke smokex
+0x01000028  0 nemo-desktop.Nemo-desktop  cinn-w-b17 Desktop
+0x00600004  0 csd-background.Csd-background  cinn-w-b17 csd-background
+0x00000004  0 org.gnome.Terminal.org.gnome.Terminal  cinn-w-b17 Terminal
+0x0120000c  0 xterm.XTerm           cinn-w-b17 smokex
 ### rc=0
 ### wwmctl -l -p
-0x01000034 -1 1967   resolute-cinnamon-wayland-smoke nemo-desktop
-0x01000030 -1 1967   resolute-cinnamon-wayland-smoke nemo-desktop
-0x01000028 -1 1967   resolute-cinnamon-wayland-smoke Desktop
-0x00e00004 -1 1695   resolute-cinnamon-wayland-smoke csd-background
-0x00e00008 -1 1695   resolute-cinnamon-wayland-smoke csd-background
-0x00e0000c -1 1695   resolute-cinnamon-wayland-smoke csd-background
-0x00000008  0 2788   resolute-cinnamon-wayland-smoke Terminal
-0x0120000c  0 4380   resolute-cinnamon-wayland-smoke smokex
+0x01000028  0 2163   cinn-w-b17 Desktop
+0x00600004  0 1888   cinn-w-b17 csd-background
+0x00000004  0 2859   cinn-w-b17 Terminal
+0x0120000c  0 4516   cinn-w-b17 smokex
 ### rc=0
 ### wwmctl -m
 Name: Mutter (Muffin)
@@ -98,55 +106,55 @@ Class: N/A
 PID: N/A
 Window manager's "showing the desktop" mode: OFF
 ### rc=0
-### wdotool windowactivate --sync 8
+### wdotool windowactivate --sync 4
 ### rc=0
-### wdotool getwindowgeometry 8
-Window 8
+### wdotool getwindowgeometry 4
+Window 4
   Position: 100,100 (screen: 0)
   Geometry: 798x591
 ### rc=0
 ### wwmctl -r :ACTIVE: -b add,maximized_vert,maximized_horz
 ### rc=0
-### wdotool getwindowgeometry 8
-Window 8
+### wdotool getwindowgeometry 4
+Window 4
   Position: 0,0 (screen: 0)
   Geometry: 1920x1040
 ### rc=0
-### wxprop -id 8 _NET_WM_STATE
+### wxprop -id 4 _NET_WM_STATE
 _NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_FOCUSED
 ### rc=0
 ### wwmctl -r :ACTIVE: -b remove,maximized_vert,maximized_horz
 ### rc=0
-### wdotool getwindowgeometry 8
-Window 8
+### wdotool getwindowgeometry 4
+Window 4
   Position: 100,100 (screen: 0)
   Geometry: 798x591
 ### rc=0
 ### wwmctl -r :ACTIVE: -b add,shaded
 ### rc=0
-### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'String(global.display.list_windows(0).filter(w => w.get_stable_sequence() == 8)[0].is_shaded())'
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'String(global.display.list_windows(0).filter(w => w.get_stable_sequence() == 4)[0].is_shaded())'
 (true, '"true"')
 ### rc=0
-### wxprop -id 8 _NET_WM_STATE
+### wxprop -id 4 _NET_WM_STATE
 _NET_WM_STATE(ATOM) = _NET_WM_STATE_SHADED, _NET_WM_STATE_HIDDEN, _NET_WM_STATE_FOCUSED
 ### rc=0
 ### wwmctl -r :ACTIVE: -b remove,shaded
 ### rc=0
-### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'String(global.display.list_windows(0).filter(w => w.get_stable_sequence() == 8)[0].is_shaded())'
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'String(global.display.list_windows(0).filter(w => w.get_stable_sequence() == 4)[0].is_shaded())'
 (true, '"false"')
 ### rc=0
 ### wwmctl -d
-0  * DG: 3840x2160  VP: 0,0  WA: 0,0 1920x1040  Workspace 1
-1  - DG: 3840x2160  VP: N/A  WA: 0,0 1920x1040  Workspace 2
-2  - DG: 3840x2160  VP: N/A  WA: 0,0 1920x1040  Workspace 3
-3  - DG: 3840x2160  VP: N/A  WA: 0,0 1920x1040  Workspace 4
+0  * DG: 1920x1080  VP: 0,0  WA: 0,0 1920x1040  Workspace 1
+1  - DG: 1920x1080  VP: N/A  WA: 0,0 1920x1040  Workspace 2
+2  - DG: 1920x1080  VP: N/A  WA: 0,0 1920x1040  Workspace 3
+3  - DG: 1920x1080  VP: N/A  WA: 0,0 1920x1040  Workspace 4
 ### rc=0
 ### wxprop -root _NET_CLIENT_LIST
-_NET_CLIENT_LIST(WINDOW): window id # 0x1000034, 0x1000030, 0x1000028, 0xe00004, 0xe00008, 0xe0000c, 0x120000c, 0x8
+_NET_CLIENT_LIST(WINDOW): window id # 0x1000028, 0x600004, 0x120000c, 0x4
 ### rc=0
 ### pkill -x xterm; true
 ### rc=0
-### wdotool windowactivate --sync 8
+### wdotool windowactivate --sync 4
 ### rc=0
 ### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
 ### rc=0
@@ -174,13 +182,18 @@ def
 ### rc=0
 ### gsettings set org.cinnamon.desktop.input-sources current 1
 ### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'imports.gi.Meta.get_backend().set_keymap("us,de", "", ""); String(1)'
+(true, '"1"')
+### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'imports.gi.Meta.get_backend().lock_layout_group(1); String(1)'
+(true, '"1"')
+### rc=0
 ### wdotool keys explain --chars z
-layout: English (US) -- group 1 of 1, from wayland
-level keys: shift = key 42 <LFSH>   level3 = none   level5 = none   (what wdotool presses)
-note: this layout is plain US: wdotool uses its built-in table and never reads the keymap
-'z' -- 1 press on English (US)
-    press key 44 <AB01> -> 'z'
-    wdotool key 52                             (keycodes)
+layout: German -- group 2 of 2, from wayland + cinnamon input-sources
+level keys: shift = key 42 <LFSH>   level3 = key 100 <RALT>   level5 = key 195 <LVL5>   (what wdotool presses)
+'z' -- 1 press on German
+    press key 21 <AD06> -> 'z'
+    wdotool key 29                             (keycodes)
     wdotool type 'z'                           (characters)
 ### rc=0
 ### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
@@ -192,6 +205,12 @@ note: this layout is plain US: wdotool uses its built-in table and never reads t
 ### cat $HOME/w11-smoke.txt 2>/dev/null
 de: yz@
 ### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'imports.gi.Meta.get_backend().lock_layout_group(0); String(1)'
+(true, '"1"')
+### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'imports.gi.Meta.get_backend().set_keymap("us", "", ""); String(1)'
+(true, '"1"')
+### rc=0
 ### gsettings set org.cinnamon.desktop.input-sources current 0
 ### rc=0
 ### gsettings reset org.cinnamon.desktop.input-sources sources
@@ -201,8 +220,6 @@ de: yz@
 ### rc=1
 ### python3 $HOME/w11-oracle.py cinnamon-wayland
 Virtual-1 0,0
-Virtual-2 1920,0
-Virtual-3 1920,1080
 ### rc=0
 ### wxrandr --print-backend
 cinnamon
@@ -219,66 +236,18 @@ available: yes
 cinnamon
 ### rc=0
 ### wxrandr --listmonitors 2>&1
-Monitors: 3
+Monitors: 1
  0: +*Virtual-1 1920/508x1080/286+0+0  Virtual-1
- 1: +Virtual-2 1920/508x1080/286+1920+0  Virtual-2
- 2: +Virtual-3 1920/508x1080/286+1920+1080  Virtual-3
 ### rc=0
 ### python3 $HOME/w11-oracle.py cinnamon-wayland
 Virtual-1 0,0
-Virtual-2 1920,0
-Virtual-3 1920,1080
 ### rc=0
 ### python3 $HOME/w11-oracle.py cinnamon-wayland
 Virtual-1 0,0
-Virtual-2 1920,0
-Virtual-3 1920,1080
 ### rc=0
 ### wxrandr --listmonitors
-Monitors: 3
+Monitors: 1
  0: +*Virtual-1 1920/508x1080/286+0+0  Virtual-1
- 1: +Virtual-2 1920/508x1080/286+1920+0  Virtual-2
- 2: +Virtual-3 1920/508x1080/286+1920+1080  Virtual-3
-### rc=0
-### wxrandr --output Virtual-3 --off
-### rc=0
-### python3 $HOME/w11-oracle.py cinnamon-wayland
-Virtual-1 0,0
-Virtual-2 1920,0
-### rc=0
-### wxrandr --output Virtual-3 --auto
-xrandr: output Virtual-3 enabled without a position; placing it right-of Virtual-2
-### rc=0
-### python3 $HOME/w11-oracle.py cinnamon-wayland
-Virtual-1 0,0
-Virtual-2 1920,0
-Virtual-3 3840,0
-### rc=0
-### wxrandr --output Virtual-3 --right-of Virtual-2
-### rc=0
-### python3 $HOME/w11-oracle.py cinnamon-wayland
-Virtual-1 0,0
-Virtual-2 1920,0
-Virtual-3 3840,0
-### rc=0
-### python3 $HOME/w11-oracle.py cinnamon-wayland
-Virtual-1 0,0
-Virtual-2 1920,0
-Virtual-3 3840,0
-### rc=0
-### wxrandr --output Virtual-3 --below Virtual-2
-### rc=0
-### python3 $HOME/w11-oracle.py cinnamon-wayland
-Virtual-1 0,0
-Virtual-2 1920,0
-Virtual-3 1920,1080
-### rc=0
-### python3 $HOME/w11-oracle.py cinnamon-wayland
-Virtual-1 0,0
-Virtual-2 1920,0
-Virtual-3 1920,1080
-### rc=0
-### wxrandr --output Virtual-3 --right-of Virtual-2
 ### rc=0
 ### wmirror --check 2>&1
 helper:   /usr/bin/wl-mirror (wl-mirror v0.18.5)
@@ -290,8 +259,3 @@ outputs:  this compositor does not advertise zwlr_output_manager_v1, so wmirror 
           not yet here: the route is the compositor's own display bus or IPC, which wxrandr already speaks on Mutter, KWin, Hyprland and sway (AGENTS.md route 2), at the cost of one layout reader per compositor
 mirrors:  none
 ### rc=1
-### wxrandr --output Virtual-3 --pos 4000x0 2>&1
-xrandr: Cinnamon's Muffin refused this layout: Logical monitors not adjacent (Cinnamon allows neither a gap nor an overlap between outputs; re-place the neighbours in the same command)
-### rc=1
-### wxrandr --output Virtual-3 --right-of Virtual-2
-### rc=0

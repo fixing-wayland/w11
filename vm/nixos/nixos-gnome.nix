@@ -24,13 +24,6 @@
   services.desktopManager.gnome.enable = true;
   services.getty.autologinUser = lib.mkForce null;
 
-  # The overlap extension the way a user gets it from the module: installed
-  # and enabled for nobody, so the smoke's `gnome-extensions enable` is the
-  # same second step it is after the .deb (gnome.sh phase_overlap).  Without
-  # this line that step answered exit 2, extension unknown, and the whole
-  # phase fell with it (CI run 34662004383: 13 of nixos-gnome's 14 reds).
-  programs.w11.gnomeOverlap.enable = true;
-
   # ---- the quiet GNOME the rig needs, which cost this flavor ten checks ----
   #
   # Every other GNOME golden is a cloud image dressed by vm/build-image.sh, and

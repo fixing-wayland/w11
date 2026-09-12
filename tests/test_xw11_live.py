@@ -726,6 +726,133 @@ class NativeExists(ProxyLive):
 
 
 @unittest.skipUnless(HAVE_XDOTOOL and HAVE_WMCTRL, "needs xdotool and wmctrl")
+class TheGeometryColumn(ProxyLive):
+    """`wmctrl -lG` through the proxy, on windows placed AWAY FROM 0,0 -- the shape that shows the bug.
+
+    wmctrl 1.07's `-G` is `XGetGeometry` for the size and `XTranslateCoordinates` fed the window's own
+    x,y -- not 0,0 -- for the origin, so the offset is counted twice wherever the X parent is the root.
+    The proxy's shadows are children of the root and no wlroots xwm reparents, so BOTH routes to a window
+    on a Wayland session double, and the clone owes the same number (AGENTS.md: the originals' bugs are
+    reproduced). Measured 2026-09-12 on a headless labwc on this guest, one xterm at 398,215 484x316:
+    upstream Xwayland `796 430 484 316`, through xw11 `796 430 484 316`, xdotool and xwininfo `398,215`.
+
+    Both planes are here because they take different paths through the proxy: the foot is a SHADOW, whose
+    `GetGeometry` and `TranslateCoordinates` are `xw11/req_read.py`'s own arithmetic, and the xterm is a
+    real X window the proxy forwards untouched. If the two disagreed, the shadow's arithmetic would be the
+    thing to fix and never the original."""
+
+    prefix = "xw11-geomcol-"
+    #: where both windows are put. Floating, because a tiled window at 0,0 doubles to 0,0 and hides
+    #: everything this class is about -- which is why the parity oracle never saw it.
+    PLACE = (398, 215)
+
+    def setUp(self):
+        for sel in ("[app_id=%s]" % FOOT_APP_ID, "[title=%s]" % XTERM_TITLE):
+            self.swaymsg("%s floating enable, resize set 484 316, move position %d %d"
+                         % ((sel,) + self.PLACE))
+        x, y = self.PLACE
+        if not self.wait(lambda: (self.node(app_id=FOOT_APP_ID)["rect"]["x"],
+                                  self.node(app_id=FOOT_APP_ID)["rect"]["y"]) == (x, y), 10.0):
+            self.skipTest("sway did not float the foot to %d,%d" % self.PLACE)
+
+    def row(self, out, title):
+        rows = [ln for ln in out.splitlines() if ln.endswith(title)]
+        self.assertEqual(len(rows), 1, out)
+        return rows[0].split()[2:6]
+
+    def test_the_shadows_G_row_is_the_originals_doubled_origin(self):
+        """The native foot, whose rectangle only the compositor knows: the proxy answers `GetGeometry`
+        with the compositor's x,y and `TranslateCoordinates` with `x + src_x`, so wmctrl's own arithmetic
+        produces `2x, 2y` here exactly as it does against a real X server."""
+        got = self.tool(["wmctrl", "-lG"])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        rect = self.node(app_id=FOOT_APP_ID)["rect"]
+        self.assertEqual(self.row(got.stdout, FOOT_TITLE),
+                         [str(rect["x"] * 2), str(rect["y"] * 2),
+                          str(rect["width"]), str(rect["height"])])
+
+    def test_the_proxy_route_and_the_upstream_route_print_the_same_row_for_the_x_twin(self):
+        """The xterm is a real X window on both displays, so the same original reading it two ways has to
+        print the same four numbers -- and they are the doubled ones. A disagreement here would say the
+        proxy had touched a passed-through GetGeometry."""
+        through = self.tool(["wmctrl", "-lG"])
+        direct = self.tool(["wmctrl", "-lG"], through=False)
+        self.assertEqual((through.returncode, direct.returncode), (0, 0),
+                         through.stderr + direct.stderr)
+        mine = self.row(through.stdout, XTERM_TITLE)
+        self.assertEqual(mine, self.row(direct.stdout, XTERM_TITLE))
+        rect = self.node(name=XTERM_TITLE)["rect"]
+        self.assertEqual(mine[:2], [str(rect["x"] * 2), str(rect["y"] * 2)])
+
+    def test_the_clone_prints_what_the_original_prints_through_the_proxy(self):
+        """The parity claim itself, on the one window both tools can name: `wwmctl -lG` against the
+        compositor, `wmctrl -lG` against the proxy, same four numbers for the foot."""
+        got = subprocess.run([sys.executable, "-m", "wwmctl", "-lG"],
+                             env=self.env(through=False), cwd=ROOT,
+                             capture_output=True, text=True, timeout=60)
+        self.assertEqual((got.returncode, got.stderr), (0, ""), got.stdout)
+        theirs = self.tool(["wmctrl", "-lG"])
+        self.assertEqual(self.row(got.stdout, FOOT_TITLE),
+                         self.row(theirs.stdout, FOOT_TITLE))
+
+    def test_true_geometry_prints_the_compositors_own_rectangle(self):
+        """The flag the original never had, checked against sway's own tree for the same window."""
+        got = subprocess.run([sys.executable, "-m", "wwmctl", "--true-geometry", "-lG"],
+                             env=self.env(through=False), cwd=ROOT,
+                             capture_output=True, text=True, timeout=60)
+        self.assertEqual((got.returncode, got.stderr), (0, ""), got.stdout)
+        rect = self.node(app_id=FOOT_APP_ID)["rect"]
+        self.assertEqual(self.row(got.stdout, FOOT_TITLE),
+                         [str(rect["x"]), str(rect["y"]),
+                          str(rect["width"]), str(rect["height"])])
+
+    def test_the_desktop_column_agrees_on_both_planes_ids_tokenised(self):
+        """The rig's own proxy check, in-process: `wwmctl -l` and `wmctrl -l` through the proxy list the
+        same windows with the same desktop column once the id is tokenised.
+
+        It was red on resolute-cinnamon-wayland (76 pass / 1 fail): six sticky X background windows read
+        `-1` from the clone and `0` from the original, because muffin publishes no `_NET_WM_DESKTOP` on
+        them and wmctrl prints 0 for a window carrying none. The X row here is the same class: on THIS
+        rig's own compositor, a headless sway 1.11 on this guest 2026-09-12, `xprop -id <xterm>
+        _NET_WM_DESKTOP` answered `_NET_WM_DESKTOP:  no such atom on any window.` -- the wlroots xwm does
+        not even intern it -- and a headless labwc 0.9.3 answered byte-identically. The native row is the
+        other half, where the shadow's 0xFFFFFFFF makes the original print -1 and the clone prints -1 too.
+
+        `wwmctl.core.NO_NET_WM_DESKTOP_XWM` is what confines the 0 to those xwms: mutter DOES publish
+        `_NET_WM_DESKTOP = 4294967295` for a sticky X window and the original prints -1 there
+        [M goal2/recon/b17-review-measurements.md 1], so a blanket 0 was a GNOME regression."""
+        # A NAMED sway workspace is the -1 case on this rig: sway numbers only workspaces whose name
+        # starts with a digit, so `get_tree` gives the xterm no number and the backend reports -1 --
+        # the same shape muffin's sticky background windows have. Without this the xterm sits on
+        # workspace 1, reads 0 already, and the assertion below would hold whatever the column did.
+        self.swaymsg("[title=%s] move container to workspace sticky-ish" % XTERM_TITLE)
+        self.addCleanup(self.swaymsg, "[title=%s] move container to workspace 1" % XTERM_TITLE)
+        self.assertTrue(self.wait(lambda: self.workspace_of(name=XTERM_TITLE) == "sticky-ish", 10.0))
+        mine = subprocess.run([sys.executable, "-m", "wwmctl", "-l"],
+                              env=self.env(through=False), cwd=ROOT,
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual((mine.returncode, mine.stderr), (0, ""), mine.stdout)
+        theirs = self.tool(["wmctrl", "-l"])
+        self.assertEqual(theirs.returncode, 0, theirs.stderr)
+
+        def tokenised(text):
+            return sorted(" ".join(["#"] + ln.split()[1:]) for ln in text.splitlines())
+
+        self.assertEqual(tokenised(mine.stdout), tokenised(theirs.stdout))
+        self.assertIn("# 0 ", " ".join(tokenised(mine.stdout)) + " ",
+                      "the X row's column is the original's 0 and not our -1")
+
+    def test_xdotool_through_the_proxy_did_not_move(self):
+        """xdotool translates from 0,0, so `getwindowgeometry` on a shadow is the compositor's own
+        origin and the doubling must not have leaked into `TranslateCoordinates` itself."""
+        shadow = self.shadow_id()
+        got = self.tool(["xdotool", "getwindowgeometry", str(shadow)])
+        self.assertEqual(got.returncode, 0, got.stderr)
+        rect = self.node(app_id=FOOT_APP_ID)["rect"]
+        self.assertIn("Position: %d,%d" % (rect["x"], rect["y"]), got.stdout)
+
+
+@unittest.skipUnless(HAVE_XDOTOOL and HAVE_WMCTRL, "needs xdotool and wmctrl")
 class WritesLand(ProxyLive):
     """Design section 9.3's third claim: the writes land.
 

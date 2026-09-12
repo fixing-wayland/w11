@@ -606,10 +606,15 @@ class Server:
 
     def pointer_position(self):
         """The first source that knows, in design section 5.6's order:
-        `backend.pointer()` -- which only GNOME and Wayfire implement
-        [recon/seams.md 2.3] -- and then the proxy's own last routed position,
-        so `behave mouse-enter` fires on an `xdotool mousemove` through this
-        proxy even on sway, whose IPC carries no cursor at all."""
+        `backend.pointer()` -- implemented by five backends, GNOME, KWin,
+        Hyprland, Wayfire and Cinnamon [wdotool/backend_*.py, read 2026-09-12;
+        it was GNOME and Wayfire alone when recon/seams.md 2.3 was written] --
+        and then the proxy's own last routed position, so `behave mouse-enter`
+        fires on an `xdotool mousemove` through this proxy even on sway, the
+        wlr floor and COSMIC, whose IPC carries no cursor at all. The hand-moved
+        pointer on those is not yet: route 4, evdev, at the cost of read access
+        to /dev/input for the seated user, which docs/XW11.md declines for the
+        keylogger channel it would open."""
         if self.backend is not None:
             try:
                 with self.block:
