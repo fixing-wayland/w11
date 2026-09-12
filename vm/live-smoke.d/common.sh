@@ -116,21 +116,49 @@ plasma_major() { guest 'plasmashell --version 2>/dev/null' | grep -o '[0-9]\+' |
 # exactly.  The other arms are the binary each flavor's session runs and become measured
 # on that flavor's first recorded run -- an arm that prints nothing makes
 # scripts/rig-recordings.sh REFUSE to name the file rather than guess a token.
+#
+# Three arms drop stderr and keep the first dotted token (`2>/dev/null | grep -oE '<dotted>'
+# | head -1`, the shared `$dotted` filter below) instead of the bare command, because the bare
+# command merged shell noise into the note and `desktop_version_note`'s `head -1` then kept the
+# noise line (requests-batch-16 §1a).  stderr is DROPPED, never merged: the noise these tools
+# write there is version-shaped, so `2>&1` would name the fixture after it (measured below).
+#   * kde/kde-x11 (`plasmashell --version`): the version is on stdout but Qt/EGL noise is on
+#     stderr, and on a rig with no render node it is a `libEGL warning: egl: failed to create
+#     dri2 screen` (measured on noble-kde 5.27.12) or a `QThreadStorage: entry 7 destroyed`
+#     (run 34688228778) ahead of it.  `2>/dev/null | grep` -> `5.27.12` (noble-kde) and
+#     `6.6.6` (resolute-kde), both measured on the goldens here 2026-09-12, clean.
+#   * river: NOT `river --version` (an unknown option: river prints its usage to stderr and
+#     exits 1 -- measured on arch-river 2026-09-12).  `river -version` (one dash) prints
+#     `0.4.8 +xwayland` to stdout; the grep drops the `+xwayland` and names it `0.4.8`.
+#   * lxqt (`lxqt-session --version`): stdout is three lines, `lxqt-session 2.3.0` /
+#     `liblxqt 2.3.0` / `Qt 6.10.2` (measured on lxqt-session 2.3.0-0ubuntu1, the resolute/
+#     lubuntu package, 2026-09-12), so the first dotted token is `2.3.0`.  stderr is dropped
+#     here for a hard reason: the real CI note on run 34688228778 (job 103539061627, log line
+#     465) was NOT empty -- it read `w11-desktop-version: "Icon Theme not set. Fallbacking to
+#     Oxygen, if installed"`, Qt's icon-theme warning on stderr AHEAD of stdout's version; and
+#     under a C locale Qt writes `Detected locale "C" with character encoding "ANSI_X3.4-1968"`
+#     to stderr first, so a `2>&1` arm would name the fixture `3.4` (from ANSI_X3.4-1968) --
+#     measured here, and garbage the brief forbids.  requests-batch-16 §1a called that note
+#     "empty"; the log itself shows it was stderr, which is why `2>/dev/null` is right.  An
+#     unreachable display leaves an empty note and rig-recordings refuses it -- the honest
+#     outcome, not a guessed token.
 desktop_version_cmd() {
+    # The filter the three noisy arms share: drop stderr, keep the first N.N[.N...] token.
+    local dotted="| grep -oE '[0-9]+\\.[0-9][0-9.]*' | head -1"
     case $DESKTOP in
         sway)                                   echo 'sway --version' ;;
         labwc|xfce-wayland|budgie|lxqt-wayland) echo 'labwc --version' ;;
         hypr)                                   echo 'hyprctl version | head -1' ;;
-        river)                                  echo 'river --version' ;;
+        river)                                  echo "river -version 2>/dev/null $dotted" ;;
         wayfire)                                echo 'wayfire --version' ;;
         cosmic)                                 echo 'cosmic-comp --version' ;;
         gnome|gnome-x11)                        echo 'gnome-shell --version' ;;
-        kde|kde-x11)                            echo 'plasmashell --version' ;;
+        kde|kde-x11)                            echo "plasmashell --version 2>/dev/null $dotted" ;;
         cinnamon|cinnamon-wayland)              echo 'muffin --version' ;;
         mate)                                   echo 'marco --version' ;;
         xfce)                                   echo 'xfwm4 --version | head -1' ;;
         i3)                                     echo 'i3 --version' ;;
-        lxqt)                                   echo 'lxqt-session --version | head -1' ;;
+        lxqt)                                   echo "lxqt-session --version 2>/dev/null $dotted" ;;
         *)                                      echo 'true' ;;
     esac
 }

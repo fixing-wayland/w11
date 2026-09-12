@@ -1446,7 +1446,7 @@ GNOME. Running this README against that install is also what found the last of
 it, an overlap route whose every message spoke only to somebody who had a clone
 rather than the package. Both desktops report their active layout there, `wayland + kwin` on one and
 `wayland + gnome input-sources` on the other, and stderr is silent on both. The suite
-stands at **5441 tests**.
+stands at **5443 tests**.
 <!-- release-notes: 0.3 -->
 ### 0.3
 
@@ -1494,7 +1494,7 @@ Developed against real desktops, not against a model of them. `vm/` is the rig:
 `vmctl` builds and runs 38 flavors over four distributions, each with up to four virtual monitors
 that can be plugged, resized and unplugged from outside the guest, and every head
 screenshotted. `vm/README.md` documents the whole thing and `vm/SETUP.md` is how to
-set the rig up on a machine of your own. `tests/` holds the suite, 5441 tests: unit
+set the rig up on a machine of your own. `tests/` holds the suite, 5443 tests: unit
 tests, wire-level fake compositors and X servers, live-compositor integration,
 hostile-input torture, byte-parity oracles against the real xdotool, wmctrl, xprop
 and xrandr, and one static check that no package ever reaches for PolicyKit or for

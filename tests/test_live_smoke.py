@@ -1359,6 +1359,91 @@ class TheRecordingsPipeline(unittest.TestCase):
                         capture_output=True, text=True, timeout=60)
                     self.assertEqual(out.stdout, "[%s]" % token, out.stderr)
 
+    def test_the_noisy_version_arms_drop_stderr_and_name_the_measured_token(self):
+        """kde, river and lxqt each filter a version out of a command that ALSO writes
+        noise, and the note has to be the dotted token with nothing the tool put on
+        stderr.  Measured bytes 2026-09-12: plasmashell writes libEGL/QThreadStorage
+        lines to stderr ahead of `plasmashell 5.27.12` on stdout; `river --version` is an
+        unknown option (usage to stderr, exit 1) while `river -version` prints
+        `0.4.8 +xwayland`; lxqt-session prints `lxqt-session 2.3.0` on stdout with a
+        C-locale `... ANSI_X3.4-1968` line on stderr -- which a `2>&1` arm would name
+        `3.4` (job 103539061627 line 465).  This goes red on the old `2>&1` lxqt arm and
+        on the old `river --version` arm."""
+        fakes = {
+            "plasmashell": ('#!/bin/sh\n'
+                            'echo "libEGL warning: egl: failed to create dri2 screen" >&2\n'
+                            'echo "QThreadStorage: entry 7 destroyed while thread still running" >&2\n'
+                            'echo "plasmashell 5.27.12"\n'),
+            "river": ('#!/bin/sh\n'
+                      "if [ \"$1\" = --version ]; then echo \"error: unknown option '--version'\" >&2; exit 1; fi\n"
+                      'if [ "$1" = -version ]; then echo "0.4.8 +xwayland"; fi\n'),
+            "lxqt-session": ('#!/bin/sh\n'
+                             'echo \'Detected locale "C" with character encoding "ANSI_X3.4-1968"\' >&2\n'
+                             'echo "lxqt-session 2.3.0"\necho "liblxqt 2.3.0"\necho "Qt 6.10.2"\n'),
+        }
+        with tempfile.TemporaryDirectory() as work:
+            binp = os.path.join(work, "bin")
+            os.makedirs(binp)
+            for name, body in fakes.items():
+                p = os.path.join(binp, name)
+                with open(p, "w", encoding="utf-8") as fh:
+                    fh.write(body)
+                os.chmod(p, 0o755)
+            env = dict(os.environ, PATH=binp + os.pathsep + os.environ["PATH"])
+            for desktop, token in (("kde", "5.27.12"), ("river", "0.4.8"), ("lxqt", "2.3.0")):
+                with self.subTest(desktop):
+                    pre = ('set -u\nDESKTOP=%s\nguest() { sh -c "$1"; }\nnote() { echo "NOTE $*"; }\n' % desktop
+                           + support.sh_function(COMMON_SH, "desktop_version_cmd")
+                           + support.sh_function(COMMON_SH, "desktop_version_note")
+                           + "\ndesktop_version_note\n")
+                    got = subprocess.run(["bash", "-c", pre], capture_output=True,
+                                         text=True, timeout=60, env=env)
+                    self.assertEqual(got.returncode, 0, got.stderr)
+                    self.assertIn("NOTE w11-desktop-version: %s" % token, got.stdout)
+                    for noise in ("ANSI", "libEGL", "QThreadStorage", "unknown option"):
+                        self.assertNotIn(noise, got.stdout, "%s reached the note" % noise)
+
+    def test_the_wayfire_painting_check_fails_flat_and_names_a_zero_baseline(self):
+        """The mirror's `target head is painting` verdict is a grim byte-count comparison
+        against a PER-RUN baseline, so it can go red and it separates `flat` from `grim
+        captured nothing`: a first poll moving more than an eighth of the baseline PASSes;
+        a baseline that never moves FAILs on the mirror; a zero baseline FAILs on grim and
+        not on the mirror.  Measured shape on wf1 2026-09-12: 3316259 before, 1420780
+        during -- so `3316259 1420780` passes, all-`3316259` fails flat, all-`0` fails on
+        the capture.  The all-`3316259` case is what makes the check not a tautology."""
+        def verdict(grim_seq):
+            pre = "set -u\n"
+            pre += 'STEPS=%s\nDESKTOP=wayfire\nDISTRO=ubuntu\nMODE=pkg\nREUSE=0\n' % STEPS
+            pre += 'VM=/nonexistent/vmctl\nNAME=t\nFLAVOR=t\nREPO=%s\nHEADS=2\nSCALE=0\n' % ROOT
+            for name in ("pass fail note step want wantnot same ok xwant ev guest guestq root shot "
+                         "await win_geom oracle_outputs opos display_pair beside sq editor_text "
+                         "head_dark plasma_major").split():
+                pre += '%s() { :; }\n' % name
+            pre += '. "$STEPS/common.sh"\n. "$STEPS/wayfire.sh"\n'
+            tail = (
+                'sleep() { :; }\n'
+                'display_pair() { echo "Virtual-1 Virtual-2"; }\n'
+                'oracle_outputs() { printf "Virtual-1 0,0\\nVirtual-2 1920,0\\n"; }\n'
+                'pass() { echo "PASS $1"; }\nfail() { echo "FAIL $1"; }\n'
+                'ok() { :; }\nwant() { :; }\nsame() { :; }\nnote() { :; }\n'
+                # The counter lives in a FILE, not a shell var: each `now=$(guest ...)` is a
+                # command-substitution subshell, so a `_gi=$((_gi+1))` would not persist and every
+                # poll would read field 1 (the baseline) -- flat by construction of the stub.
+                'GRIM_SEQ="%s"\nCFILE=$(mktemp)\necho 0 > "$CFILE"\n'
+                'guest() { case "$1" in *"grim -o"*) '
+                'n=$(($(cat "$CFILE") + 1)); echo "$n" > "$CFILE"; '
+                'echo "$GRIM_SEQ" | cut -d" " -f"$n" ;; *) echo "" ;; esac; }\n'
+                'phase_mirror\n' % grim_seq)
+            return subprocess.run(["bash", "-c", pre + tail], capture_output=True, text=True, timeout=60)
+        painted = verdict("3316259 1420780")
+        self.assertIn("PASS the target head is painting", painted.stdout, painted.stderr)
+        flat = verdict(" ".join(["3316259"] * 11))
+        self.assertIn("FAIL the target head did not change", flat.stdout, flat.stderr)
+        self.assertNotIn("PASS the target head", flat.stdout)
+        zero = verdict(" ".join(["0"] * 11))
+        self.assertIn("FAIL grim captured nothing", zero.stdout, zero.stderr)
+        self.assertNotIn("PASS the target head", zero.stdout)
+
     def test_the_driver_asks_for_the_version_once_beside_the_session_banner(self):
         """Once per run and after the session is up: it is a guest command, and a guest
         command before `vmctl session` has no session to ask."""

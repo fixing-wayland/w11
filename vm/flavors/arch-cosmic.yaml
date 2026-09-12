@@ -81,29 +81,30 @@ write_files:
     content: "PermitRootLogin prohibit-password\n"
   - path: /etc/modules-load.d/uinput.conf
     content: "uinput\n"
-  # cosmic-comp renders through Mesa llvmpipe here (no GPU / render node on the
-  # CI runner or this guest).  Arch's mesa 26.2.2-arch1.1 SIGSEGVs inside
-  # libgallium in llvmpipe's per-output worker threads (surface-Virtual /
-  # llvmpipe-0/1), crashing cosmic-comp ~13 s into a session and taking every
-  # window/wm/proxy/input check down with it -- measured on the arch-cosmic
-  # golden by coredumpctl (Signal 11 SEGV_MAPERR, no OOM, at 3G and 4G alike;
-  # CI run 34682383044, batch 19).  fedora44-cosmic runs the same cosmic-comp on
-  # mesa 26.1.8 and never crashes.  AGENTS.md rung 4 (the GL stack around the
-  # compositor): LP_NUM_THREADS=0 rasterises on the calling thread, so the
-  # worker threads that fault are never spawned; llvmpipe stays the driver, so
-  # there is no softpipe slowdown to time a frame out.  greetd's initial_session
-  # inherits this service environment, and the compositor is its child.
+  # cosmic-comp renders through Mesa here (no GPU / render node on the CI runner
+  # or this guest).  Arch's mesa 26.2.2-arch1.1 SIGSEGVs inside libgallium in
+  # LLVMPIPE's per-output worker threads (surface-Virtual / llvmpipe-0/1),
+  # crashing cosmic-comp intermittently and taking every window/wm/proxy/input
+  # check down -- measured by coredumpctl (Signal 11 SEGV_MAPERR, no OOM, at 3G
+  # and 4G; CI runs 34682383044/34695199537, batch 19).  fedora44-cosmic runs
+  # the same cosmic-comp on mesa 26.1.8 and never crashes.  AGENTS.md rung 4 (the
+  # GL stack around the compositor): GALLIUM_DRIVER=softpipe is Mesa's reference
+  # rasterizer -- no JIT, no worker threads, a different code path from the one
+  # that faults -- so the llvmpipe crash cannot happen; LP_NUM_THREADS=0 stays as
+  # a belt.  LP_NUM_THREADS=0 alone only reduced the crash (green one run, crashed
+  # the next on the same golden), so this replaces it.
   # greetd builds the session environment from PAM (pam_env), not from its own
   # service Environment=, so /etc/environment is the lever that actually reaches
   # cosmic-comp: Arch's /etc/pam.d/greetd includes system-login, which runs
   # pam_env.so.  The service drop-in is kept as a belt in case a greetd build
   # forwards its environment.  Both say the same one line.
   - path: /etc/environment
-    content: "LP_NUM_THREADS=0\n"
+    content: "GALLIUM_DRIVER=softpipe\nLP_NUM_THREADS=0\n"
     append: true
   - path: /etc/systemd/system/greetd.service.d/vmctl-cosmic-llvmpipe.conf
     content: |
       [Service]
+      Environment=GALLIUM_DRIVER=softpipe
       Environment=LP_NUM_THREADS=0
   - path: /etc/vmctl-build.env
     content: |
