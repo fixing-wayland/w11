@@ -73,6 +73,17 @@ SHADOWS = ("xdotool", "wmctrl", "xprop", "xrandr", "arandr")
 
 CHECKS = ("module-eval", "nixos-gnome", "nixos-kde", "nixos-sway", "tools")
 
+#: The rig's GNOME flavor that is nix source rather than a cloud image, and the
+#: shell that dresses the nine that are.  vm/build-image.sh's `gschema_quiet
+#: gnome` is the specification for how quiet a GNOME golden has to be before
+#: the smoke types into it; vm/nixos/nixos-gnome.nix is the one flavor that has
+#: to say the same thing in nix, and for one release it said nothing at all
+#: (CI run 34628777544: 63 pass, 10 FAIL, every type/key check reading an empty
+#: editor while the shell's first-login welcome dialog held the keyboard grab
+#: -- goal2/recon/flavors.md §7 and that run's live-smoke-nixos-gnome shots).
+BUILD_IMAGE = os.path.join(ROOT, "vm", "build-image.sh")
+NIXOS_GNOME = os.path.join(ROOT, "vm", "nixos", "nixos-gnome.nix")
+
 
 def read(path):
     with open(path, encoding="utf-8") as fh:
@@ -109,6 +120,66 @@ def nix(subcommand, *args, **kw):
 
 def flake_ref(attr=""):
     return "path:%s%s" % (ROOT, ("#" + attr) if attr else "")
+
+
+def gschema_quiet_rows():
+    """vm/build-image.sh's `gschema_quiet gnome` heredoc, as
+    {("org/gnome/shell", "welcome-dialog-last-shown-version"): "'999'"}.
+
+    The function builds one 90_vmctl.gschema.override out of two pieces -- the
+    heredoc and the `shell_block` string the gnome arm appends to its last line
+    -- so both are read, `$ns` is the gnome the nix flavor is, and the stray
+    quote that closes the shell_block assignment is dropped."""
+    body = read(BUILD_IMAGE).split("gschema_quiet() {", 1)[1].split("\n}", 1)[0]
+    body = body.replace("$ns", "gnome").replace("$shell_block", "")
+    rows, path = {}, None
+    for line in body.splitlines():
+        line = line.strip()
+        section = re.match(r"^\[(org\.gnome\.[a-z0-9.-]+)\]$", line)
+        if section:
+            path = section.group(1).replace(".", "/")
+            continue
+        row = re.match(r"^([a-z0-9-]+)=(.+?)\"?$", line)
+        if path and row:
+            rows[(path, row.group(1))] = row.group(2)
+    return rows
+
+
+def as_nix(value):
+    """One gschema override value, spelled the way the dconf database spells
+    it.  `uint32 0` is the only typed one and `lib.gvariant.mkUint32` is how a
+    dconf keyfile gets `@u 0` out of nix (measured: the flavor's database
+    renders `idle-delay=@u 0`, nix eval against nixpkgs 34ab990 here on
+    2026-09-11).  A bare 0 does not quietly become an int32 either: nixpkgs'
+    toDconfINI refuses it with "The GVariant type for number 0 is unclear",
+    measured the same way with the wrapper taken off."""
+    if value in ("true", "false"):
+        return value
+    typed = re.match(r"^uint32 (\d+)$", value)
+    if typed:
+        return "lib.gvariant.mkUint32 %s" % typed.group(1)
+    quoted = re.match(r"^'(.*)'$", value)
+    if quoted:
+        return '"%s"' % quoted.group(1)
+    raise AssertionError("gschema_quiet writes %r and no nix spelling is known for it" % value)
+
+
+def nixos_gnome_rows():
+    """The dconf rows vm/nixos/nixos-gnome.nix writes, in the same shape."""
+    body = read(NIXOS_GNOME).split("programs.dconf.profiles.user.databases", 1)[1]
+    rows, path = {}, None
+    for line in body.splitlines():
+        line = line.strip()
+        section = re.match(r'^"([a-z0-9/-]+)" = \{$', line)
+        if section:
+            path = section.group(1)
+            continue
+        row = re.match(r"^([a-z0-9-]+) = (.+);$", line)
+        if path and row:
+            rows[(path, row.group(1))] = row.group(2)
+        elif path and line.startswith("}"):
+            path = None
+    return rows
 
 
 class Version(unittest.TestCase):
@@ -424,6 +495,154 @@ class HomeManagerModule(unittest.TestCase):
         self.assertRegex(self.code, r"(?m)^\s*warnings = ")
         self.assertIn("/dev/uinput", self.code)
         self.assertIn("install-bridge.sh --udev", self.code)
+
+
+class TheNixosGnomeFlavor(unittest.TestCase):
+    """The rig's one GNOME golden that nix builds, held to what the shell does
+    for the nine it does not.
+
+    This file is where the rig's nix source is read as text, and vm/nixos is
+    nix source: the flavor is a module over nixosModules.default, and what it
+    sets is as much a claim about the module's GNOME story as nix/checks is.
+    The claim it pins is the one the first all-38 run charged ten checks for:
+    nixos-gnome typed nothing anywhere, because gnome-shell's first-login
+    welcome dialog ("Welcome to NixOS 26.05 (Yarara)", a ModalDialog with the
+    keyboard grab) sat over the editor for the whole session, and the text the
+    smoke typed went into the shell's own search entry -- measured in the
+    shots of CI run 34628777544, attempt nixos-gnome-20260911-180712
+    (windows-0.png, wm-0.png, then proxy-0.png and input-0.png with `us: yz@`
+    in the overview; the log kept under goal2/ci is the 175927 attempt of the
+    same run, 63 pass 10 fail either way), while `mousemove ... click 1`,
+    the Super+Space source switch and the uaccess ACL on /dev/uinput all
+    passed in the same run.  Every other GNOME golden is quiet because
+    vm/build-image.sh:557-583 makes it quiet; this one has to say the same
+    thing itself, and it has to keep saying it when build-image.sh's list
+    changes."""
+
+    def test_the_flavor_writes_every_key_the_shell_writes_for_a_gnome_golden(self):
+        """Key for key, value for value, both ways: a key added to
+        gschema_quiet and not to the flavor leaves the NixOS golden noisier
+        than the other nine, and a key dropped here leaves the two rigs
+        measuring different desktops."""
+        want = {row: as_nix(value) for row, value in gschema_quiet_rows().items()}
+        self.assertEqual(want, nixos_gnome_rows())
+
+    def test_the_welcome_dialog_key_is_in_that_set_with_the_value_that_stops_it(self):
+        """The one key of the seven that cost the ten checks, named on its
+        own so the set above cannot quietly lose it: gnome-shell shows the
+        dialog when its own version sorts above this string, so '999' is the
+        version no shell will reach -- build-image.sh:483-485 uses the same
+        value and asserts it with `gsettings get` on every other golden."""
+        row = ("org/gnome/shell", "welcome-dialog-last-shown-version")
+        self.assertEqual(gschema_quiet_rows()[row], "'999'")
+        self.assertEqual(nixos_gnome_rows()[row], '"999"')
+
+    def test_the_first_login_setup_wizard_is_off_on_the_nixos_golden(self):
+        """The other half of vm/build-image.sh's desktop_gnome: it writes
+        ~/.config/gnome-initial-setup-done and hides the first-login autostart
+        (build-image.sh:562-583).  nixpkgs writes that stamp file only for a
+        stateVersion older than 20.03, so on a 26.05 image the wizard's unit
+        is wanted by gnome-session -- measured by eval here on 2026-09-11
+        against nixpkgs 34ab990: with the module on,
+        systemd.user.targets."gnome-session".wants is
+        ["gnome-initial-setup-first-login.service"]; with this line, that
+        target has no wants at all."""
+        self.assertRegex(read(NIXOS_GNOME),
+                         r"(?m)^\s*services\.gnome\.gnome-initial-setup\.enable = false;")
+
+
+class TheNixosRigsOwnTools(unittest.TestCase):
+    """vm/nixos/common.nix: what the smoke reaches for in a NixOS guest.
+
+    Every other golden is a distribution with a python3 in /usr/bin; a NixOS
+    image has one in the store and none on PATH unless the configuration asks
+    for it, and the smoke's second opinion on every display check is
+    `python3 $HOME/w11-oracle.py` (vm/live-smoke.d/common.sh:77)."""
+
+    def test_the_goldens_carry_the_interpreter_the_display_oracle_runs_under(self):
+        """Measured, CI run 34628777544: nixos-gnome was started with three
+        heads and the display phase printed `native oracle: sh: line 1:
+        python3: command not found`, then `one head only: the two-head steps
+        need --heads 2` -- oracle.py answering nothing makes display_pair()
+        report one head, so the two-head half of the phase was skipped on both
+        NixOS flavors on every run, with no red line to show for it."""
+        common = read(os.path.join(ROOT, "vm", "nixos", "common.nix"))
+        packages = re.search(r"environment\.systemPackages = with pkgs; \[(.*?)\];", common, re.S)
+        self.assertIsNotNone(packages, common)
+        # Comments first, whatever they say: the list is names and the prose
+        # beside them is not a package (this file's own note names python3).
+        flat = []
+        for line in packages.group(1).splitlines():
+            flat += re.findall(r"[a-z][a-z0-9-]*", line.split("#", 1)[0])
+        self.assertIn("python3", flat)
+        self.assertIn("acl", flat)
+
+
+class TheNixosGnomeFlavorLive(unittest.TestCase):
+    """R21, evaluation half: the flavor, evaluated against a real nixpkgs.
+
+    The text tests above cannot see a typo in a dconf key path (dconf compiles
+    whatever it is given -- no schema is consulted) or a value of the wrong
+    GVariant type, and both are silent failures that cost a rig run.  This
+    evaluates the flavor as a system and reads the keyfile back.  It is the
+    repo flake's nixpkgs and not vm/nixos/flake.lock's 26.05: the options used
+    here (programs.dconf.profiles, services.gnome.gnome-initial-setup) are the
+    same in both, and asking for a second nixpkgs would make this test a
+    download."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not os.environ.get("W11_NIX_LIVE"):
+            raise unittest.SkipTest("needs nix: set W11_NIX_LIVE=1")
+        if not shutil.which("nix"):
+            raise unittest.SkipTest("W11_NIX_LIVE is set and there is no nix on PATH")
+
+    def test_the_flavor_evaluates_to_a_quiet_keyfile_and_a_session_with_no_wizard(self):
+        """Both halves of the fix, as a system rather than as source lines:
+        the rendered dconf keyfile, and the wants of every user target.  9 s
+        warm on the rig host, 1.2 s when the eval fails early.  `@u 0` is the
+        whole point of the typed value: `idle-delay` is a uint32 key, and with
+        the wrapper taken off this eval stops at "The GVariant type for number
+        0 is unclear" (measured here on 2026-09-11) -- which is the failure
+        this test is here to turn into a red line rather than a rig run."""
+        expr = """
+          let flake = builtins.getFlake "%s";
+              lib = flake.inputs.nixpkgs.lib;
+              cfg = (lib.nixosSystem {
+                system = "x86_64-linux";
+                modules = [ %s ({ ... }: {
+                  boot.loader.grub.device = "nodev";
+                  fileSystems."/" = { device = "/dev/vda1"; fsType = "ext4"; };
+                  system.stateVersion = "26.05";
+                  users.users.test = { isNormalUser = true; uid = 1000; };
+                }) ];
+              }).config;
+          in lib.concatStringsSep "" (map (d: lib.generators.toDconfINI d.settings)
+                                          cfg.programs.dconf.profiles.user.databases)
+             + " #user-target-wants="
+             + builtins.toJSON (lib.mapAttrs (_: t: t.wants) cfg.systemd.user.targets)
+        """ % (flake_ref(), NIXOS_GNOME)
+        r = nix("eval", "--impure", "--raw", "--expr", expr)
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        self.assertIn("[org/gnome/shell]", r.stdout)
+        self.assertIn("welcome-dialog-last-shown-version='999'", r.stdout)
+        self.assertIn("idle-delay=@u 0", r.stdout)
+        self.assertIn("lock-enabled=false", r.stdout)
+        self.assertIn("sleep-inactive-ac-type='nothing'", r.stdout)
+        # The EFFECT of the second half of the fix and not just its source
+        # line: every user target's wants, so no path can be typo'd into a
+        # vacuous pass -- the map is populated in both states, and asserting
+        # one known member proves it was read.  Measured by this eval on
+        # 2026-09-11 against nixpkgs 34ab990: with the option forced back on,
+        # gnome-session wants gnome-initial-setup-first-login.service (and
+        # gnome-session@gnome-initial-setup and graphical-session-pre pick up
+        # two more); with the flavor as it stands, no target names the wizard
+        # at all.  A nixpkgs that stops honouring the option reddens here
+        # instead of costing a rig run.
+        self.assertIn(" #user-target-wants=", r.stdout)
+        self.assertIn("gnome-session-x11-services", r.stdout)
+        self.assertNotIn("gnome-initial-setup-first-login.service", r.stdout)
+        self.assertNotIn("gnome-initial-setup.service", r.stdout)
 
 
 class Live(unittest.TestCase):

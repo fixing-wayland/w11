@@ -25,7 +25,9 @@ sys.path.insert(0, ROOT)
 # fails over a file that imports one of them without this line).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import support
 from test_dbus_mini import MockBus
+from wdotool.backend_cinnamon import CinnamonBackend
 from wxprop import cli, core
 
 # The suite never hands a tool over to the real X11 one: see
@@ -816,6 +818,155 @@ class NativePlaneTest(CliTestBase):
             out.buffer.getvalue(),
             b"_NET_WM_STATE(ATOM) = _NET_WM_STATE_FULLSCREEN, "
             b"_NET_WM_STATE_HIDDEN, _NET_WM_STATE_STICKY\n")
+
+
+def _state_names(node, win):
+    """The `_NET_WM_STATE` atom names `NativeViewTarget` would publish for one
+    node, decoded back through the same table that named them -- the code
+    `wxprop -id` runs, reached without a session."""
+    target = core.NativeViewTarget(None, core.NativeAtoms(), node, win)
+    _type, _size, wire = target.fetch(b"_NET_WM_STATE")
+    return [target.atom_name(a)
+            for a in struct.unpack("<%dI" % (len(wire) // 4), wire)]
+
+
+class ShadedIsAStateAgain(CliTestBase):
+    """`_NET_WM_STATE_SHADED`, which only Cinnamon can be in.
+
+    muffin kept shading after mutter dropped it and KWin 6 removed it -- its
+    `Meta.Window` still answers `shade()`, `unshade()` and `is_shaded()`, and
+    `wdotool/cinnamon_js.py:57` has been reading the flag into every window row
+    for as long as that backend has existed.  Nothing consumed it: on
+    resolute-cinnamon-wayland, 2026-09-09, `wwmctl -r :ACTIVE: -b add,shaded`
+    really shaded the window (the shell's own `is_shaded()` said `true`) and
+    `wxprop -id 1 _NET_WM_STATE` printed `_NET_WM_STATE_FOCUSED` and nothing
+    else, because `wxprop/core.py` had no `shaded` arm and its atom table had
+    no name to print [vm/live-smoke.d/cinnamon-wayland.sh:307-312,
+    goal2/recon/gaps.md 1b #11].  Real xprop on a Cinnamon X11 session prints
+    the atom -- muffin's `meta_window_x11_set_net_wm_state`
+    (src/x11/window-x11.c, linuxmint/muffin master, read 2026-09-11) writes it
+    first and HIDDEN with it -- and X is the oracle.
+
+    The double is `support.FakeBackend` with `views()`, which is the shape
+    every bridge backend hands wxprop; the flag travels the real path
+    (`core._node_from_view` -> `NativeViewTarget._props`) and not a stub of
+    it."""
+
+    def backend(self, **flags):
+        win = support.fake_window(6, title="WL-Foot", class_="footw", pid=4242,
+                                  desktop=0, focused=flags.pop("focused", False))
+        view = support.fake_view(win, app_id="footw", **flags)
+        return support.FakeBackend(windows=[win], views=[view])
+
+    def states(self, **flags):
+        """The atom names `wxprop -id 6 _NET_WM_STATE` prints, as bytes."""
+        fake = self.backend(**flags)
+        out = _CapStdout()
+        with mock.patch.object(core, "_detect_backend", lambda: fake), \
+                mock.patch.object(sys, "stdout", out), \
+                mock.patch.object(sys, "stderr", io.StringIO()):
+            code = cli.main(["-id", "6", "_NET_WM_STATE"])
+        self.assertEqual(code, 0)
+        return out.buffer.getvalue()
+
+    def test_a_shaded_window_says_so(self):
+        """Both atoms, because muffin writes both: its HIDDEN arm is
+        `if (!meta_window_showing_on_its_workspace (window) || window->shaded)`
+        and a shaded window is still showing on its workspace -- it is mapped,
+        just rolled up to the titlebar.  So real xprop prints the pair for it
+        and a lone SHADED would be a dump X never produced."""
+        self.assertEqual(
+            self.states(shaded=True),
+            b"_NET_WM_STATE(ATOM) = _NET_WM_STATE_SHADED, "
+            b"_NET_WM_STATE_HIDDEN\n")
+
+    def test_hidden_still_comes_from_visible_when_nobody_shaded_anything(self):
+        """The other half of the `or`: an unmapped window is HIDDEN without
+        being SHADED, which is the arm every non-Cinnamon backend uses and the
+        one the shaded arm must not have swallowed."""
+        self.assertEqual(self.states(hidden=True),
+                         b"_NET_WM_STATE(ATOM) = _NET_WM_STATE_HIDDEN\n")
+
+    def test_a_window_nobody_shaded_does_not(self):
+        """The control for the arm above: the same window with the flag off
+        prints the empty array real xprop prints, not the atom."""
+        self.assertEqual(self.states(), b"_NET_WM_STATE(ATOM) = \n")
+
+    def test_it_comes_first_where_muffins_own_set_net_wm_state_puts_it(self):
+        """muffin's `meta_window_x11_set_net_wm_state`
+        (src/x11/window-x11.c, linuxmint/muffin master, read 2026-09-11)
+        appends in this order: SHADED, MODAL, SKIP_PAGER, SKIP_TASKBAR,
+        MAXIMIZED_HORZ, MAXIMIZED_VERT, FULLSCREEN, HIDDEN, ABOVE, BELOW,
+        DEMANDS_ATTENTION, STICKY, FOCUSED.  That order is the byte order of
+        the property, so a reader comparing our dump with the X plane's sees
+        the same one -- including HIDDEN after the maximize pair, which the
+        shaded window earns from muffin's `|| window->shaded`."""
+        self.assertEqual(
+            self.states(shaded=True, maximized_h=True, maximized_v=True,
+                        focused=True),
+            b"_NET_WM_STATE(ATOM) = _NET_WM_STATE_SHADED, "
+            b"_NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT, "
+            b"_NET_WM_STATE_HIDDEN, _NET_WM_STATE_FOCUSED\n")
+
+    def test_the_atom_has_a_name_in_the_synthesized_table(self):
+        """The other half of the 2026-09-09 failure, and what the table buys:
+        `_p_atoms` would intern an unknown name at runtime, at an id that then
+        depends on which properties this process happened to dump first.  In
+        the table it has one id for every process and every dump, which is what
+        an atom id copied out of one window's output and fed to another
+        invocation needs."""
+        atoms = core.NativeAtoms()
+        self.assertIn("_NET_WM_STATE_SHADED", atoms.by_name)
+        self.assertEqual(atoms.name(atoms.by_name["_NET_WM_STATE_SHADED"]),
+                         "_NET_WM_STATE_SHADED")
+
+    def test_the_root_advertises_it_with_the_other_view_states(self):
+        """A reader consults `_NET_SUPPORTED` before it asks for a state, and
+        muffin's own root lists this one."""
+        fake = self.backend(shaded=True)
+        out = _CapStdout()
+        with mock.patch.object(core, "_detect_backend", lambda: fake), \
+                mock.patch.object(sys, "stdout", out), \
+                mock.patch.object(sys, "stderr", io.StringIO()):
+            code = cli.main(["-root", "_NET_SUPPORTED"])
+        self.assertEqual(code, 0)
+        self.assertIn(b"_NET_WM_STATE_SHADED", out.buffer.getvalue())
+
+    def test_the_cinnamon_row_carries_the_flag_all_the_way_to_the_array(self):
+        """The route end to end, from the key the shell actually sends to the
+        atoms wxprop prints, because nothing else in the tree reads it.
+        `shaded:w.is_shaded()` has been in the LIST program since that backend
+        was written (`wdotool/cinnamon_js.py:57`) and `CinnamonBackend._view`
+        dropped it on the floor.  `_view` is a classmethod over a plain row, so
+        this is the real parser and the real `_node_from_view`, no D-Bus and no
+        paraphrase of either."""
+        row = {"id": 3, "xid": 0, "title": "Rolled up", "cls": "Foo",
+               "inst": "foo", "pid": 41, "ct": 0, "wt": "NORMAL",
+               "x": 0, "y": 0, "w": 10, "h": 10, "ws": 0, "act": 0,
+               "foc": False, "min": False, "max": 0, "full": False,
+               "above": False, "shaded": True, "skipt": False, "dec": True}
+        view = CinnamonBackend._view(row)
+        self.assertTrue(view.shaded)
+        self.assertIn("_NET_WM_STATE_SHADED",
+                      _state_names(core._node_from_view(view), view.window))
+        row["shaded"] = False
+        self.assertNotIn("_NET_WM_STATE_SHADED",
+                         _state_names(core._node_from_view(
+                             CinnamonBackend._view(row)), view.window))
+
+    def test_a_sway_tree_never_grows_the_state(self):
+        """The arm is gated on the views() marker for the same reason every
+        other rich state is: a sway node dict has no `shaded` key, sway has no
+        shading, and a tree that grew the atom would be inventing one."""
+        fake = _FakeSway()
+        fake.foot["shaded"] = True          # a key sway would never write
+        out = _CapStdout()
+        with mock.patch.object(core, "_detect_backend", lambda: fake), \
+                mock.patch.object(sys, "stdout", out), \
+                mock.patch.object(sys, "stderr", io.StringIO()):
+            code = cli.main(["-id", "6", "_NET_WM_STATE"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.buffer.getvalue(), b"_NET_WM_STATE(ATOM) = \n")
 
 
 class IdCollisionTest(CliTestBase):

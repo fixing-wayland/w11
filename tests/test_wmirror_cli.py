@@ -585,14 +585,13 @@ class Cli(Base):
         self.assertIn(core.SCREENCOPY, e)
         self.assertNotIn(distro.hint("wl-mirror"), e)
 
-    @unittest.expectedFailure
     def test_check_says_what_is_wrong_before_it_says_what_is_installed(self):
-        """DEFERRED fix 40 (finding F5.1), the `--check` half: the `problem:`
-        line is printed after `helper:` and `wayland:`, so the first thing an
-        X11 user reads is "helper: not installed / sudo apt install
-        wl-mirror" and the line that says there is no Wayland session here at
-        all comes third. The fix reorders 'Detection' in docs/WMIRROR.md the
-        same way."""
+        """Fix 40's `--check` half, landed as T21.  The `problem:` line used to
+        be printed after `helper:` and `wayland:`, so the first thing an X11
+        user read was "helper: not installed / sudo apt install wl-mirror" and
+        the line saying there is no Wayland session here at all came fourth --
+        `[helper:   not installed]` is the evidence the rig captured on all
+        nine X11 flavors of run 34628777544 [goal2/recon/gaps.md 1b #9]."""
         o = io.StringIO()
         with mock.patch.object(core, "find_helper", return_value=None), \
                 mock.patch.object(core, "open_conn",
@@ -606,6 +605,50 @@ class Cli(Base):
         self.assertIn("problem:", text)
         self.assertIn("X11 session", text)
         self.assertLess(text.index("problem:"), text.index("helper:"))
+
+    def test_the_x11_sentence_is_the_very_first_line_check_prints(self):
+        """What the rig reads, and it reads one line: `xwant` at
+        vm/live-smoke.d/xfce.sh:101 takes `head -1` of `wmirror --check` and
+        asks for X11 in it.  `assertLess` above would also pass with a row
+        printed above the problem, so the stronger claim is pinned separately:
+        line 1, no `apt` anywhere above it."""
+        o = io.StringIO()
+        with mock.patch.object(core, "find_helper", return_value=None), \
+                mock.patch.object(core, "open_conn",
+                                  side_effect=core.Refusal(core.no_session_lines())), \
+                mock.patch.object(session, "find_wayland_socket", return_value=None), \
+                mock.patch.object(passthrough, "session_kind", return_value="x11"), \
+                contextlib.redirect_stdout(o):
+            rc = cli.main(["--check"])
+        lines = o.getvalue().splitlines()
+        self.assertEqual(rc, 1)
+        self.assertEqual(lines[0],
+                         "problem:  this is an X11 session: there is no wl-mirror here")
+        self.assertIn("helper:   not installed", lines)
+        self.assertIn("wayland:  none", lines)
+
+    def test_a_wayland_session_still_opens_with_the_helper_row(self):
+        """The reorder is for the session that has a problem, and only that
+        one: where the compositor answers, `--check` prints exactly the rows
+        it always did, in the order it always did, with no `problem:` at all."""
+        conn = mock.Mock()
+        o = io.StringIO()
+        with mock.patch.object(core, "find_helper",
+                               return_value="/usr/bin/wl-mirror"), \
+                mock.patch.object(core, "helper_version", return_value="wl-mirror 0.18.5"), \
+                mock.patch.object(core, "open_conn", return_value=conn), \
+                mock.patch.object(session, "find_wayland_socket",
+                                  return_value=(1000, "user", SOCKET)), \
+                mock.patch.object(core, "capture_support",
+                                  return_value=[(core.SCREENCOPY, 3)]), \
+                mock.patch.object(core, "read_outputs", return_value=[out("A")]), \
+                contextlib.redirect_stdout(o):
+            rc = cli.main(["--check"])
+        lines = o.getvalue().splitlines()
+        self.assertEqual(rc, 0)
+        self.assertNotIn("problem:", o.getvalue())
+        self.assertEqual(lines[0], "helper:   /usr/bin/wl-mirror (wl-mirror 0.18.5)")
+        self.assertEqual(lines[1], "wayland:  " + SOCKET)
 
     def test_a_compositor_without_capture_says_which_protocol(self):
         rc, o, e = run(["A", "--to", "B"], outputs=[out("A")], capture=False)

@@ -14,7 +14,7 @@ x11
 false
 ### rc=0
 ### pgrep -x gnome-shell | head -1
-2255
+1433
 ### rc=0
 ### gnome-extensions info w11-bridge@w11
 w11-bridge@w11
@@ -30,7 +30,7 @@ w11-bridge@w11
  'org.w11.Bridge'
 ### rc=0
 ### gdbus call --session --dest org.freedesktop.DBus                       --object-path /org/freedesktop/DBus                       --method org.freedesktop.DBus.GetConnectionUnixProcessID org.w11.Bridge                       2>&1 | sed -n 's/.*uint32 \([0-9]*\).*/\1/p'
-2255
+1433
 ### rc=0
 ### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.Bridge1.GetVersion 2>&1
 (uint32 3,)
@@ -46,11 +46,51 @@ w11-bridge@w11
 (true,)
 ### rc=0
 ### pgrep -x gnome-shell | head -1
-2255
+1433
 ### rc=0
 ### gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell                     --method org.gnome.Shell.Extensions.ReloadExtension w11-bridge@w11 2>&1
 Error: GDBus.Error:org.freedesktop.DBus.Error.NotSupported: ReloadExtension is deprecated and does not work
 ### rc=1
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.BridgeReload1.Reload 2>&1
+('{"version":3,"mtime":1893628800,"reread":false,"path":"/usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js"}',)
+### rc=0
+### sed -n 's/^const VERSION = \([0-9]*\);/\1/p' /usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js
+3
+### rc=0
+### sed -i 's/^const VERSION = [0-9]*;/const VERSION = 99;/' /usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.BridgeReload1.Reload 2>&1
+('{"version":99,"mtime":1789168389,"reread":true,"path":"/usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js"}',)
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.Bridge1.GetVersion 2>&1
+(uint32 99,)
+### rc=0
+### pgrep -x gnome-shell | head -1
+1433
+### rc=0
+### touch -d '2030-01-01 00:00:00' /usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.BridgeReload1.Reload 2>&1
+('{"version":99,"mtime":1893456000,"reread":true,"path":"/usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js"}',)
+### rc=0
+### touch -d '2030-01-02 00:00:00' /usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.BridgeReload1.Reload 2>&1
+('{"version":99,"mtime":1893542400,"reread":true,"path":"/usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js"}',)
+### rc=0
+### touch -d '2030-01-03 00:00:00' /usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.BridgeReload1.Reload 2>&1
+('{"version":99,"mtime":1893628800,"reread":true,"path":"/usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js"}',)
+### rc=0
+### sed -i 's/^const VERSION = 99;/const VERSION = 3;/' /usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.BridgeReload1.Reload
+('{"version":3,"mtime":1789168392,"reread":true,"path":"/usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js"}',)
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.Bridge1.GetVersion 2>&1
+(uint32 3,)
+### rc=0
 ### wdotool --version
 xdotool version 3.20160805.1
 ### rc=0
@@ -58,19 +98,19 @@ xdotool version 3.20160805.1
 x11
 ### rc=0
 ### W11_PASSTHROUGH=never wwmctl -l -x 2>&1
-0x02200118 -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 1
-0x0220011c -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 2
-0x02200120 -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 3
-0x02400004  0 gnome-text-editor.gnome-text-editor  noble-gnome-x11-smoke w11-smoke.txt (~/) - Text Editor
+0x02400176 -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 1
+0x0240017a -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 2
+0x0240017e -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 3
+0x00a00004  0 gnome-text-editor.gnome-text-editor  noble-gnome-x11-smoke w11-smoke.txt (~/) - Text Editor
 ### rc=0
 ### wmctrl -l -x | awk '/TextEditor|Text Editor/ { print $1; exit }'
-0x02400004
+0x00a00004
 ### rc=0
 ### wmctrl -l -x
-0x02200118 -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 1
-0x0220011c -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 2
-0x02200120 -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 3
-0x02400004  0 gnome-text-editor.gnome-text-editor  noble-gnome-x11-smoke w11-smoke.txt (~/) - Text Editor
+0x00a00004  0 gnome-text-editor.gnome-text-editor  noble-gnome-x11-smoke w11-smoke.txt (~/) - Text Editor
+0x02400176 -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 1
+0x0240017a -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 2
+0x0240017e -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 3
 ### rc=0
 ### python3 $HOME/w11-oracle.py gnome-x11
 Virtual-1 0,0
@@ -235,13 +275,13 @@ Virtual-2
 Virtual-3
 ### rc=0
 ### ls -l /run/user/1000/gdm/Xauthority 2>&1
--rwx------ 1 test test 130 Sep  9 09:19 /run/user/1000/gdm/Xauthority
+-rwx------ 1 test test 130 Sep 11 23:08 /run/user/1000/gdm/Xauthority
 ### rc=0
 ### echo $XAUTHORITY
 /run/user/1000/gdm/Xauthority
 ### rc=0
 ### w=$(command -v wdotool); env -i "$w" search --onlyvisible --class 'gnome-text-editor'                   2>&1 | head -1
-37748740
+10485764
 ### rc=0
 ### getfacl -p /dev/uinput 2>/dev/null
 # file: /dev/uinput
@@ -257,9 +297,9 @@ other::---
 ### setsid nohup gnome-text-editor $HOME/w11-smoke.txt >/dev/null 2>&1 </dev/null & sleep 3; true
 ### rc=0
 ### wdotool search --onlyvisible --class 'gnome-text-editor' | head -1
-37748740
+10485764
 ### rc=0
-### wdotool windowactivate --sync 37748740
+### wdotool windowactivate --sync 10485764
 ### rc=0
 ### rm -f $HOME/w11-smoke.txt; touch $HOME/w11-smoke.txt
 ### rc=0
@@ -269,8 +309,8 @@ wdotool: cannot read the compositor's keymap (no wayland socket found); typing w
 ### wdotool key ctrl+s
 ### rc=0
 ### cat $HOME/w11-smoke.txt 2>/dev/null
-x11 uinput
+x11 uinputx11 uinputhi
 ### rc=0
 ### cat $HOME/w11-smoke.txt 2>/dev/null
-x11 uinput
+x11 uinputx11 uinputhi
 ### rc=0

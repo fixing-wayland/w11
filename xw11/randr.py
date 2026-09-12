@@ -474,6 +474,23 @@ class RandrBatch:
         return (not self.crtcs and not self.scale and self.screen is None
                 and self.primary is None and self.screen_config is None)
 
+    @property
+    def noprimary(self) -> bool:
+        """`xrandr --noprimary`: a `SetOutputPrimary` naming output `None`,
+        which is the id 0 on the wire, against `None` here for a batch that
+        carried no such request at all.
+
+        Measured 2026-09-11 on this box, real xrandr 1.5.3 through a tee in
+        front of an Xvfb :91 (scratchpad/b7/noprimary-wire.txt): `xrandr
+        --noprimary` sends `24000100` (GrabServer, seq 19),
+        `8c1e03001f02000000000000` -- RANDR major 140, minor 30
+        `RRSetOutputPrimary`, the root `0x21f`, output `00000000` -- then
+        `25000100` (Ungrab) and the `GetInputFocus` sync. `xrandr --output
+        screen --noprimary` sends the same four requests and no
+        `SetCrtcConfig`: --noprimary clears the screen's primary, it does not
+        touch the output it is spelled next to."""
+        return self.primary == 0
+
     def record_crtc(self, decoded, seq) -> None:
         crtc, x, y, mode, rotation, outputs, _cts = decoded
         self.crtcs[crtc] = (x, y, mode, rotation, outputs)
@@ -730,16 +747,30 @@ class Applier:
             if p.handle is not None and id(p.handle) not in handles:
                 p.close()
 
-    def apply(self, stanzas, screen=None, customs=None):
-        """`build_targets` -> the custom-mode rule -> `verify` -> `apply`, under
-        the one lock. Returns the targets it applied; raises
+    def apply(self, stanzas, screen=None, customs=None, noprimary=False):
+        """`build_targets` -> the custom-mode rule -> the primary -> `verify` ->
+        `apply`, under the one lock. Returns the targets it applied; raises
         `wxrandr.core.Fatal` the way the CLI does, and the caller turns that
         into an X error (section 7.5).
+
+        `noprimary` is `xrandr --noprimary`'s half of the same field, routed the
+        way `wxrandr --noprimary` routes it (`cli.py:1592-1601`).
 
         `ensure()` is inside the lock and not before it: it sets `tried` before
         the probe finishes, so two first applies from two clients -- each on its
         own worker thread -- would have the second read `tried` true and
-        `backend` still None and refuse a session that has a backend."""
+        `backend` still None and refuse a session that has a backend.
+
+        The primary is settled BETWEEN `build_targets` and `verify`, which is
+        where `wxrandr/cli.py:1591-1603` settles it and for the same two
+        reasons: Mutter's `verify` sends method 0 with the plan a real apply
+        would send, and both backends read the wanted primary out of
+        `State.primary` when they build that plan (`mutter.py:623`,
+        `kwin.py:1027`). Written after the apply instead -- which is what this
+        did until 2026-09-11 -- neither backend ever saw it, and `xrandr
+        --output Virtual-2 --primary` through the proxy read back Virtual-1 on
+        all 13 GNOME/KDE flavors of CI run 34628777544
+        (`goal2/recon/gaps.md 1b #8`)."""
         from wxrandr import core
         with self.lock:
             backend = self.ensure()
@@ -751,9 +782,28 @@ class Applier:
             targets = core.build_targets(outputs, stanzas, self.state)
             if customs:
                 self._settle_customs(targets, customs)
-            backend.verify(self.state, targets)
-            fresh = backend.apply(self.state, targets, persistent=False)
-            self._record_primary(stanzas)
+            before = self.state.primary
+            self._want_primary(stanzas, targets, noprimary)
+            try:
+                backend.verify(self.state, targets)
+                fresh = backend.apply(self.state, targets, persistent=False)
+            except Exception:
+                # `wxrandr/cli.py:1591` keeps `primary_before` for its dryrun
+                # branch for this reason -- "nothing was sent, so nothing may
+                # be claimed about the compositor". The CLI needs it only
+                # there because a `Fatal` from verify/apply ends that process;
+                # this Applier outlives the refusal and serves the next client,
+                # so a refused `--output X --mode bad --primary` that left the
+                # wanted primary in memory would have the NEXT batch plan with
+                # it, and `wxrandr --query` -- reading the state file, which
+                # this path never saves -- would disagree with it. Mutter and
+                # KWin re-sync the field from the compositor in their next
+                # snapshot (`mutter.py:506`, `kwin.py:1208`); sway, the wlr
+                # floor and Hyprland have nothing to re-sync it from, which is
+                # where it would stick.
+                self.state.primary = before
+                raise
+            self._record_primary(stanzas, fresh or outputs, noprimary)
         if screen is not None:
             self._check_screen(fresh or outputs, screen)
         return targets
@@ -813,15 +863,112 @@ class Applier:
                                  % (info.name or info.size_name))
             t.mode = best
 
-    def _record_primary(self, stanzas) -> None:
-        """`SetOutputPrimary` reached Xwayland (it PASSes, and `xrandr -q` reads
-        the flag back from there [recon/env.md 2.4]); `wxrandr` keeps its own in
-        `State`, and this is where the two are made to agree."""
+    def _want_primary(self, stanzas, targets, noprimary=False) -> None:
+        """The primary the batch asked for, into `State` BEFORE the backend
+        plans anything -- which is the whole of what routes `--primary` to each
+        backend's own primary verb.
+
+        Neither backend takes a primary as an argument: both read `State.primary`
+        while they build the layout they are about to send. Mutter's `plan` puts
+        the flag on the logical monitor holding that connector
+        (`wxrandr/mutter.py:623`) and `apply` skips a temporary layout only when
+        `_canon(plan) == current_config` (`mutter.py:1017`) -- a comparison that
+        includes the primary flag, so a `--primary` that changes nothing else
+        still sends `ApplyMonitorsConfig`. KWin's `plan` turns `state.primary !=
+        self.primary` into the `set_priority(dev, 1..N)` record with the named
+        output first (`kwin.py:1027-1042`, the verb measured to move KWin's
+        primary; `set_primary_output` is accepted and ignored on 5.27 and 6.6),
+        and `apply` sends it even when no crtc record came with it
+        (`kwin.py:1184`).
+
+        Written AFTER the apply -- where it was until 2026-09-11 -- the backends
+        planned with the primary the session already had, so nothing moved:
+        measured that day on the resolute-kde golden (KWin 6.5, two virtual
+        heads), `DISPLAY=:20 xrandr --output Virtual-2 --primary` exited 0, the
+        proxy logged `applied a RandR batch of 1 crtc(s) in 9 ms through kwin`
+        and `wxrandr --query` still printed `Virtual-1 primary`; the same run
+        with `--nograb` split it into two batches of one (SetCrtcConfig seq 24,
+        SetOutputPrimary seq 25) and read back Virtual-1 as well. CI run
+        34628777544 had the same answer on all 13 GNOME/KDE flavors
+        (`goal2/recon/gaps.md 1b #8`).
+
+        `t.stanza is s` is `wxrandr/cli.py:1602`'s own guard: an `--output` name
+        the compositor does not have only warns in `build_targets`
+        (`core.py:1284`), and recording a primary for it would leave `--query`
+        naming an output nothing can be primary on.
+
+        `--noprimary` is the same field cleared, and is `cli.py:1592-1601` line
+        for line: the two backends that require a primary keep theirs and say
+        so, and `State.primary` goes to None either way. On Mutter that leaves
+        `plan` falling back to `self.primary` (`mutter.py:625`), so the plan
+        equals the current configuration, `_canon` matches and nothing is sent;
+        on KWin `want` is falsy, so no `set_priority` record is built and the
+        apply sends nothing (`kwin.py:1028`, `kwin.py:1184`). On sway, the wlr
+        floor and Hyprland nothing re-syncs the field, so the clear stands --
+        which is what `xrandr -q` reads back out of Xwayland, where
+        `SetOutputPrimary` PASSed.
+
+        Measured 2026-09-11 through this proxy on a real headless sway (two
+        heads, xrandr 1.5.3, scratchpad/b7/live_noprimary.py): `xrandr --output
+        HEADLESS-2 --primary` then reads back HEADLESS-2 in BOTH planes
+        (`xrandr -q` says `connected primary`, `wxrandr --query` says
+        HEADLESS-2), and `xrandr --noprimary` leaves both empty, grabbed and
+        `--nograb` alike. With the clear dropped -- the same run with
+        `RandrBatch.noprimary` forced False -- `xrandr -q` cleared its flag and
+        `wxrandr --query` still printed HEADLESS-2, which is the disagreement
+        this closes."""
+        if noprimary:
+            self._say_kept_primary()
+            self.state.primary = None
         for s in stanzas:
-            if s.primary:
+            if s.primary and any(t.name == s.name and t.stanza is s
+                                 for t in targets):
                 self.state.primary = s.name
-                self.state.save()
                 return
+
+    def _say_kept_primary(self) -> None:
+        """`wxrandr/cli.py:1594-1599`'s two warnings, into the proxy log.
+
+        A compositor that insists on having a primary output is told to drop it
+        and keeps it; the line names which output that is, so that the next
+        `xrandr -q` -- which reads Xwayland's own copy, now cleared -- is not
+        the first anyone hears of the disagreement. The CLI's third guard, `not
+        any(s.primary for s in opts.stanzas)`, has no counterpart here: one
+        batch carries one `SetOutputPrimary`, and its output id is either 0 or
+        an output, never both."""
+        have = getattr(self.backend, "primary", None)
+        if not have:
+            return
+        flavor = getattr(self.backend, "flavor", None)
+        if flavor is not None:
+            self.say("xw11: %s requires a primary output; keeping %s"
+                     % (flavor.desktop, have))
+        if self.name == "kwin":
+            # neither `set_priority` nor `set_primary_output` has an inverse:
+            # KWin's output order always has a first entry (`kwin.py:1028`)
+            self.say("xw11: KWin keeps a primary output; keeping %s" % have)
+
+    def _record_primary(self, stanzas, fresh, noprimary=False) -> None:
+        """What the compositor ended up with, saved -- only for a batch that
+        asked for a primary at all.
+
+        `State.primary` is not what we wanted by now: Mutter re-syncs it from
+        `GetCurrentState` in the snapshot its `apply` returns
+        (`mutter.py:506`) and KWin overwrites it with `kde_output_order_v1`'s
+        first entry (`kwin.py:1208`), which is the rule
+        `wxrandr/cli.py:1632` keeps too -- the state file records the primary
+        the compositor HAS, never one we merely asked for, so that a KWin too
+        old for `set_priority` cannot make the next `--query` lie. A backend
+        with no primary verb of its own (the wlr floor, sway, Hyprland) leaves
+        what `_want_primary` put there, which is the half `xrandr -q` reads back
+        out of Xwayland -- `SetOutputPrimary` PASSes and is answered there
+        [recon/env.md 2.4] -- and the two planes then agree."""
+        if not noprimary and not any(s.primary for s in stanzas):
+            return
+        still = {o.name for o in fresh or ()}
+        if still and self.state.primary not in still:
+            self.state.primary = None
+        self.state.save()
 
     def _check_screen(self, outputs, screen) -> None:
         """The framebuffer the client asked for, against the layout that came
@@ -1072,38 +1219,47 @@ def commit(server, conn, batch, seq, hold=None) -> None:
     if not stanzas:
         if batch.crtcs or batch.scale:
             # Every crtc in the batch named an output the snapshot does not
-            # have. Nothing to apply, and nothing to pretend about.
+            # have. Nothing to apply, and nothing to pretend about -- the
+            # `--noprimary` that may be riding along with it goes down with the
+            # rest of the batch, the way a refused transaction does on X.
             _fail(server, conn, batch, core.Fatal(
                 "no output this proxy's RandR tables know was named\n"))
             return
-        # `xrandr --fb WxH` and nothing else: a framebuffer, with no crtc
-        # change under it. On X the screen really grows past its outputs and
-        # the pointer pans around it. Not yet here, and the exit code stays
-        # xrandr's 0 rather than becoming an error X never gave: the lowest
-        # route is rung 1, a scale below 1 on the head (`swaymsg output
-        # HEADLESS-1 scale 0.5` -> a 2560x1440 rect, measured 2026-09-10), at
-        # the cost of the outputs being scaled rather than a bigger screen
-        # sitting behind them; a framebuffer genuinely larger than every output,
-        # with panning, is rung 6, a patched compositor.
-        if batch.hold_seq is not None:
-            # A reply on hold with nothing left to release it is a hang, which
-            # is the one failure mode a proxy may not have. Unreachable today
-            # -- only a batch of one holds, and a batch of one always names its
-            # own crtc -- which is why it is written down rather than reasoned
-            # about.
-            conn.release_reply(batch.hold_seq)
-        if batch.screen is None:
+        if batch.screen is not None:
+            # `xrandr --fb WxH` and nothing else: a framebuffer, with no crtc
+            # change under it. On X the screen really grows past its outputs and
+            # the pointer pans around it. Not yet here, and the exit code stays
+            # xrandr's 0 rather than becoming an error X never gave: the lowest
+            # route is rung 1, a scale below 1 on the head (`swaymsg output
+            # HEADLESS-1 scale 0.5` -> a 2560x1440 rect, measured 2026-09-10),
+            # at the cost of the outputs being scaled rather than a bigger
+            # screen sitting behind them; a framebuffer genuinely larger than
+            # every output, with panning, is rung 6, a patched compositor.
+            server.say("xw11: a %dx%d framebuffer with no output change in the "
+                       "same grab (`--fb`) is not yet applied: no "
+                       "output-management protocol carries a screen bigger "
+                       "than its outputs. The route is a scale below 1 on the "
+                       "head (AGENTS.md route 1), which scales the outputs "
+                       "instead of leaving a bigger screen behind them, or a "
+                       "patched compositor (route 6) for a real panning "
+                       "framebuffer" % (batch.screen[0], batch.screen[1]))
+        elif not batch.noprimary:
             server.say("xw11: a RandR batch with nothing in it this proxy can "
                        "name an output by: nothing was applied")
+        if not batch.noprimary:
+            if batch.hold_seq is not None:
+                # A reply on hold with nothing left to release it is a hang,
+                # which is the one failure mode a proxy may not have.
+                # Unreachable today -- only a batch of one holds, and a batch
+                # of one always names its own crtc -- which is why it is
+                # written down rather than reasoned about.
+                conn.release_reply(batch.hold_seq)
             return
-        server.say("xw11: a %dx%d framebuffer with no output change in the "
-                   "same grab (`--fb`) is not yet applied: no output-management "
-                   "protocol carries a screen bigger than its outputs. The "
-                   "route is a scale below 1 on the head (AGENTS.md route 1), "
-                   "which scales the outputs instead of leaving a bigger screen "
-                   "behind them, or a patched compositor (route 6) for a real "
-                   "panning framebuffer" % (batch.screen[0], batch.screen[1]))
-        return
+        # else it falls through to the apply: `xrandr --noprimary` names no
+        # crtc and no output (measured, see `RandrBatch.noprimary`), and
+        # `wxrandr --noprimary` is that same empty stanza list through the same
+        # `build_targets` (`cli.py:1582`). What it changes is one field, and
+        # that field is read while the backend plans.
     server.pause_reads(conn)
     server.run_worker(conn,
                       lambda: _do_apply(server, conn, batch, stanzas, customs))
@@ -1119,7 +1275,8 @@ def _do_apply(server, conn, batch, stanzas, customs=None):
     started = time.monotonic()
     try:
         targets = server.randr.apply(stanzas, screen=batch.screen,
-                                     customs=customs)
+                                     customs=customs,
+                                     noprimary=batch.noprimary)
     except Exception as exc:
         failure = exc
         return lambda: _fail(server, conn, batch, failure)

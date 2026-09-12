@@ -1,9 +1,10 @@
 {
   "uuid": "w11-overlap@w11",
   "name": "w11 overlap (unsupported)",
-  "description": "Lets wxrandr --unsafe-gnome-overlap place two GNOME monitors so that they share screen area, which Mutter's own configuration API refuses. It does nothing at all until it is called, and it re-checks this build of libmutter before every write. Only GNOME Shell 46, 50 and 51 have been measured; on anything else it refuses. Not needed by any other w11 tool.",
+  "description": "Lets wxrandr --unsafe-gnome-overlap place two GNOME monitors so that they share screen area, which Mutter's own configuration API refuses. It does nothing at all until it is called, and it re-checks this build of libmutter before every write. Only GNOME Shell 46, 49, 50 and 51 have been measured; on anything else it refuses. Not needed by any other w11 tool.",
   "shell-version": [
     "46",
+    "49",
     "50",
     "51"
   ],

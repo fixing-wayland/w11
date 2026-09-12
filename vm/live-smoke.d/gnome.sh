@@ -10,15 +10,17 @@
 # ConfirmDisplayChange(true) answers the dialog, and the overlap route applying
 # on 46.0 with six green checks.
 #
-# It also runs on fedora44-gnome (GNOME Shell 50.4 on mutter 50.4) and, on
-# demand, on fedora43-gnome (GNOME 49) and arch-gnome.  Two facts differ from
-# Ubuntu and both are handled below rather than in a second file: GDM's config
-# and state live under /etc/gdm and /var/lib/gdm instead of gdm3 (measured on
-# Fedora 44 and on Arch [recon2/fedora 5, recon2/arch 5]), and the overlap
-# route's private struct size on Fedora's own libmutter-18 has never been read
-# -- gnome/w11-overlap@w11/generations.json records 80 for
-# Ubuntu's mutter 50.1 and nothing for Fedora's 50.4, so the overlap check
-# there is an `xwant` naming the row it waits for [plan C1, C5 item 22].
+# It also runs on fedora44-gnome (GNOME Shell 50.4 on mutter 50.4), on
+# fedora43-gnome (GNOME Shell 49.9 on mutter 49.7, libmutter-17) and on
+# arch-gnome.  One fact differs from Ubuntu and is handled below rather than in a
+# second file: GDM's config and state live under /etc/gdm and /var/lib/gdm
+# instead of gdm3 (measured on Fedora 44 and on Arch [recon2/fedora 5,
+# recon2/arch 5]).  The overlap route is no longer one of them: every generation
+# these flavors run is in gnome/w11-overlap@w11/generations.json --
+# 46, 49, 50 and 51 -- and 49 is the one added by measurement on the
+# fedora43-gnome golden on 2026-09-11 (MetaMonitorsConfig 80 bytes out of that
+# build's own GType registry, three tail slots proved by the sentinel, the
+# shared 920 columns of two heads byte-identical, sha256 ecf41c1210e8c94d).
 
 # `remove` is deliberately not in this list: it destroys the installation every
 # other phase measures, so live-smoke.sh runs it last and only under --remove.
@@ -289,30 +291,58 @@ phase_overlap() {
     # matching the bare word `available` would match that too.
     local status; status=$(guest 'wxrandr --gnome-overlap-status 2>&1' || true)
     note "--gnome-overlap-status: $(ev "$status")"
-    if [ "$DISTRO" = ubuntu ]; then
-        want "--gnome-overlap-status says the route works on this build" "^(available|agreed)$" \
-             "$(printf '%s\n' "$status" | head -1)"
-    else
-        # gnome/w11-overlap@w11/generations.json records
-        # MetaMonitorsConfig at 80 bytes for Ubuntu's mutter 50.1 and has no row
-        # for anyone else's libmutter-18.  The extension re-reads the size from
-        # the GType registry on every call and refuses unless the two agree, so
-        # on Fedora 44's and Arch's 50.4 this is unknown until the first run
-        # reads it -- and if it reads 80 the row is a no-op and this line says
-        # XPASS with nothing to do [plan C1, C5 item 22].  The label is written
-        # for every non-Ubuntu build rather than for 50.4 alone because
-        # fedora43-gnome is GNOME 49 / libmutter-17, where a refusal is the
-        # HONEST answer: that XFAIL is permanent and is not a missing row.
-        xwant "--gnome-overlap-status works on $DISTRO's own mutter (until generations.json has a row for it)" \
-              "^(available|agreed)$" "$(printf '%s\n' "$status" | head -1)"
-        note "the MetaMonitorsConfig size this build reports: $(printf '%s\n' "$status" \
-                 | sed -n 's/.*MetaMonitorsConfig \([0-9]*\) bytes.*/\1/p' | head -1)"
-    fi
-    out=$(guest "wxrandr --dryrun --unsafe-gnome-overlap --output $second --pos 1000x0 2>&1" || true)
+    # One plain check on every distro since the GNOME 49 record landed.  It used
+    # to be an `xwant` off Ubuntu because generations.json carried 46/50/51 and
+    # nothing else: Fedora's and Arch's own libmutter-18 was unread, and Fedora
+    # 43 is GNOME 49 / libmutter-17, which had no record at all.  Both halves are
+    # measured now -- arch-gnome and fedora44-gnome XPASSed this line on mutter
+    # 50.4 (CI run 34628777544, gaps.md 1a #4), and GNOME 49.9 on the
+    # fedora43-gnome golden reports MetaMonitorsConfig at 80 bytes from its own
+    # GType registry, which is the W11Overlap17 record in the table (measured
+    # 2026-09-11, batch 8: libmutter-17.so.0 build c7c9add6935d, the sentinel
+    # round-tripping at the declared offset and the swapped-tail description
+    # refused by name).  A GNOME that is not in the table is a red line here and
+    # that is the point: the answer is the record, which is docs/Technical.md
+    # section 6, and until it is measured the tool says so itself.
+    want "--gnome-overlap-status says the route works on this build" "^(available|agreed)$" \
+         "$(printf '%s\n' "$status" | head -1)"
+    # The overview holds a modal grab, and the extension refuses every call while
+    # anything does (check `pending-dialog`: that grab is how GNOME asks "Keep
+    # changes?", and confirming one while this had moved a monitor is the single
+    # way an overlapping layout could reach monitors.xml).  On GNOME 49 the
+    # session comes up IN the overview and stays there with a window open --
+    # measured on the fedora43-gnome golden 2026-09-11: modalCount 1 with
+    # gnome-text-editor on screen, cleared by one Escape.  So press it with our
+    # own tool, and retry the dryrun twice: the refusal's own advice is to answer
+    # the grab and run it again, and a phase that does what the message says is
+    # the phase that measures the route rather than the overview.
+    local try
+    for try in 1 2 3; do
+        out=$(guest "wxrandr --dryrun --unsafe-gnome-overlap --output $second --pos 1000x0 2>&1" || true)
+        printf '%s\n' "$out" | grep -q '(pending-dialog)' || break
+        note "attempt $try refused with pending-dialog: sending Escape (GNOME 49 comes up in the overview)"
+        guest "wdotool key Escape" >/dev/null 2>&1 || true
+        # and the second way out of the overview, for a session where the key
+        # did not land: activating a window leaves it, which is the bridge's
+        # own path rather than the input daemon's.
+        if [ -n "${WIN:-}" ]; then
+            guest "wdotool windowactivate --sync $WIN" >/dev/null 2>&1 || true
+        fi
+        sleep 3
+    done
     # Each is one stderr line, `xrandr: overlap check <name>: <detail>`:
     # shell-version, typelib, sentinel, pending-dialog, bounded-read, public-view.
     local n; n=$(printf '%s\n' "$out" | grep -c 'overlap check ')
     same "the dryrun runs six checks inside the extension" "6" "$n"
+    # The generation the extension says it just checked, read out of the
+    # shell-version line's `libmutter-<n>.so.0` -- which the extension takes
+    # from gnome-shell's own /proc/self/maps, not from the table.  The agreement
+    # below has to record this same label, which is what makes the recorded
+    # consent be about the build the checks ran on (17 on the fedora43-gnome
+    # golden, measured 2026-09-11; 14 on noble, 18 on resolute, 51 on stonking).
+    local lmgen; lmgen=$(printf '%s\n' "$out" \
+        | sed -n 's/.*overlap check shell-version:.*libmutter-\([0-9][0-9]*\)\.so\.0.*/\1/p' | head -1)
+    note "the libmutter generation the checks ran against: $(ev "$lmgen")"
     want "every check passed and nothing was written" "dryrun: nothing was written" "$out"
     dryundo=$(printf '%s\n' "$out" | sed -n 's/^ *To undo: *//p' | head -1)
     note "the DRYRUN's printed undo: $(ev "$dryundo")"
@@ -348,6 +378,8 @@ phase_overlap() {
     want "the agreement names the libmutter build id" '"libmutter_build"' "$out"
     want "the agreement names the shell version" '"shell"' "$out"
     want "the agreement names the MetaMonitorsConfig size it was measured against" '"struct_size"' "$out"
+    want "the agreement names the libmutter generation the checks ran against (libmutter-$lmgen)" \
+         "\"libmutter\": \"$lmgen\"" "$out"
     out=$(guest "wxrandr --unsafe-gnome-overlap --output $second --pos 1000x0 2>&1" || true)
     sleep 2
     wantnot "with an agreement recorded the apply is quiet: no undo paragraph" "To undo:" "$out"
@@ -380,10 +412,37 @@ phase_enablebridge() {
     # so dconf opens /root/.config/dconf/user and answers about root's database:
     # the check would pass on that error output whatever gdm's dconf held.  The
     # grep over gdm's own dconf directory is the second, independent half.
-    wantnot "gdm's own dconf has no w11 in enabled-extensions" "w11" \
-        "$(root "h=$GDM_HOME; runuser -u gdm -- env HOME=\$h XDG_RUNTIME_DIR=/run/user/\$(id -u gdm) \
-                     dconf read /org/gnome/shell/enabled-extensions 2>&1;
-                 grep -ras w11 \$h/.config/dconf 2>/dev/null | head -2" || true)"
+    #
+    # And a runtime directory gdm can WRITE, made here rather than assumed:
+    # nobody has logged in as gdm, so logind has never made /run/user/<gdm>, and
+    # dconf does not create it -- `XDG_RUNTIME_DIR=/run/user/$(id -u gdm)` got
+    # `dconf-CRITICAL: unable to create directory '/run/user/42/dconf':
+    # Permission denied` and no answer at all, which a `wantnot` passes on
+    # whatever gdm's database holds.  Measured on the fedora43-gnome golden
+    # 2026-09-11 (gdm is uid 42 there, /run/user/42 absent) and reported on
+    # nixos-gnome as uid 132 (flavors.md 7, design A6); with a private directory
+    # chowned to gdm the same read answers cleanly, rc 0, on the same box.
+    #
+    # And the read is asserted to have ANSWERED before its answer is read: a
+    # `wantnot` over an error string passes for the wrong reason, so the two
+    # halves are captured separately and the first check is that the dconf half
+    # carries no complaint and exited 0 (the `|| echo dconf-read-failed` is the
+    # rc, which is otherwise lost to the `rm -rf` at the end of the command).
+    # `chown gdm` failing -- no gdm user, a read-only /tmp, a runtime directory
+    # that wants more than an owner, which is the open question on nixos-gnome
+    # -- is how this silently goes back to the mode it was just fixed out of;
+    # this line makes that a red line instead.
+    local dconf_out grep_out
+    dconf_out=$(root "t=\$(mktemp -d); chown gdm \"\$t\" 2>/dev/null;
+                      runuser -u gdm -- env HOME=$GDM_HOME XDG_RUNTIME_DIR=\$t \
+                          dconf read /org/gnome/shell/enabled-extensions 2>&1 \
+                              || echo dconf-read-failed;
+                      rm -rf \"\$t\"" || true)
+    grep_out=$(root "grep -ras w11 $GDM_HOME/.config/dconf 2>/dev/null | head -2" || true)
+    wantnot "gdm's dconf read answered as gdm (rc 0, no dconf-CRITICAL, no permission error)" \
+        "dconf-CRITICAL|Permission denied|unable to create directory|dconf-read-failed" "$dconf_out"
+    wantnot "gdm's own dconf has no w11 in enabled-extensions" "w11" "$dconf_out
+$grep_out"
     root "c=$GDM_CONF; sed -i 's/^AutomaticLoginEnable=.*/AutomaticLoginEnable=true/' \$c 2>/dev/null; true" \
         >/dev/null 2>&1 || true
     root "( sleep 1; reboot ) >/dev/null 2>&1 &" >/dev/null 2>&1 || true
@@ -410,11 +469,28 @@ phase_udev() {
     # Fix 9 of the plan (gnome/install-bridge.sh:471, T11): the uninstall branch
     # says it restored root:root 0600 while the package's own rule is still in
     # /usr/lib/udev/rules.d, so the grant comes straight back at the next
-    # uevent.  What it owes the user is a sentence naming `apt remove
-    # w11`.  XFAIL until that lands, so an unfinished fix cannot turn a
-    # smoke run red -- and the day it lands this line says XPASS.
-    xwant "--udev --uninstall names apt remove w11 when the package's rule is there (fix T11)" \
-          "apt remove w11" "$unin"
+    # uevent.  What it owes the user is a sentence naming the command that
+    # removes the package on the distro in front of them -- which is NOT `apt`
+    # on three of the five GNOME rigs: this xwant fired on fedora43-gnome,
+    # fedora44-gnome and arch-gnome as well (CI run 34628777544, gaps.md 1b #10),
+    # where the answer is `dnf remove w11` and `pacman -R w11`.
+    # The sentence landed in gnome/install-bridge.sh (pm_remove_w11, ~line 451:
+    # it reads ID and ID_LIKE out of /etc/os-release the way w11common/distro.py
+    # does), so this is a plain check everywhere the package's rule is a file in
+    # /usr/lib/udev/rules.d.  NixOS is the one place it is not: the rule comes
+    # from services.udev.packages (nix/module.nix:210) and /etc/udev/rules.d
+    # resolves into the store, so install-bridge.sh's module_owns_udev_rule
+    # (readlink -f into /nix/store) fires the sentence there instead of the
+    # `[ -f "$UDEV_PKG" ]` guard, naming the module option to turn off.
+    local rm_cmd
+    case "$DISTRO" in
+    fedora) rm_cmd="dnf remove w11" ;;
+    arch)   rm_cmd="pacman -R w11" ;;
+    nixos)  rm_cmd="programs.w11.uinput.enable" ;;
+    *)      rm_cmd="apt remove w11" ;;
+    esac
+    want "--udev --uninstall names $rm_cmd when the package's rule is there (fix T11)" \
+         "$rm_cmd" "$unin"
     want "the package's own rule is still installed" "60-w11-uinput.rules" \
          "$(root 'ls /usr/lib/udev/rules.d/60-w11-uinput.rules 2>&1' || true)"
     root 'udevadm control --reload-rules; udevadm trigger --name-match=uinput; udevadm settle --timeout=5' \
@@ -436,6 +512,14 @@ phase_udev() {
     sleep 2
     want "the package's rule alone still grants the seated user the node" "^user:[a-z]" \
          "$(root 'getfacl -p /dev/uinput 2>/dev/null' || true)"
-    wantnot "and no /etc/udev/rules.d copy of ours is left behind" "60-w11-uinput" \
-            "$(root 'ls /etc/udev/rules.d/ 2>/dev/null' || true)"
+    if [ "$DISTRO" = nixos ]; then
+        # NixOS: /etc/udev/rules.d IS the module's store directory, so our rule
+        # is listed there by name whatever --uninstall did.  The leftover a copy
+        # would leave is a regular file; the module's resolves into the store.
+        want "and the rule under /etc/udev/rules.d is the module's store file, not a copy of ours" "^/nix/store/" \
+             "$(root 'readlink -f /etc/udev/rules.d/60-w11-uinput.rules 2>/dev/null' || true)"
+    else
+        wantnot "and no /etc/udev/rules.d copy of ours is left behind" "60-w11-uinput" \
+                "$(root 'ls /etc/udev/rules.d/ 2>/dev/null' || true)"
+    fi
 }

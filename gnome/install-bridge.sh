@@ -350,9 +350,21 @@ can_write_uinput() {
     fi
 }
 
+# NixOS: services.udev.packages (nix/module.nix) aggregates every rule into one
+# store directory that /etc/udev/rules.d links to, so the module's copy of our
+# rule sits at UDEV_DEST's own path and resolves into /nix/store.  That file is
+# the module's, the way /usr/lib/udev/rules.d's is the package's.
+module_owns_udev_rule() {
+    case "$(readlink -f "$UDEV_DEST" 2>/dev/null)" in
+        /nix/store/*) return 0 ;;
+    esac
+    return 1
+}
+
 udev_status() {
     uwhere=$UDEV_DEST; mwhere=$MODLOAD_DEST
-    if [ -f "$UDEV_DEST" ]; then u=yes
+    if module_owns_udev_rule; then u=yes; uwhere="$UDEV_DEST, from the NixOS module"
+    elif [ -f "$UDEV_DEST" ]; then u=yes
     elif [ -f "$UDEV_PKG" ]; then u=yes; uwhere="$UDEV_PKG, from the package"
     else u=no; fi
     if [ -f "$MODLOAD_DEST" ]; then m=yes
@@ -438,6 +450,46 @@ restored_note() {
     fi
 }
 
+# T11.  What removes the package that owns $UDEV_PKG on THIS distribution.
+# The families and their verbs are w11common/distro.py's table (_ID_FAMILY,
+# _INSTALL), read from /etc/os-release's ID and ID_LIKE the same way, with
+# Debian as the answer for a family nobody named -- every message this project
+# printed named apt on every distribution, and that was measured wrong on three
+# of the four families we ship for [w11common/distro.py, recon2/fedora.md,
+# arch.md, nixos.md].  The caller guards on $UDEV_PKG, so on NixOS the nixos arm
+# below never fires in production: nothing there writes /usr/lib/udev/rules.d at
+# all -- the module hands the rule to services.udev.packages (nix/module.nix) and
+# udev reads it out of the store.  The arm is here so the function answers for
+# every family the tree names rather than calling a NixOS box Debian, and it is
+# reached only through the OS_RELEASE seam; production never sets OS_RELEASE.
+# distro.py's other NixOS tell, the /etc/NIXOS marker, is deliberately not read
+# here: it would answer for the build machine whenever this function is exercised
+# on a NixOS builder, and the guard above already makes the arm unreachable.
+OS_RELEASE=${OS_RELEASE:-/etc/os-release}
+pm_remove_w11() {
+    # ID first and then each word of ID_LIKE in the order the file gives them,
+    # stopping at the first name we know -- distro.py's `family()` walk, not a
+    # substring match over the joined string, because Rocky is `ID=rocky
+    # ID_LIKE="rhel centos fedora"` and an ID_LIKE that names two families has
+    # to land on the one the file put first.  Unknown -> Debian, the answer
+    # this project used to give everybody.
+    ids=$(sed -n 's/^ID=//p' "$OS_RELEASE" 2>/dev/null | tr -d '"' || true)
+    ids="$ids $(sed -n 's/^ID_LIKE=//p' "$OS_RELEASE" 2>/dev/null | tr -d '"' || true)"
+    for id in $ids; do
+        case "$id" in
+            nixos)
+                echo "set programs.w11.uinput.enable = false and nixos-rebuild switch"; return ;;
+            fedora|rhel|centos|rocky|almalinux|ol|fedora-asahi-remix)
+                echo "dnf remove w11"; return ;;
+            arch|manjaro|endeavouros|cachyos|garuda)
+                echo "pacman -R w11"; return ;;
+            debian|ubuntu|linuxmint|pop|raspbian)
+                echo "apt remove w11"; return ;;
+        esac
+    done
+    echo "apt remove w11"
+}
+
 # udev tags are sticky in its database: with the rule merely deleted, the
 # next trigger of the node still matches 73-seat-late.rules' TAG=="uaccess"
 # (systemd 255 matches the sticky set; TAG-= only drops the *current* tag)
@@ -464,11 +516,42 @@ do_udev() {
         exec sudo -- "$0" $ORIG_ARGS
     fi
     if [ "$MODE" = uninstall ]; then
-        rm -f "$UDEV_DEST" "$MODLOAD_DEST"
+        # T11 on NixOS: /etc/udev/rules.d is the module's store directory
+        # (services.udev.packages, nix/module.nix), so the rule under /etc is
+        # not ours to remove and rm would only print EROFS.  Leave it, and say
+        # who owns it below the way the /usr/lib branch does for a package.
+        if module_owns_udev_rule; then
+            rm -f "$MODLOAD_DEST"
+        else
+            rm -f "$UDEV_DEST" "$MODLOAD_DEST"
+        fi
         have udevadm && { udevadm control --reload 2>/dev/null || true; }
         forget_uinput_tags
         restore_uinput_node
-        echo "install-bridge.sh: removed $UDEV_DEST and $MODLOAD_DEST$(restored_note)"
+        if module_owns_udev_rule; then
+            echo "install-bridge.sh: removed $MODLOAD_DEST$(restored_note)"
+        else
+            echo "install-bridge.sh: removed $UDEV_DEST and $MODLOAD_DEST$(restored_note)"
+        fi
+        # F0.6/T11: this branch owns the /etc copies and nothing else.  With the
+        # package installed its own rule is still in /usr/lib/udev/rules.d, udev
+        # reads that directory too, and the node is tagged uaccess again at its
+        # next uevent -- measured on the rig by the gnome golden's check
+        # "F0.6: the ACL comes back at the next trigger -- --udev --uninstall
+        # does not undo the .deb's rule", which replays one uevent on the node
+        # after this branch has run and finds the user's ACL back.  Nothing
+        # here replays it, and nothing here should.  So "removed ... ACL
+        # cleared" on its own is a true sentence that leaves the reader
+        # believing something false; the package is the other half.
+        if module_owns_udev_rule; then
+            echo "install-bridge.sh: the w11 NixOS module still owns $UDEV_DEST ($(readlink -f "$UDEV_DEST")), which" \
+                 "udev reads: the next uevent on /dev/uinput tags it uaccess again and logind hands the ACL back." \
+                 "To undo that as well: $(pm_remove_w11)"
+        elif [ -f "$UDEV_PKG" ] || [ -f "$MODLOAD_PKG" ]; then
+            echo "install-bridge.sh: the w11 package still owns $UDEV_PKG, which udev reads too: the next uevent on" \
+                 "/dev/uinput tags it uaccess again and logind hands the ACL back. To undo that as well:" \
+                 "$(pm_remove_w11)"
+        fi
         return 0
     fi
     if [ ! -f "$HERE/$UDEV_RULE" ] || [ ! -f "$HERE/$MODLOAD_SRC" ]; then

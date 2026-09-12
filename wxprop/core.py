@@ -175,6 +175,8 @@ def _node_from_view(v) -> dict:
         "maximized_h": bool(v.maximized_h),
         "maximized_v": bool(v.maximized_v),
         "above": bool(v.above), "below": bool(v.below),
+        # the flag only Cinnamon's muffin sets; every other View defaults it False
+        "shaded": bool(getattr(v, "shaded", False)),
         "skip_taskbar": bool(v.skip_taskbar),
         "skip_pager": bool(v.skip_pager),
         "window_type": v.window_type or "NORMAL",
@@ -335,7 +337,12 @@ _EXTENDED_ATOMS = (
     "_NET_WM_STATE_MAXIMIZED_HORZ", "_NET_WM_STATE_MAXIMIZED_VERT",
     "_NET_WM_STATE_ABOVE", "_NET_WM_STATE_BELOW",
     "_NET_WM_STATE_SKIP_TASKBAR", "_NET_WM_STATE_SKIP_PAGER",
-    "_NET_WM_STATE_DEMANDS_ATTENTION", "_NET_WM_WINDOW_TYPE_DESKTOP",
+    "_NET_WM_STATE_DEMANDS_ATTENTION",
+    # muffin kept the state mutter dropped (`shade`/`unshade`/`is_shaded` are
+    # Meta.Window methods on Cinnamon and nowhere else), and real xprop on a
+    # Cinnamon X11 session prints this atom for a shaded window -- X is the
+    # oracle, so the native plane has to be able to name it too
+    "_NET_WM_STATE_SHADED", "_NET_WM_WINDOW_TYPE_DESKTOP",
     "_NET_WM_WINDOW_TYPE_DOCK", "_NET_WM_WINDOW_TYPE_DIALOG",
     "_NET_WM_WINDOW_TYPE_TOOLBAR", "_NET_WM_WINDOW_TYPE_MENU",
     "_NET_WM_WINDOW_TYPE_UTILITY", "_NET_WM_WINDOW_TYPE_SPLASH",
@@ -532,7 +539,16 @@ class NativeViewTarget(NativeTarget):
         states = []
         rich = bool(node.get(_VIEW_KEY))  # a views() backend: more states
         # Mutter's own _NET_WM_STATE order (window-x11.c set_net_wm_state), so native and XWayland windows on
-        # GNOME print alike; the sway subset (FULLSCREEN, HIDDEN, STICKY) keeps its relative order
+        # GNOME print alike; the sway subset (FULLSCREEN, HIDDEN, STICKY) keeps its relative order.  SHADED
+        # comes first because that is where muffin's own meta_window_x11_set_net_wm_state puts it
+        # (src/x11/window-x11.c, linuxmint/muffin master, read 2026-09-11) -- the state mutter dropped and
+        # Cinnamon kept, and the one every other backend leaves False.  Until this arm existed,
+        # `wxprop -id <id> _NET_WM_STATE` on a shaded muffin window printed `_NET_WM_STATE_FOCUSED` and
+        # nothing else while the shell's own is_shaded() answered true
+        # [M vm/live-smoke.d/cinnamon-wayland.sh:307 comment, resolute-cinnamon-wayland 2026-09-09;
+        # goal2/recon/gaps.md 1b #11].
+        if rich and node.get("shaded"):
+            states.append("_NET_WM_STATE_SHADED")
         if rich and node.get("skip_pager"):
             states.append("_NET_WM_STATE_SKIP_PAGER")
         if rich and node.get("skip_taskbar"):
@@ -543,7 +559,13 @@ class NativeViewTarget(NativeTarget):
             states.append("_NET_WM_STATE_MAXIMIZED_VERT")
         if node.get("fullscreen_mode"):
             states.append("_NET_WM_STATE_FULLSCREEN")
-        if not node.get("visible", getattr(win, "visible", True)):
+        # a shaded window is HIDDEN as well as SHADED, because muffin writes both for it:
+        # `if (!meta_window_showing_on_its_workspace (window) || window->shaded)` is the HIDDEN arm of
+        # meta_window_x11_set_net_wm_state (src/x11/window-x11.c, linuxmint/muffin master, read 2026-09-11),
+        # and showing_on_its_workspace stays true for a shaded window -- it is mapped, only rolled up.  Real
+        # xprop on a shaded Cinnamon X11 window therefore prints the pair, and a dump that named SHADED alone
+        # would differ from the oracle on the one window this arm exists for
+        if not node.get("visible", getattr(win, "visible", True)) or (rich and node.get("shaded")):
             states.append("_NET_WM_STATE_HIDDEN")
         if rich and node.get("above"):
             states.append("_NET_WM_STATE_ABOVE")
@@ -623,7 +645,11 @@ class NativeRootTarget(NativeTarget):
             supported += ["_NET_DESKTOP_NAMES", "_NET_WM_STATE_MAXIMIZED_HORZ",
                           "_NET_WM_STATE_MAXIMIZED_VERT", "_NET_WM_STATE_ABOVE",
                           "_NET_WM_STATE_SKIP_TASKBAR",
-                          "_NET_WM_STATE_DEMANDS_ATTENTION"]
+                          "_NET_WM_STATE_DEMANDS_ATTENTION",
+                          # only ever set on Cinnamon, but _NET_SUPPORTED is
+                          # what a reader consults before it asks for a state,
+                          # and muffin's own root window lists it
+                          "_NET_WM_STATE_SHADED"]
         props[b"_NET_SUPPORTED"] = _p_atoms(self.atoms, supported)
         # With a views() backend every window is listed by the id the tools print for it (the X id of an
         # XWayland window, the bridge id of a native one) -- the list wwmctl -l prints. The sway tree path keeps

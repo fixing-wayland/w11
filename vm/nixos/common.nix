@@ -78,6 +78,16 @@ in
   };
   environment.systemPackages = with pkgs; [
     foot xterm grim jq wlr-randr acl
+    # python3 for the smoke's OWN second opinion, not for the tools (they are
+    # wrapped and carry their interpreter).  vm/live-smoke.d/common.sh:77 runs
+    # `python3 $HOME/w11-oracle.py <desktop>` for every display check, and on a
+    # NixOS golden the interpreter is in the store but on nobody's PATH: CI run
+    # 34628777544 started nixos-gnome with three heads and the display phase
+    # printed `native oracle: sh: line 1: python3: command not found` and then
+    # `one head only: the two-head steps need --heads 2` -- oracle.py answering
+    # nothing makes display_pair() report one head, so the whole two-head half
+    # of the phase was skipped on both NixOS flavors, silently, on every run.
+    python3
   ];
 
   # Two specialisations, and this is what they buy: the smoke's package axis

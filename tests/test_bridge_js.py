@@ -264,11 +264,23 @@ function makeWorld(rows, opts = {}) {
             }};
 }
 
+/**
+ * The extension gnome-shell constructs, enabled, and the copy of it that is
+ * actually running.  Since the route-3 split the object the shell holds is
+ * the ROOT: it exports org.w11.BridgeReload1 and keeps `_live`, the instance
+ * every org.w11.Bridge1 method is exported from (extension.js, `_swap`).  A
+ * case drives that one; `root` is for the cases that are about the reload.
+ */
+function enabled(metadata = {uuid: 'w11-bridge@w11'}) {
+    const root = new Bridge(metadata);
+    root.enable();
+    return {root, ext: root._live};
+}
+
 function bridgeOn(rows, opts = {}) {
     const world = makeWorld(rows, opts);
-    const ext = new Bridge({uuid: 'w11-bridge@w11'});
-    ext.enable();
-    return {ext, world};
+    const {root, ext} = enabled();
+    return {ext, root, world};
 }
 
 /** Drive one D-Bus method the way GJS does and hand back the invocation. */
@@ -684,8 +696,7 @@ const bad = Meta.makeWindow({id: 99, window_type: 'NORMAL', x: 0, y: 0,
                             {shape: 'hostile'});
 const actors = world.actors.concat([Meta.makeActor(bad)]);
 installGlobals({get_window_actors: () => actors});
-const ext = new Bridge({uuid: 'u'});
-ext.enable();
+const {ext} = enabled({uuid: 'u'});
 emit({ids: jsonReply(ext, 'ListWindows').map(d => d.id)});
 """, {"rows": self.rows})
         self.assertEqual(got["ids"],
@@ -1329,6 +1340,463 @@ emit({out, answered: inv.reply !== undefined});
                          ["KEY_RELEASE", "SCROLL", "TOUCH_UPDATE", "TOUCH_CANCEL",
                           "PAD_BUTTON_PRESS", "PAD_BUTTON_RELEASE"])
         self.assertFalse(got["answered"])
+
+
+@support.skip_without_node
+class ReloadTheRunningShellReads(_Node):
+    """Route 3: gnome-shell re-reads extension.js with nobody logged out.
+
+    GNOME's own answer is gone -- `org.gnome.Shell.Extensions.ReloadExtension
+    w11-bridge@w11` answers `GDBus.Error:org.freedesktop.DBus.Error
+    .NotSupported: ReloadExtension is deprecated and does not work`, measured
+    on noble-gnome-x11 (GNOME Shell 46.0, gjs 1.80.2, 2026-09-11) -- and the
+    route below it costs the session (`gnome-shell --replace` walks
+    org.gnome.Shell@x11.service into its start limit, whose OnFailure disables
+    user extensions for that user in every later session). So the extension
+    reloads itself: the object the shell constructs is the ROOT, which keeps
+    org.w11.BridgeReload1 and a pointer to the copy that runs, and a reload
+    imports extension.js under a path nothing has imported yet -- the one
+    cache-busting that works on both gjs releases, see the route-3 block in
+    extension.js for what a `?v=<mtime>` query does on 1.80.2 -- and hands the
+    session to a fresh instance of what the file says now.
+
+    The heap cost is real and one-way (gjs unloads no module), so what these
+    cases are mostly about is the thing that would turn one copy per reload
+    into a session-wide fault: a listener the old copy left connected. Every
+    reload goes through the same disable() the shell calls, and
+    test_a_reload_leaves_no_listener... is the assertion that it is enough.
+
+    The copy is written into $XDG_RUNTIME_DIR and imported from there, so
+    these cases -- and only these -- give the GLib double a real directory and
+    real file calls: what node imports has to be a file that exists. PRE's
+    `file_set_contents` and `unlink` are per-file overrides of the shared
+    doubles in tests/fixtures/gjs/stubs/gi-GLib.mjs (which keep their files in
+    a Map and have nowhere to write), asked for there in
+    goal2/requests-batch-11.md; the next file that needs a GLib writing to a
+    real directory should take them from the stub rather than copy these. Under
+    node the extension file itself has no mtime unless a case gives it one
+    (`Gio.setFileMtime`), so SELF_MTIME is 0 here and a case that registers
+    one takes the reload path from the first enable; in a session the shell
+    has just read the file, so that first enable is synchronous, which is what
+    the first case below pins.
+    """
+
+    #: Prepended to every case in this class, after WORLD.
+    PRE = r"""
+import fs from 'node:fs';
+import os from 'node:os';
+import nodePath from 'node:path';
+
+const SELF = '@MODULE@/extension.js';
+const RUNTIME = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'w11-reload-'));
+process.on('exit', () => fs.rmSync(RUNTIME, {recursive: true, force: true}));
+GLib.userRuntimeDir = RUNTIME;
+GLib.setFile(SELF, fs.readFileSync(SELF));
+GLib.file_set_contents = (p, bytes) => {
+    fs.writeFileSync(p, Buffer.from(bytes));
+    return true;
+};
+GLib.unlink = p => {
+    fs.unlinkSync(p);
+    return 0;
+};
+
+/** What the reload left behind in the runtime dir: nothing, when it works. */
+const copies = () => fs.readdirSync(RUNTIME);
+
+/** org.w11.BridgeReload1.Reload, the way gdbus would call it. */
+function reload(root) {
+    const inv = makeInvocation();
+    root.ReloadAsync([], inv);
+    return inv;
+}
+
+/** Every D-Bus object this run ever exported, oldest first. */
+function exportedObjects() {
+    const all = [];
+    for (let i = 0; ; i++) {
+        const e = Gio.exported(i);
+        if (!e)
+            break;
+        all.push(e);
+    }
+    return all;
+}
+"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = fixture_windows()
+
+    def run_js(self, body, arg=None):
+        return support.js_harness(self.MODULE, WORLD + self.PRE + body, arg)
+
+    def test_the_shell_reads_the_file_once_and_the_copy_it_read_is_the_one_running(self):
+        """The login path: no import, no second copy of the module, nothing
+        written into the runtime dir, and the bus surface split the way the
+        route-3 block describes -- the root holds org.w11.BridgeReload1 and no
+        method table at all, the copy it made holds org.w11.Bridge1 and the
+        well-known name."""
+        got = self.run_js(r"""
+const world = makeWorld(ARG.rows);
+const root = new Bridge({uuid: 'w11-bridge@w11'});
+root.enable();
+// Read BEFORE any await: a session must have its bridge up when enable()
+// returns, not one main-loop iteration later.
+const ext = root._live;
+emit({
+    up: !!ext,
+    sameModule: ext.constructor === Bridge,
+    rootHasMethods: typeof root.ListWindowsAsync === 'function',
+    liveHasMethods: typeof ext.ListWindowsAsync === 'function',
+    rootXml: Gio.exported(0).xml.includes('org.w11.BridgeReload1'),
+    liveXml: Gio.exported(1).xml.includes('org.w11.Bridge1'),
+    reloadXmlIsNotBridge1: Gio.exported(0).xml.includes('org.w11.Bridge1'),
+    paths: H.callsTo('dbus.export').map(c => c.args[0]),
+    names: Gio.names().map(n => n.name),
+    copies: copies(),
+    ids: jsonReply(ext, 'ListWindows').map(d => d.id),
+});
+""", {"rows": self.rows})
+        self.assertTrue(got["up"])
+        self.assertTrue(got["sameModule"])
+        self.assertFalse(got["rootHasMethods"])
+        self.assertTrue(got["liveHasMethods"])
+        self.assertTrue(got["rootXml"])
+        self.assertTrue(got["liveXml"])
+        self.assertFalse(got["reloadXmlIsNotBridge1"])
+        self.assertEqual(got["paths"], ["/org/w11/Bridge", "/org/w11/Bridge"])
+        self.assertEqual(got["names"], ["org.w11.Bridge"])
+        self.assertEqual(got["copies"], [])
+        self.assertEqual(got["ids"], [DESKTOP, EDITOR, CALC, XTERM])
+
+    def test_a_changed_file_is_read_again_and_its_code_is_what_answers(self):
+        """The reload itself. A second evaluation of the module is a second
+        class object, which is what `differentClass` is: the instance now
+        serving org.w11.Bridge1 was built from a class this case never
+        imported, out of a file node read off the disk again. The reply says
+        which file, which mtime and that it was re-read, so a caller can tell
+        a reload from a no-op; and the copy it imported is gone afterwards."""
+        got = self.run_js(r"""
+const world = makeWorld(ARG.rows);
+Gio.setFileMtime(SELF, 1000);
+const root = new Bridge({uuid: 'w11-bridge@w11'});
+root.enable();
+await root._pending;
+const first = root._live;
+Gio.setFileMtime(SELF, 2000);
+const inv = reload(root);
+await root._pending;
+emit({error: inv.error, answer: JSON.parse(inv.reply.value[0]),
+      differentClass: root._live.constructor !== first.constructor,
+      neitherIsThisModule: root._live.constructor !== Bridge &&
+                           first.constructor !== Bridge,
+      unexported: H.callsTo('dbus.unexport').length,
+      copies: copies(),
+      version: reply(root._live, 'GetVersion')[0],
+      ids: jsonReply(root._live, 'ListWindows').map(d => d.id)});
+""", {"rows": self.rows})
+        self.assertIsNone(got["error"])
+        self.assertEqual(got["answer"]["mtime"], 2000)
+        self.assertTrue(got["answer"]["reread"])
+        self.assertEqual(got["answer"]["version"], 3)
+        self.assertTrue(got["answer"]["path"].endswith(
+            "gnome/w11-bridge@w11/extension.js"))
+        self.assertTrue(got["differentClass"])
+        self.assertTrue(got["neitherIsThisModule"])
+        self.assertEqual(got["unexported"], 1)
+        self.assertEqual(got["copies"], [])
+        self.assertEqual(got["version"], 3)
+        self.assertEqual(got["ids"], [DESKTOP, EDITOR, CALC, XTERM])
+
+    def test_a_file_that_has_not_changed_is_not_read_again(self):
+        """A Reload that follows no edit -- neither timestamp nor bytes --
+        costs no second copy of the module in a heap that never gives one
+        back: the class is the same object, and only the instance is new."""
+        got = self.run_js(r"""
+const world = makeWorld(ARG.rows);
+Gio.setFileMtime(SELF, 1000);
+const root = new Bridge({uuid: 'w11-bridge@w11'});
+root.enable();
+await root._pending;
+const first = root._live;
+const inv = reload(root);
+await root._pending;
+emit({answer: JSON.parse(inv.reply.value[0]),
+      sameClass: root._live.constructor === first.constructor,
+      newInstance: root._live !== first,
+      stillUp: reply(root._live, 'GetVersion')[0]});
+""", {"rows": self.rows})
+        self.assertFalse(got["answer"]["reread"])
+        self.assertEqual(got["answer"]["mtime"], 1000)
+        self.assertTrue(got["sameClass"])
+        self.assertTrue(got["newInstance"])
+        self.assertEqual(got["stillUp"], 3)
+
+    def test_a_reload_leaves_no_listener_no_timeout_and_no_export_behind(self):
+        """The one that decides whether route 3 may ship at all.
+
+        The old module's closures are in the heap for good, so a handler the
+        old copy left connected fires for the rest of the session: after
+        three reloads a window-created would emit four WindowEvents, the
+        tools would see every event four times, and the session would get
+        slower with every reload. Counted here on the doubles the extension
+        connected to (`makeEmitter` keeps its handler map), and counted the
+        same way on the live shell: one WindowEvent per window event after
+        three reloads on noble-gnome-x11, not two and not four."""
+        got = self.run_js(r"""
+const world = makeWorld(ARG.rows);
+Gio.setFileMtime(SELF, 1000);
+const root = new Bridge({uuid: 'w11-bridge@w11'});
+root.enable();
+await root._pending;
+const tracked = world.wins[1];
+const before = {display: world.display.handlers.size, wm: world.wm.handlers.size,
+                win: tracked.handlers.size};
+for (let i = 2; i <= 4; i++) {
+    Gio.setFileMtime(SELF, 1000 * i);
+    const inv = reload(root);
+    await root._pending;
+    if (inv.error)
+        throw new Error(`reload ${i}: ${inv.error[0]}: ${inv.error[1]}`);
+}
+// A leaked copy would still be connected and would emit on its own (dead)
+// object as well as on the live one.
+const objects = exportedObjects();
+const marks = objects.map(o => o.signals.length);
+const fresh = Meta.makeWindow(ARG.fresh, {shape: '46'});
+world.display.emit('window-created', fresh);
+const events = objects.map((o, i) => o.signals.length - marks[i]);
+emit({before, after: {display: world.display.handlers.size,
+                      wm: world.wm.handlers.size, win: tracked.handlers.size},
+      timeouts: GLib.timeouts.size,
+      objects: objects.length,
+      stillExported: objects.filter(o => o.exported).length,
+      unexported: H.callsTo('dbus.unexport').length,
+      unowned: H.callsTo('Gio.bus_unown_name').length,
+      copies: copies(),
+      events});
+""", {"rows": self.rows, "fresh": _row(self.rows[1], id=DIALOG, title="fresh")})
+        # what one live copy connects: window-created and notify::focus-window
+        # on the display, three on the workspace manager, ten per window
+        self.assertEqual(got["before"], {"display": 2, "wm": 3, "win": 10})
+        self.assertEqual(got["after"], got["before"])
+        self.assertEqual(got["timeouts"], 0)
+        # the root's reload object, plus one org.w11.Bridge1 object per copy
+        self.assertEqual(got["objects"], 1 + 4)
+        self.assertEqual(got["stillExported"], 2)
+        self.assertEqual(got["unexported"], 3)
+        self.assertEqual(got["unowned"], 3)
+        self.assertEqual(got["copies"], [])
+        self.assertEqual(got["events"], [0, 0, 0, 0, 1])
+
+    def test_an_enable_that_cannot_read_the_file_runs_what_the_shell_loaded(self):
+        """The upgrade case, when the upgrade is half done: extension.js has
+        a newer mtime than the copy the shell read, and reading it fails (it
+        is being replaced under us, the runtime dir is full, the file is
+        gone). A bridge running the code already in the heap is worth far
+        more than no bridge, so enable() falls back to it and says so in the
+        journal instead of leaving the session without one."""
+        got = self.run_js(r"""
+const world = makeWorld(ARG.rows);
+Gio.setFileMtime(SELF, 1000);   // the disk is ahead of the copy the shell read
+GLib.setFile(SELF, null);       // ...and cannot be read at all
+const root = new Bridge({uuid: 'w11-bridge@w11'});
+root.enable();
+await root._pending;
+emit({up: root._live !== null,
+      sameModule: root._live && root._live.constructor === Bridge,
+      names: Gio.names().map(n => n.name),
+      copies: copies(),
+      ids: jsonReply(root._live, 'ListWindows').map(d => d.id)});
+""", {"rows": self.rows})
+        self.assertTrue(got["up"])
+        self.assertTrue(got["sameModule"])
+        self.assertEqual(got["names"], ["org.w11.Bridge"])
+        self.assertEqual(got["copies"], [])
+        self.assertEqual(got["ids"], [DESKTOP, EDITOR, CALC, XTERM])
+        self.assertTrue([ln for ln in got["logs"]
+                         if "could not be read again" in ln], got["logs"])
+
+    def test_a_copy_that_will_not_enable_leaves_the_one_that_did_running(self):
+        """An edit that evaluates and then throws on enable() must not take
+        the session's bridge down with it: the swap puts the previous class
+        back, the tools keep answering, and the error names both mtimes.
+        Driven through _swap() because the module this case can import is the
+        shipped one, which enables."""
+        got = self.run_js(r"""
+const world = makeWorld(ARG.rows);
+Gio.setFileMtime(SELF, 1000);
+const root = new Bridge({uuid: 'w11-bridge@w11'});
+root.enable();
+await root._pending;
+const good = root._live.constructor;
+class Broken {
+    enable() {
+        throw new Error('window-created is not a signal');
+    }
+}
+let threw = null;
+try {
+    root._swap(Broken, 9999, 'sha256-of-the-copy-that-threw', root._gen);
+} catch (e) {
+    threw = `${e}`;
+}
+emit({threw, backToGood: root._live.constructor === good,
+      version: reply(root._live, 'GetVersion')[0],
+      ids: jsonReply(root._live, 'ListWindows').map(d => d.id)});
+""", {"rows": self.rows})
+        self.assertIn("9999", got["threw"])
+        self.assertIn("1000", got["threw"])
+        self.assertIn("window-created is not a signal", got["threw"])
+        self.assertTrue(got["backToGood"])
+        self.assertEqual(got["version"], 3)
+        self.assertEqual(got["ids"], [DESKTOP, EDITOR, CALC, XTERM])
+
+    def test_disabling_the_extension_beats_a_reload_that_is_still_importing(self):
+        """`gnome-extensions disable` while an import is in flight: the copy
+        that arrives afterwards must not put the bridge back on the bus in a
+        session that turned it off. The generation counter is what says so --
+        disable() bumps it, and a swap whose generation is stale puts nothing
+        back on the bus and answers its caller with an error instead of with
+        a version read off an object that is no longer exported."""
+        got = self.run_js(r"""
+const world = makeWorld(ARG.rows);
+Gio.setFileMtime(SELF, 1000);
+const root = new Bridge({uuid: 'w11-bridge@w11'});
+root.enable();
+await root._pending;
+Gio.setFileMtime(SELF, 2000);
+const inv = reload(root);
+root.disable();
+const during = {live: root._live === null,
+                unexported: H.callsTo('dbus.unexport').length};
+await root._pending;
+emit({during, error: inv.error,
+      after: {live: root._live === null,
+              exports: H.callsTo('dbus.export').length,
+              unexported: H.callsTo('dbus.unexport').length,
+              unowned: H.callsTo('Gio.bus_unown_name').length,
+              copies: copies()}});
+""", {"rows": self.rows})
+        # disable() took the copy and the reload interface off the bus...
+        self.assertTrue(got["during"]["live"])
+        self.assertEqual(got["during"]["unexported"], 2)
+        # ...and the import that landed afterwards changed nothing, and said
+        # so to the caller rather than answering with a version read off an
+        # object that is no longer on the bus
+        self.assertIsNotNone(got["error"])
+        self.assertIn("overtaken", got["error"][1])
+        self.assertTrue(got["after"]["live"])
+        self.assertEqual(got["after"]["exports"], 2)
+        self.assertEqual(got["after"]["unexported"], 2)
+        self.assertEqual(got["after"]["unowned"], 1)
+        self.assertEqual(got["after"]["copies"], [])
+
+    def test_a_copy_that_throws_part_way_through_enable_is_disabled_not_abandoned(self):
+        """The dangerous half of the fallback above, and the reason it is not
+        just `new this._klass()`.
+
+        _enableHere() exports /org/w11/Bridge, owns org.w11.Bridge and
+        connects the display and workspace handlers BEFORE its last act --
+        tracking every window on the display -- can throw, so an edit that
+        breaks anything in that tail leaves an instance holding all of it.
+        Abandoned, its handlers fire for the life of the session (two
+        WindowEvents per event, then three), its object stays exported, and
+        under real GDBus rather than these doubles the fallback's own
+        `export(Gio.DBus.session, OBJECT_PATH)` then throws because an
+        interface is already exported at that path -- so the session would
+        end with NO bridge, which is the opposite of what the fallback is
+        for. The swap disables the copy that threw first."""
+        got = self.run_js(r"""
+const world = makeWorld(ARG.rows);
+Gio.setFileMtime(SELF, 1000);
+const root = new Bridge({uuid: 'w11-bridge@w11'});
+root.enable();
+await root._pending;
+const good = root._live.constructor;
+const before = {display: world.display.handlers.size, wm: world.wm.handlers.size};
+// An edit that evaluates, exports, owns the name and connects -- and throws
+// where _enableHere() ends: `for (const w of this._allWindows()) this._track(w)`.
+class Broken extends good {
+    _track(w) {
+        throw new Error('window-created is not a signal');
+    }
+}
+let threw = null;
+try {
+    root._swap(Broken, 9999, 'sha256-of-the-copy-that-threw', root._gen);
+} catch (e) {
+    threw = `${e}`;
+}
+const objects = exportedObjects();
+emit({threw, before,
+      after: {display: world.display.handlers.size, wm: world.wm.handlers.size},
+      objects: objects.length,
+      stillExported: objects.filter(o => o.exported).length,
+      owns: Gio.names().length,
+      unowned: H.callsTo('Gio.bus_unown_name').length,
+      backToGood: root._live.constructor === good,
+      version: reply(root._live, 'GetVersion')[0],
+      ids: jsonReply(root._live, 'ListWindows').map(d => d.id)});
+""", {"rows": self.rows})
+        self.assertIn("window-created is not a signal", got["threw"])
+        self.assertIn("9999", got["threw"])
+        # nothing the copy that threw connected is still connected
+        self.assertEqual(got["before"], {"display": 2, "wm": 3})
+        self.assertEqual(got["after"], got["before"])
+        # the root's reload object, the copy the login made, the copy that
+        # threw and the fallback -- two of the four still exported, and the
+        # two that are not are the login's copy and the one that threw
+        self.assertEqual(got["objects"], 4)
+        self.assertEqual(got["stillExported"], 2)
+        # it owned the name on its way up, so it has to have unowned it: one
+        # unown for the copy the swap replaced, one for the copy that threw
+        self.assertEqual(got["owns"], 3)
+        self.assertEqual(got["unowned"], 2)
+        self.assertTrue(got["backToGood"])
+        self.assertEqual(got["version"], 3)
+        self.assertEqual(got["ids"], [DESKTOP, EDITOR, CALC, XTERM])
+
+    def test_two_saves_that_share_an_mtime_are_still_two_reloads(self):
+        """The clock is not the reload key on its own.
+
+        Gio reports `time::modified` in whole seconds, and even the
+        microseconds under it come from the kernel's coarse file-timestamp
+        clock: six GLib.file_set_contents in a tight loop on this build host
+        (gjs 1.88.0, glib 2.88, overlayfs) produced five distinct
+        `time::modified[-usec]` stamps for six different contents. So an
+        editor's save-save, or install-bridge.sh's cp landing in the second a
+        Reload read the file, is one timestamp and two sets of bytes -- and
+        keying on the timestamp alone would answer `"reread":false` and go on
+        running the bytes from the first save with nothing said. The SHA256
+        of what was read is the other half of the key: same second, same
+        mtime in the reply, and the code that answers is the second save's."""
+        got = self.run_js(r"""
+const world = makeWorld(ARG.rows);
+Gio.setFileMtime(SELF, 1000);
+const src = new TextDecoder().decode(GLib.file_get_contents(SELF)[1]);
+const root = new Bridge({uuid: 'w11-bridge@w11'});
+root.enable();
+await root._pending;
+const first = root._live;
+// The second save, in the same second: the file the shell will read again
+// differs from the one it read, and its mtime does not.
+GLib.setFile(SELF, src.replace(/const VERSION = \d+;/, 'const VERSION = 7;'));
+const inv = reload(root);
+await root._pending;
+emit({error: inv.error, answer: JSON.parse(inv.reply.value[0]),
+      differentClass: root._live.constructor !== first.constructor,
+      version: reply(root._live, 'GetVersion')[0],
+      copies: copies()});
+""", {"rows": self.rows})
+        self.assertIsNone(got["error"])
+        self.assertEqual(got["answer"]["mtime"], 1000)
+        self.assertTrue(got["answer"]["reread"])
+        self.assertEqual(got["answer"]["version"], 7)
+        self.assertTrue(got["differentClass"])
+        self.assertEqual(got["version"], 7)
+        self.assertEqual(got["copies"], [])
 
 
 if __name__ == "__main__":

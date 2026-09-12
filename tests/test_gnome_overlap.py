@@ -547,6 +547,79 @@ class VersionGate(unittest.TestCase):
                          sorted(gnome_overlap.SUPPORTED_MAJORS))
 
 
+class TheGnome49Record(unittest.TestCase):
+    """GNOME 49 / libmutter-17, added by following docs/Technical.md section 6
+    on the fedora43-gnome golden on 2026-09-11.
+
+    What was measured there, in order: `GObject.type_query(MetaMonitorsConfig)
+    .instance_size` **80** out of that build's own GType registry (GNOME Shell
+    49.9, mutter 49.7-1.fc43, libmutter-17.so.0 build c7c9add6935d, Meta typelib
+    17, three heads); then, with this record in the table and the generated
+    W11Overlap17 loaded, all six checks green -- `sentinel: switch_config
+    round-tripped at the declared offset`, `bounded-read: 3 logical monitors`,
+    `public-view: identical to Mutter's public view` -- an overlap applied at
+    +1000+0 with the shared 920 columns byte-identical between the two heads
+    (sha256 ecf41c1210e8c94d, 0 of 993600 pixels differing), and the whole
+    overlap phase of vm/live-smoke.d/gnome.sh green at 16 pass, 0 fail.
+
+    The record is written twice because the extension and wxrandr are installed
+    in different places and neither can read the other's files; the field for
+    field comparison of the two whole tables is
+    tests/test_overlap_force.py's `test_the_two_copies_are_one_table`.  What is
+    here is the 49 row itself, which that comparison would happily agree about
+    if both copies had it wrong."""
+
+    RECORD = {"shell_major": 49,
+              "libmutter": "17",
+              "soname": "libmutter-17.so.0",
+              "meta_typelib": "17",
+              "namespace": "W11Overlap17",
+              "struct_size": 80,
+              "tail_slots": 3}
+
+    def json_record(self):
+        with open(os.path.join(EXT_DIR, "generations.json"), encoding="utf-8") as fh:
+            table = json.load(fh)
+        got = [g for g in table["generations"] if g["shell_major"] == 49]
+        self.assertEqual(len(got), 1, "generations.json has no GNOME 49 record")
+        return got[0]
+
+    def test_both_tables_carry_it_with_the_numbers_read_off_gnome_49(self):
+        for name, rec in (("generations.json", self.json_record()),
+                          ("GENERATIONS", gnome_overlap.generation_for("49.9"))):
+            self.assertIsNotNone(rec, name)
+            for field, want in sorted(self.RECORD.items()):
+                self.assertEqual(rec[field], want, "%s: %s" % (name, field))
+
+    def test_it_says_where_it_was_measured(self):
+        """`measured_on` is the field that makes a claim in this table traceable
+        to a machine somebody ran it on, and a record copied from its neighbour
+        is exactly what it is there to catch: 49's layout is 50's, so the two
+        rows differ only in their names and in this."""
+        for rec in (self.json_record(), gnome_overlap.generation_for("49")):
+            self.assertIn("49.9", rec["measured_on"])
+            self.assertIn("Fedora 43", rec["measured_on"])
+            self.assertIn("c7c9add6935d", rec["measured_on"])
+
+    def test_the_gate_lets_gnome_49_through_and_the_extension_declares_it(self):
+        for v in ("49", "49.0", "49.9"):
+            self.assertIsNone(gnome_overlap.unsupported_reason(v), v)
+        with open(os.path.join(EXT_DIR, "metadata.json"), encoding="utf-8") as fh:
+            meta = json.load(fh)
+        # gnome-shell will not LOAD an extension that does not name the running
+        # major, so a record with no entry here is a record no 49 can reach.
+        self.assertIn("49", meta["shell-version"])
+
+    def test_the_description_is_shipped_and_named_by_the_record(self):
+        """One compiled description per record, and 49's is not a spelling of
+        50's: the namespace is what `install-overlap.sh` looks for and what the
+        extension loads by name."""
+        self.assertTrue(os.path.exists(os.path.join(
+            EXT_DIR, "typelib", "W11Overlap17-1.0.typelib")))
+        self.assertTrue(os.path.exists(os.path.join(
+            GIR_DIR, "W11Overlap17-1.0.gir")))
+
+
 class Shapes(unittest.TestCase):
     PLAN = [{"x": 0, "y": 0, "scale": 1.0, "transform": 0, "primary": True,
              "members": [("Virtual-1", "m1", False)]},
@@ -1481,6 +1554,43 @@ class ShippedExtension(unittest.TestCase):
                                   for n in ("NodeN", "LMCN", "MCN", "MSN")],
                                  [24, 40, 24, 32])
 
+    def test_the_shipped_tail_offsets_follow_the_record_the_sentinel_proved(self):
+        """The shipped BYTES agree with the record's tail arithmetic, which is
+        a staleness check on the typelibs and not the live measurement itself.
+
+        `tail_slots` is the whole of what differs between the descriptions, and
+        it decides two offsets: `layout_mode` at 56 + 4 * tail_slots and
+        `switch_config` four bytes after it (56 is the end of
+        `disabled_monitor_specs`, which sits at 48 on every generation).  60/64
+        on GNOME 46 with one slot, 68/72 on 49, 50 and 51 with three.  A record
+        edited without regenerating the typelib -- or the reverse -- is caught
+        here, which matters because the tail is the one thing a wrong
+        description gets wrong QUIETLY: the size, which the struct-size gate
+        compares against the GType registry, can be right while the tail is not.
+
+        The offsets this compares against were proved on running compositors by
+        the `sentinel` check, which writes 0x5f5a through Mutter's own
+        `set_switch_config` and demands it back where the description says --
+        only tests/test_gnome_overlap_live.py can make that round trip.
+        Measured on for 17, both ways, on the fedora43-gnome golden 2026-09-11
+        (GNOME Shell 49.9, libmutter-17.so.0 build c7c9add6935d): the shipped
+        W11Overlap17 round-tripped the sentinel at the declared offset, and the
+        same description with `layout_mode` and `switch_config` swapped -- the
+        same 80 bytes -- was refused by name, `sentinel: switch_config reads 1
+        at the offset this description believes, not 24410`, with gnome-shell
+        still running."""
+        shipped_dir = os.path.join(EXT_DIR, "typelib")
+        for g in gnome_overlap.GENERATIONS:
+            with self.subTest(ns=g["namespace"]):
+                cfg = self.summary(shipped_dir, g["namespace"])["records"]["ConfigN"]
+                layout_mode = 56 + 4 * g["tail_slots"]
+                self.assertEqual(cfg["fields"]["layout_mode"], layout_mode)
+                self.assertEqual(cfg["fields"]["switch_config"], layout_mode + 4)
+                # and the tail is the whole of the difference: the size follows
+                # from it, so a record cannot declare slots the bytes do not hold
+                self.assertEqual(cfg["size"], layout_mode + 12)
+                self.assertEqual(cfg["size"], g["struct_size"])
+
     def test_a_compiler_that_writes_other_bytes_is_a_note_and_not_a_verdict(self):
         """The older compiler's bytes, reconstructed, put through `--check`.
 
@@ -1664,15 +1774,23 @@ class TheLibraryIdentity(unittest.TestCase):
 
 
 class HeaderDerivation(unittest.TestCase):
-    """`gen-gir.py --from-header` against the two releases' own headers.
+    """`gen-gir.py --from-header` against three releases' own headers.
 
     This is the answer to a `typelib` or `sentinel` refusal after an upgrade,
     and it is checked here because a deriver nobody has run on a known answer is
-    not a deriver.  Both fixtures are excerpts of mutter's own
+    not a deriver.  All three fixtures are excerpts of mutter's own
     src/backends/meta-monitor-config-manager.h, and what comes out of them has
     to be exactly what is shipped -- which is also an independent confirmation
     of the shipped offsets: they were measured on a live compositor, and this
-    arrives at the same numbers from upstream source, by arithmetic."""
+    arrives at the same numbers from upstream source, by arithmetic.
+
+    49's fixture is 49.7's header from the release tag on gitlab.gnome.org
+    (fetched 2026-09-11), not from the guest: the Fedora rpm carries no header,
+    which is a fact about the binary package and not a reason to skip step 1 of
+    docs/Technical.md section 6.  Its whole-header sha256 is 50.1's to the byte
+    -- the two releases ship one struct between them -- so what this pins for 49
+    is that the record's 80 bytes and 3 slots are what upstream source says, by
+    the same arithmetic that answered for 50.  51 still has no fixture."""
 
     @classmethod
     def setUpClass(cls):
@@ -1682,9 +1800,10 @@ class HeaderDerivation(unittest.TestCase):
         return open(os.path.join(ROOT, "tests", "fixtures", "mutter", name),
                     encoding="utf-8").read()
 
-    def test_the_two_headers_derive_the_two_shipped_descriptions(self):
+    def test_the_three_headers_derive_three_of_the_shipped_descriptions(self):
         table = {g["shell_major"]: g for g in self.gen.load_table()}
         for name, gen, size, major in (("meta-monitors-config-46.h", 14, 72, 46),
+                                       ("meta-monitors-config-49.h", 17, 80, 49),
                                        ("meta-monitors-config-50.h", 18, 80, 50)):
             ints, rows, got = self.gen.build_from_header(self.header(name))
             self.assertEqual(got, size, name)
@@ -1693,8 +1812,8 @@ class HeaderDerivation(unittest.TestCase):
             at = {f: off for off, _sz, _t, f in rows}
             self.assertEqual(at["logical_monitor_configs"], 40, name)
             self.assertEqual(at["disabled_monitor_specs"], 48, name)
-            # the tail is what differs between the two, and it is what the
-            # sentinel pins on a live compositor
+            # the tail is what differs between 46 and the rest, and it is what
+            # the sentinel pins on a live compositor
             self.assertEqual(at["switch_config"], 64 if gen == 14 else 72, name)
 
     def test_the_generations_really_do_differ(self):

@@ -199,6 +199,14 @@ class View:
     urgent: bool = False
     minimized: bool = False
     hidden: bool = False
+    #: shaded -- rolled up to its titlebar.  Cinnamon's muffin is the only
+    #: compositor in the rig that still has the state (`shade`/`unshade`/
+    #: `is_shaded`); mutter dropped it and KWin 6 removed it, so every other
+    #: backend leaves this False.  `wxprop` turns it into
+    #: `_NET_WM_STATE_SHADED` and `_NET_WM_STATE_HIDDEN`, which is the pair
+    #: muffin's own meta_window_x11_set_net_wm_state writes -- and therefore
+    #: what real xprop prints for a shaded window on a Cinnamon X11 session.
+    shaded: bool = False
     skip_taskbar: bool = False
     skip_pager: bool = False
     floating: bool = True  # tiling compositors only; GNOME windows all float

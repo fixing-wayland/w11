@@ -437,7 +437,7 @@ class TestKeycodeRegistration(unittest.TestCase):
         self.assertEqual(keymap.resolve_token("264"),
                          "key '264' is not reachable on the US layout. Ignoring it.")
 
-    def test_keyboard_registers_1_to_255(self):
+    def test_keyboard_registers_1_to_255_and_the_uploaded_extras(self):
         fd, path = tempfile.mkstemp(prefix="wdotool-kbd-")
         os.close(fd)
         self.addCleanup(os.unlink, path)
@@ -453,7 +453,13 @@ class TestKeycodeRegistration(unittest.TestCase):
             dev = uinput.keyboard()
             dev.close()
         keybits = [arg for req, arg in recorded if req == uinput.UI_SET_KEYBIT]
-        self.assertEqual(keybits, list(range(1, 256)))
+        # 1..255, then every code the uploaded keymap binds above that block (the euro on
+        # evdev 435): the character table answers those on the kernel sink too, and a code
+        # that is not registered is an event the kernel drops silently
+        from wdotool import keymap
+        extra = sorted({code for code, _s in keymap.UPLOADED_EXTRA_KEYS.values()} - set(range(1, 256)))
+        self.assertTrue(extra, "the uploaded keymap binds nothing above 255 any more")
+        self.assertEqual(keybits, list(range(1, 256)) + extra)
 
 
 # ---------------------------------------------------------------------------

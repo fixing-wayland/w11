@@ -237,6 +237,9 @@ class CinnamonBackend(WindowBackend):
             sticky=win.desktop == -1,
             minimized=bool(d.get("min")),
             hidden=bool(d.get("min")),
+            # `is_shaded()` is in the LIST program already (cinnamon_js.py:57) and
+            # was read by nothing until wxprop grew the _NET_WM_STATE_SHADED arm
+            shaded=bool(d.get("shaded")),
             skip_taskbar=bool(d.get("skipt")),
             floating=True,
             ws_name=(names or {}).get(win.desktop, ""),

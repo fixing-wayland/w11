@@ -27,6 +27,8 @@ is `support.FakeRandrBackend`, which is `wxrandr`'s six-method contract
 """
 
 import binascii
+import contextlib
+import io
 import os
 import socket
 import struct
@@ -36,22 +38,35 @@ import threading
 import time
 import unittest
 
+# The suite never hands a tool over to the real X11 one: see tests/conftest.py
+# and tests/test_passthrough.py; this line covers `python3 tests/<file>.py`, and
+# it stands BEFORE the first tool import (tests/test_passthrough.py:46's own
+# order) so that nothing below reads the variable at import time.
+os.environ["W11_PASSTHROUGH"] = "never"
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 # `import support` resolves only with the tests directory itself on sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import support                                                      # noqa: E402
+# The two wire-level compositor fakes this file needs for the primary verb are
+# the ones `wxrandr`'s own backend tests are written against -- a fake KWin
+# speaking kde_output_management_v2 on a unix socket and a fake Mutter speaking
+# DisplayConfig on a mock bus. They are imported rather than copied, the way
+# tests/test_gnome_overlap.py:49 imports the Mutter one, because a second copy
+# of either would drift from the protocol the backends are measured against.
+import test_wxrandr_kwin as tkwin                                   # noqa: E402
+import test_wxrandr_mutter as tmutter                               # noqa: E402
 from support import (FakeBackend, FakeRandrBackend, ProxyRig,       # noqa: E402
                      fake_window, install_fake_randr, randr_mode,
                      randr_output)
+from w11common.dbus_mini import Bus                                 # noqa: E402
 from wxrandr import core as wcore                                   # noqa: E402
+from wxrandr import kwin as wkwin                                   # noqa: E402
+from wxrandr import mutter as wmutter                               # noqa: E402
 from xw11 import client as client_mod                               # noqa: E402
 from xw11 import policy, randr, upstream, wire                      # noqa: E402
-
-# The suite never hands a tool over to the real X11 one: see tests/conftest.py
-# and tests/test_passthrough.py; this line covers `python3 tests/<file>.py`.
-os.environ["W11_PASSTHROUGH"] = "never"
 
 FIXTURES = os.path.join(ROOT, "tests", "fixtures", "xw11")
 
@@ -169,6 +184,31 @@ class RandrCase(unittest.TestCase):
 def _rmtree(path):
     import shutil
     shutil.rmtree(path, ignore_errors=True)
+
+
+class PrimaryWatchingBackend(FakeRandrBackend):
+    """`FakeRandrBackend` plus the one field a real backend reads while it plans.
+
+    Neither Mutter nor KWin takes a primary as an argument: `plan()` reads
+    `State.primary` and turns it into the verb (`wxrandr/mutter.py:623` puts the
+    flag on that connector's logical monitor, `wxrandr/kwin.py:1027` turns it
+    into `set_priority`). So WHEN the proxy writes it decides whether the
+    request reaches the compositor at all, and what this records is exactly
+    that: the value the backend would have planned with, sampled inside `verify`
+    and inside `apply` instead of after them."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.primary_at_verify = []
+        self.primary_at_apply = []
+
+    def verify(self, state, targets):
+        self.primary_at_verify.append(state.primary)
+        return super().verify(state, targets)
+
+    def apply(self, state, targets, persistent=False):
+        self.primary_at_apply.append(state.primary)
+        return super().apply(state, targets, persistent=persistent)
 
 
 class Snapshot(RandrCase):
@@ -403,11 +443,12 @@ class NoGrabIsBatchOfOne(RandrCase):
 
 class PrimaryPassesAndRecords(RandrCase):
     def test_set_output_primary_reaches_the_upstream_and_the_target(self):
-        """Both halves, because both matter: Xwayland accepts the request and
-        `xrandr -q` reads the flag back out of it [recon/env.md 2.4], while
-        `wxrandr` keeps its own primary in `State`. Recording it here is what
-        makes the two agree."""
-        rig = self.rig()
+        """Three halves, because all three matter: Xwayland accepts the request
+        and `xrandr -q` reads the flag back out of it [recon/env.md 2.4],
+        `wxrandr` keeps its own primary in `State`, and the BACKEND is handed
+        that state before it plans -- which is what makes the compositor's own
+        primary move (`PrimaryDrivesTheBackendVerb` below sends the verb)."""
+        rig = self.rig(backend=PrimaryWatchingBackend())
         sock = self.client(rig)
         self.send(sock, *frames("xrandr-primary.hex"))
         self.wait_applies(rig)
@@ -416,6 +457,11 @@ class PrimaryPassesAndRecords(RandrCase):
         t = self.layout.target("HEADLESS-1")
         self.assertTrue(t.stanza.primary)
         self.assertEqual(rig.server.randr.state.primary, "HEADLESS-1")
+        self.assertEqual(self.layout.primary_at_apply, ["HEADLESS-1"],
+                         "the backend planned with the old primary")
+        self.assertEqual(self.layout.primary_at_verify, ["HEADLESS-1"],
+                         "Mutter's verify sends method 0 with the plan the "
+                         "apply would send, so it needs the primary too")
 
 
 class Transforms(RandrCase):
@@ -1156,6 +1202,332 @@ class PrimaryOutsideAGrab(RandrCase):
         rig.wait(lambda: not rig.server.conns, what="the client to go")
         self.assertEqual([ln for ln in said if "batch open" in ln], [],
                          "a committed batch was logged as dropped")
+
+    def test_a_lone_primary_is_the_state_the_backend_plans_with(self):
+        """The batch the gap was measured on: `--nograb` splits the request pair
+        into two batches of one, and the second carries a primary and NO crtc
+        (measured 2026-09-11 on the resolute-kde golden -- SetCrtcConfig seq 24,
+        SetOutputPrimary seq 25, two `applied a RandR batch of 1 crtc(s)` lines).
+        With that batch's primary written only after `backend.apply` returned,
+        the backend planned the layout it already had: KWin sent no
+        `set_priority` and `wxrandr --query` still printed `Virtual-1 primary`
+        [goal2/recon/gaps.md 1b #8, and the same on all 13 GNOME/KDE flavors of
+        CI run 34628777544]."""
+        rig = self.rig(backend=PrimaryWatchingBackend())
+        sock = self.client(rig)
+        _grab, _enable, primary, _ungrab = frames("xrandr-primary.hex")
+        self.send(sock, primary)
+        self.wait_applies(rig)
+        self.assertEqual([t.name for t in self.layout.targets
+                          if t.stanza is not None], ["HEADLESS-1"])
+        self.assertEqual(self.layout.primary_at_apply, ["HEADLESS-1"],
+                         "a primary-only batch left the backend planning with "
+                         "the primary the session already had")
+
+
+def noprimary_frame():
+    """The `RRSetOutputPrimary` of `xrandr --noprimary`, on the fixture rig's
+    own major.
+
+    Measured 2026-09-11 on this box (xrandr 1.5.3, an Xvfb :91 behind a tee on
+    :93, scratchpad/b7/noprimary-wire.txt): `--noprimary` sends the same four
+    requests `--output X --primary` sends minus the `SetCrtcConfig` --
+    `24000100` (grab), `8c1e03001f02000000000000`, `25000100` (ungrab), then
+    the `GetInputFocus` sync -- and the ONE word that differs from
+    `xrandr-primary.hex`'s third frame is the output: `00000000` against
+    `21000000`. `--output screen --noprimary` sends the identical bytes:
+    --noprimary clears the screen's primary and does not touch the output it is
+    spelled next to. So the frame is built out of the fixture's own, rather
+    than a second copy of a request this file already has measured."""
+    _grab, _enable, primary, _ungrab = frames("xrandr-primary.hex")
+    return primary[:8] + b"\x00\x00\x00\x00"
+
+
+class NoPrimaryClearsIt(RandrCase):
+    """`xrandr --noprimary`: the same field, cleared.
+
+    X clears the screen's primary and `xrandr -q` then prints no `primary` at
+    all. Xwayland takes the request (`SetOutputPrimary` PASSes), so the half the
+    proxy owes is `wxrandr`'s: `State.primary` to None, before the backend
+    plans, which is `wxrandr --noprimary`'s own route (`cli.py:1592-1601`).
+
+    Measured end to end 2026-09-11 on a real headless sway with two heads
+    (scratchpad/b7/live_noprimary.py): through the proxy, `xrandr --output
+    HEADLESS-2 --primary` reads back HEADLESS-2 in both planes and `xrandr
+    --noprimary` leaves both empty; with the clear dropped, `xrandr -q` cleared
+    its flag while `wxrandr --query` still printed HEADLESS-2."""
+
+    def test_a_lone_noprimary_applies_and_the_backend_plans_without_one(self):
+        """The measured shape: a grab whose only content is a
+        `SetOutputPrimary` naming output None. It carries no crtc, so it
+        reaches `commit` with an empty stanza list -- which is also what
+        `wxrandr --noprimary` hands `build_targets` (`cli.py:1582`), and an
+        apply with one field changed is still an apply."""
+        rig = self.rig(backend=PrimaryWatchingBackend())
+        sock = self.client(rig)
+        rig.server.randr.state.primary = "HEADLESS-1"
+        self.send(sock, GRAB, noprimary_frame(), UNGRAB)
+        self.wait_applies(rig)
+        self.assertEqual(self.layout.primary_at_apply, [None],
+                         "the backend planned with the primary the session "
+                         "still had")
+        self.assertIsNone(rig.server.randr.state.primary)
+        rig.wait(lambda: ("SetOutputPrimary", 0) in rig.upstream.randr.writes,
+                 what="SetOutputPrimary(None) upstream")
+
+    def test_a_noprimary_riding_a_crtc_config_clears_it_in_the_same_batch(self):
+        """`xrandr --output HEADLESS-1 --mode ... --noprimary` is one grab with
+        both in it. The crtc half builds a stanza, the primary half does not --
+        and a batch that applied the layout while keeping the old primary would
+        leave `wxrandr --query` naming a primary `xrandr -q` no longer does."""
+        rig = self.rig(backend=PrimaryWatchingBackend())
+        sock = self.client(rig)
+        rig.server.randr.state.primary = "HEADLESS-1"
+        grab, enable, _primary, ungrab = frames("xrandr-primary.hex")
+        self.send(sock, grab, enable, noprimary_frame(), ungrab)
+        self.wait_applies(rig)
+        self.assertEqual([t.name for t in self.layout.targets
+                          if t.stanza is not None], ["HEADLESS-1"])
+        self.assertEqual(self.layout.primary_at_apply, [None])
+        self.assertIsNone(rig.server.randr.state.primary)
+
+    def test_a_primary_naming_an_output_we_do_not_have_still_applies_nothing(self):
+        """The control, and the one other batch that reaches the same branch: a
+        `SetOutputPrimary` naming an output id the proxy's RandR tables do not
+        carry. It is not a clear -- the id is 0x99, not 0 -- so it builds no
+        stanza, applies nothing and says so, exactly as before. Xwayland's own
+        copy of the flag still moved; ours did not, which is the line's whole
+        subject."""
+        rig = self.rig()
+        said = []
+        rig.server.say = said.append
+        sock = self.client(rig)
+        _grab, _enable, primary, _ungrab = frames("xrandr-primary.hex")
+        self.send(sock, GRAB, primary[:8] + struct.pack("<I", 0x99), UNGRAB)
+        self.sync(sock)
+        self.assertEqual(self.layout.applies, [])
+        self.assertTrue([ln for ln in said if "nothing was applied" in ln],
+                        said)
+        self.assertTrue([ln for ln in said if "RandR tables do not have" in ln],
+                        said)
+
+
+class RefusedApplyKeepsTheOldPrimary(unittest.TestCase):
+    """A batch the backend refuses leaves `State.primary` where it was.
+
+    `wxrandr/cli.py:1591` keeps `primary_before` for its `--dryrun` branch for
+    this reason -- nothing was sent, so nothing may be claimed about the
+    compositor -- and the CLI needs it nowhere else because a `Fatal` out of
+    verify or apply ends that process. This Applier does not end: the worker
+    catches the `Fatal`, the client gets its X error (`randr.py:_fail`), and the
+    same Applier serves the next batch. Mutter and KWin would re-sync the field
+    from the compositor in their next snapshot; sway, the wlr floor and Hyprland
+    have nothing to re-sync it from, which is where a leaked primary would sit
+    until something else saved."""
+
+    def applier(self, backend):
+        tmp = tempfile.mkdtemp(prefix="xw11-refused-")
+        self.addCleanup(_rmtree, tmp)
+        ap = randr.Applier()
+        ap.backend = backend
+        ap.tried = True
+        ap.name = backend.name
+        ap.state = wcore.State("fake-randr",
+                               path=os.path.join(tmp, "state.json"))
+        self.addCleanup(ap.close)
+        return ap
+
+    def two_heads(self, **kw):
+        return PrimaryWatchingBackend(
+            outputs=[randr_output("HEADLESS-1"), randr_output("HEADLESS-2")],
+            **kw)
+
+    def test_a_verify_that_refuses_leaves_the_primary_the_next_batch_plans_with(self):
+        backend = self.two_heads(verify_fail=wcore.Fatal("no\n"))
+        ap = self.applier(backend)
+        ap.state.primary = "HEADLESS-1"
+        with self.assertRaises(wcore.Fatal):
+            ap.apply([wcore.Stanza("HEADLESS-2", primary=True)])
+        self.assertEqual(ap.state.primary, "HEADLESS-1")
+        backend.verify_fail = None
+        ap.apply([wcore.Stanza("HEADLESS-2", pos=(1280, 0))])
+        self.assertEqual(backend.primary_at_apply, ["HEADLESS-1"],
+                         "the refused batch's primary reached the backend one "
+                         "batch later")
+
+    def test_an_apply_that_raises_leaves_it_too(self):
+        """The other half: Mutter's `ApplyMonitorsConfig` refuses layouts verify
+        passed (a mode the compositor drops between the two), and KWin's apply
+        raises on the last output being disabled."""
+        ap = self.applier(self.two_heads(fail=wcore.Fatal("no\n")))
+        ap.state.primary = "HEADLESS-1"
+        with self.assertRaises(wcore.Fatal):
+            ap.apply([wcore.Stanza("HEADLESS-2", primary=True)])
+        self.assertEqual(ap.state.primary, "HEADLESS-1")
+
+
+class PrimaryDrivesTheBackendVerb(unittest.TestCase):
+    """`--primary` through the proxy, against the REAL KWin and Mutter backends
+    on their own wire-level fakes.
+
+    The gap this closes was measured, not guessed: on all 13 GNOME/KDE flavors
+    of CI run 34628777544 `xrandr --output Virtual-2 --primary` through the proxy
+    read back Virtual-1 [goal2/recon/gaps.md 1b #8], and again by hand on the
+    resolute-kde golden (KWin 6.5, two virtual heads, 2026-09-11): exit 0, `xw11:
+    applied a RandR batch of 1 crtc(s) in 9 ms through kwin`, and `wxrandr
+    --query` still printing `Virtual-1 primary`. The apply REACHED the backend
+    all along -- what never reached the compositor was the primary, because
+    `State.primary` was written after `backend.apply` returned and both backends
+    read it while they plan.
+
+    So the claim here is the verb on the wire, which is per compositor: KWin's
+    `set_priority(dev, 1..N)` with the named output first (`set_primary_output`
+    is accepted and ignored on 5.27 and 6.6 -- `wxrandr/kwin.py:212`), and
+    Mutter's `ApplyMonitorsConfig` carrying the primary flag on that connector's
+    logical monitor. The wlr floor, sway and Hyprland have no primary verb at
+    all; there the request PASSes to Xwayland and `State` keeps our own copy,
+    which is the What-differs row in docs/XW11.md.
+    """
+
+    def applier(self, backend, name):
+        """An `Applier` wired to a live backend the way `install_fake_randr`
+        wires a fake one: `tried` set, so `ensure()` hands back this backend
+        rather than going looking for a compositor, and a state file in a
+        directory of this test's own -- `State.save()` really writes, and the
+        session's own store is not this test's to edit."""
+        tmp = tempfile.mkdtemp(prefix="xw11-primary-")
+        self.addCleanup(_rmtree, tmp)
+        # KWin's apply warns on stderr that it has saved the layout (it has no
+        # temporary mode); in the proxy that line lands in the proxy log, where
+        # it was measured on the resolute-kde golden. Here it is only noise, and
+        # `self.warned` keeps it readable for a test that wants to look.
+        self.warned = io.StringIO()
+        stderr = contextlib.redirect_stderr(self.warned)
+        stderr.__enter__()
+        self.addCleanup(stderr.__exit__, None, None, None)
+        # the proxy's log, which is where `--noprimary`'s "this compositor
+        # keeps one" line has to land: `wxrandr` writes it to stderr and a
+        # proxy has no stderr of the client's to write to.
+        self.said = []
+        ap = randr.Applier(log=self.said.append)
+        ap.backend = backend
+        ap.tried = True
+        ap.name = name
+        ap.state = wcore.State(name + "-b7",
+                               path=os.path.join(tmp, "state.json"))
+        self.addCleanup(ap.close)
+        return ap
+
+    def test_kwin_is_sent_set_priority_for_a_batch_with_no_crtc_in_it(self):
+        """The `--nograb` shape, which is where the gap is widest: one stanza,
+        `primary` and nothing else, no mode and no position. KWin's `plan`
+        answers it with a priority list and no per-output record at all
+        (`kwin.py:1184` sends a configuration for that alone), and
+        `kde_output_order_v1` -- what plasmashell and XWayland read the primary
+        out of -- moves."""
+        svc = tkwin.two_heads()
+        self.addCleanup(svc.close)
+        backend = wkwin.KwinOutputs(socket_path=svc.path)
+        ap = self.applier(backend, "kwin")
+        self.assertEqual(svc.primary, "eDP-1", "the fixture's own first entry")
+        ap.apply([wcore.Stanza("DP-1", primary=True)])
+        self.assertEqual(svc.primary, "DP-1",
+                         "kde_output_order_v1 did not move: %r reached KWin"
+                         % (svc.applied,))
+        self.assertEqual([r for r in svc.applied[-1]
+                          if r[0] in ("priority", "primary")],
+                         [("primary", "DP-1"),
+                          ("priority", "DP-1", 1), ("priority", "eDP-1", 2)])
+        self.assertEqual(ap.state.primary, "DP-1")
+
+    def test_kwin_is_sent_nothing_when_that_output_is_already_primary(self):
+        """The other half of the same rule, and the reason the fix is the state
+        and not a forced apply: a `--primary` on the output that already has it
+        must cost no modeset. KWin's `plan` compares against the primary it
+        read, so the batch produces no records and no priority list, and nothing
+        is sent."""
+        svc = tkwin.two_heads()
+        self.addCleanup(svc.close)
+        ap = self.applier(wkwin.KwinOutputs(socket_path=svc.path), "kwin")
+        ap.apply([wcore.Stanza("eDP-1", primary=True)])
+        self.assertEqual(svc.applied, [])
+        self.assertEqual(svc.primary, "eDP-1")
+
+    def test_mutter_gets_the_primary_flag_on_that_connectors_monitor(self):
+        """Mutter has no primary verb of its own: the primary is a bit in the
+        logical monitor of `ApplyMonitorsConfig`, and a TEMPORARY apply whose
+        plan equals the current configuration is not sent at all
+        (`mutter.py:1017`). `_canon` includes that bit (`mutter.py:242`), so a
+        primary that really moved is a plan that really differs -- which is what
+        makes the one call go out here with nothing else changed."""
+        bus = tmutter.MutterMockBus()
+        self.addCleanup(bus.close)
+        bus.mutter = tmutter.two_monitors()
+        backend = wmutter.MutterOutputs(bus=Bus(bus.address), wl_socket=False)
+        ap = self.applier(backend, "mutter")
+        ap.apply([wcore.Stanza("DP-1", primary=True)])
+        sent = [c for c in bus.mutter.calls if c[1] != 0]
+        self.assertEqual(len(sent), 1, "one ApplyMonitorsConfig, not %d"
+                         % len(sent))
+        _serial, method, lms, _props = sent[0]
+        self.assertEqual(method, 1, "a temporary apply, never method 2")
+        flagged = [lm[5][0][0] for lm in lms if lm[4]]
+        self.assertEqual(flagged, ["DP-1"])
+        self.assertEqual(ap.state.primary, "DP-1")
+
+    def test_kwin_keeps_its_primary_for_a_noprimary_and_the_log_says_which(self):
+        """`xrandr --noprimary` on KWin. Neither `set_priority` nor
+        `set_primary_output` has an inverse -- `kde_output_order_v1` always has
+        a first entry (`kwin.py:1028`) -- so the compositor keeps eDP-1 and
+        nothing is sent; `State` records what KWin HAS (`kwin.py:1208`) rather
+        than the clear we asked for, so the next `wxrandr --query` does not
+        name a primary KWin never dropped. Xwayland's own flag IS cleared, the
+        two halves then disagree, and the log line is the only place anyone can
+        find that out -- which is why it is asserted here and not just written.
+        The NOT YET is the inverse verb itself: rung 1, a protocol carrying
+        "no primary" (`kde_output_order_v1` has no such message today), cost S
+        once KWin has one."""
+        svc = tkwin.two_heads()
+        self.addCleanup(svc.close)
+        ap = self.applier(wkwin.KwinOutputs(socket_path=svc.path), "kwin")
+        ap.apply([], noprimary=True)
+        self.assertEqual(svc.applied, [], "a clear KWin cannot take was sent")
+        self.assertEqual(svc.primary, "eDP-1")
+        self.assertEqual(ap.state.primary, "eDP-1",
+                         "the state file claimed a clear KWin did not make")
+        self.assertIn("xw11: KWin keeps a primary output; keeping eDP-1",
+                      self.said)
+
+    def test_mutter_keeps_its_primary_for_a_noprimary_and_the_log_says_which(self):
+        """The same on Mutter, where the primary is a bit in the logical
+        monitor: with `State.primary` cleared, `plan` falls back to the
+        compositor's own (`mutter.py:625`), the plan equals the current
+        configuration and the temporary apply is skipped (`mutter.py:1017`), so
+        `ApplyMonitorsConfig` is never called. The warning is GNOME's own words
+        (`cli.py:1594`), with the desktop name off the flavour so Cinnamon says
+        Cinnamon."""
+        bus = tmutter.MutterMockBus()
+        self.addCleanup(bus.close)
+        bus.mutter = tmutter.two_monitors()
+        ap = self.applier(wmutter.MutterOutputs(bus=Bus(bus.address),
+                                                wl_socket=False), "mutter")
+        ap.apply([], noprimary=True)
+        self.assertEqual([c for c in bus.mutter.calls if c[1] != 0], [])
+        self.assertEqual(ap.state.primary, "eDP-1")
+        self.assertIn("xw11: GNOME requires a primary output; keeping eDP-1",
+                      self.said)
+
+    def test_mutter_is_sent_nothing_when_that_connector_is_already_primary(self):
+        """The no-modeset half on Mutter: `_canon(plan) == current_config` holds
+        when the primary did not move, which is the skip its docstring calls
+        "no modeset for `--primary` on the primary"."""
+        bus = tmutter.MutterMockBus()
+        self.addCleanup(bus.close)
+        bus.mutter = tmutter.two_monitors()
+        ap = self.applier(wmutter.MutterOutputs(bus=Bus(bus.address),
+                                                wl_socket=False), "mutter")
+        ap.apply([wcore.Stanza("eDP-1", primary=True)])
+        self.assertEqual([c for c in bus.mutter.calls if c[1] != 0], [])
 
 
 class RefusalOrder(unittest.TestCase):

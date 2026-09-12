@@ -307,14 +307,15 @@ class ThePackageInTheTree(unittest.TestCase):
         overlap extension knows, and one compiled type description per row is
         what makes each of them reachable.  The old assertion named
         W11Overlap18 and nothing else, so a package that shipped one typelib out
-        of three passed it -- and on GNOME 46 or 51 the extension would load
+        of four passed it -- and on GNOME 46 or 51 the extension would load
         and then fail at its first call."""
         tmp = self.unpacked()
         with open(os.path.join(tmp, EXT, OVERLAP_UUID, "generations.json"),
                   encoding="utf-8") as f:
             table = json.load(f)
         names = [g["namespace"] for g in table["generations"]]
-        self.assertEqual(len(names), 3, names)
+        # 46, 49, 50 and 51: one row per measured libmutter layout (GNOME 49 landed 2026-09-11)
+        self.assertEqual(len(names), 4, names)
         for ns in names:
             with self.subTest(ns):
                 self.assertTrue(os.path.exists(os.path.join(

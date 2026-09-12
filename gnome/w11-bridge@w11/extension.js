@@ -20,6 +20,15 @@
 // results travel as JSON strings; errors are org.w11.Bridge1.NotFound,
 // .Unsupported, .InvalidArgs or .Failed. Every method body is guarded: a
 // broken call yields a D-Bus error, never a shell crash.
+//
+// Reloading: the object gnome-shell constructs is the ROOT instance, and it
+// runs nothing itself -- it reads this file's mtime and bytes and hands the
+// session to a fresh instance built from the newest copy of it, re-read through a
+// path gjs has not imported before (the route-3 block above the class has the
+// gjs measurements that shape is forced into). org.w11.BridgeReload1.Reload
+// does that on demand, so an edited extension.js goes live inside the running
+// shell with nobody logged out. AGENTS.md rung 3: code we install into the
+// compositor.
 
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
@@ -213,6 +222,17 @@ function safe(fn, dflt = null) {
 
 function isFn(obj, name) {
     return !!obj && typeof obj[name] === 'function';
+}
+
+// `file:///a/b.js` -> `/a/b.js`; '' for a URI that is not a local file. A
+// query or fragment is dropped rather than trusted: nothing this file imports
+// carries one (see the route-3 block below for why the reload key is a path),
+// but `import.meta.url` is a URI and a URI is not a file name.
+function uriToPath(uri) {
+    const plain = String(uri || '').split('?')[0].split('#')[0];
+    if (!plain.startsWith('file://'))
+        return '';
+    return safe(() => decodeURIComponent(plain.slice('file://'.length)), '');
 }
 
 // A Clutter.Grab that did not actually take the seat is worse than none: it
@@ -437,6 +457,15 @@ function workspaceName(i) {
     return `Workspace ${i + 1}`;
 }
 
+// st_mtime of `path`, 0 when it cannot be read. Two unrelated callers need an
+// mtime: the newest Xwayland cookie below, and this file's own (SELF_MTIME,
+// half of the reload key -- _read() has the other half and why it takes two).
+function fileMtime(path) {
+    const st = safe(() => Gio.File.new_for_path(path).query_info(
+        'time::modified', Gio.FileQueryInfoFlags.NONE, null), null);
+    return st ? Number(safe(() => st.get_attribute_uint64('time::modified'), 0)) : 0;
+}
+
 // Newest $XDG_RUNTIME_DIR/.mutter-Xwaylandauth.XXXXXX: the cookie file
 // Mutter writes for Xwayland (meta-xwayland.c prepare_auth_file, mkstemp).
 // Only used when the shell process has no XAUTHORITY in its environment.
@@ -454,9 +483,7 @@ function findXauthority() {
             if (!name.startsWith('.mutter-Xwaylandauth.'))
                 continue;
             const path = GLib.build_filenamev([dir, name]);
-            const st = safe(() => Gio.File.new_for_path(path).query_info(
-                'time::modified', Gio.FileQueryInfoFlags.NONE, null), null);
-            const mtime = st ? Number(safe(() => st.get_attribute_uint64('time::modified'), 0)) : 0;
+            const mtime = fileMtime(path);
             if (mtime > bestMtime) {
                 best = path;
                 bestMtime = mtime;
@@ -607,8 +634,8 @@ const METHODS = {
         return [w, h];
     }],
     // Diagnostic only (GnomeBackend.real_pointer()): getmouselocation reports
-    // the daemon-tracked injected pointer by design; this is how the two are
-    // checked against each other. No hit-test method on purpose -- the client
+    // the daemon-tracked injected pointer deliberately; this is how the two
+    // are checked against each other. No hit-test method on purpose -- the client
     // computes getmouselocation's window from ListWindows with the rule every
     // backend shares, so nothing can drift.
     GetPointer: ['(iiu)', function () {
@@ -643,6 +670,110 @@ const METHODS = {
 };
 
 // ---------------------------------------------------------------------------
+// Route 3 (AGENTS.md): the shell re-reads THIS FILE with nobody logged out.
+//
+// The two routes above it are shut. Route 2, the compositor's own scripting
+// surface, has the method and refuses -- `org.gnome.Shell.Extensions
+// .ReloadExtension w11-bridge@w11` answers `GDBus.Error:org.freedesktop
+// .DBus.Error.NotSupported: ReloadExtension is deprecated and does not work`
+// [M noble-gnome-x11, GNOME Shell 46.0, 2026-09-11], and `org.gnome.Shell
+// .Eval` is off outside unsafe mode. Route 6, a package that restarts the
+// shell, costs the session: `gnome-shell --replace` walks
+// org.gnome.Shell@x11.service (Restart=always, RestartSec=0ms,
+// RefuseManualStart) into its start limit, whose OnFailure sets
+// `org.gnome.shell disable-user-extensions true` for that user in every
+// later session (the measurement is in vm/live-smoke.d/gnome-x11.sh).
+//
+// So rung 3, which is ours to write. gjs re-reads a module when it is imported
+// under a URI it has not seen -- but WHICH URI it has seen is not the same
+// question on the two gjs releases this has to work on, and the obvious
+// cache-busting query is wrong on one of them. Probed live on both, same
+// script:
+//
+//   gjs 1.80.2 (noble-gnome-x11, GNOME Shell 46.0): a RELATIVE
+//     `./extension.js?v=<mtime>` is percent-escaped into a file name --
+//     `ImportError: Unable to load file from: file:///usr/share/gnome-shell/
+//     extensions/w11-bridge@w11/extension.js%3Fv=1789167493 (Error opening
+//     file ...: No such file or directory)`. The same query as an ABSOLUTE
+//     `file://<path>?v=N` loads, but the registry is keyed by the path with
+//     the query dropped: `?v=2` after an edit answered the module `?v=1`
+//     had already put there (`different module: false`), so nothing is
+//     re-read.
+//   gjs 1.88.0 (this build host): the whole URI is the key, query included,
+//     and the query form does re-read.
+//
+// What BOTH re-read is a path they have not seen. So a reload copies
+// extension.js as it stands into $XDG_RUNTIME_DIR under a name no import has
+// used, imports that by absolute URI, and unlinks it as soon as it is loaded
+// -- the module outlives the file, measured on 1.80.2. Every gi:// namespace
+// stays the one singleton both copies share (Gio, Meta and the shell's Main
+// are not duplicated: only this file is).
+//
+// The object gnome-shell constructs is therefore the ROOT instance: it runs
+// nothing itself, it keeps org.w11.BridgeReload1 and a pointer to the copy
+// that is running, and a reload disables that copy, constructs one out of the
+// module just imported and enables it. The bus object and the bus name belong
+// to the running copy, so a D-Bus call costs no hop through the root and the
+// root needs no method table.
+//
+// What it costs, in the order it bites:
+//   * the old module's closures stay in the JS heap for the life of the
+//     session (gjs unloads nothing): ten reloads cost gnome-shell 996 kB of
+//     RSS on noble-gnome-x11, about 100 kB a copy, and one file the size of
+//     this one (77 KB) is in the runtime dir for as long as the import takes;
+//   * it would leak a LISTENER per reload if disable() missed one, which is
+//     why the swap goes through the same disable() the shell calls: every
+//     display, workspace-manager and per-window handler disconnected, every
+//     pending SelectWindow cancelled with its timeout, grab and bus watch,
+//     the object unexported, the name unowned. Measured on noble-gnome-x11
+//     across three reloads: one WindowEvent per window event, not two or
+//     four, and the shell's pid unchanged;
+//   * org.w11.Bridge is unowned for the milliseconds between the old copy's
+//     disable() and the new copy's enable() -- a client that dials in that
+//     window gets NameHasNoOwner, the same hole `gnome-extensions disable`
+//     followed by `enable` has always had;
+//   * the root's own code -- this block, enable(), disable(), _install() and
+//     _swap() below -- is the copy the shell read at login. Editing THAT
+//     needs a new session; everything under _enableHere() is live.
+
+const RELOAD_IFACE = 'org.w11.BridgeReload1';
+
+// Deliberately its own interface on the same object rather than a method of
+// org.w11.Bridge1: Bridge1 is the client surface three tools and MockBridge
+// are pinned to, and reloading the extension is not something a client of it
+// does. It answers under org.gnome.Shell too (gnome-shell's connection owns
+// both names), which is the way back in when the bridge itself is down and
+// org.w11.Bridge has no owner.
+const RELOAD_XML = `<node>
+  <interface name="org.w11.BridgeReload1">
+    <method name="Reload">
+      <arg type="s" direction="out" name="json"/>
+    </method>
+  </interface>
+</node>`;
+
+// extension.js as it stands on disk, at a path nothing has imported yet, as
+// a file:// URI. $XDG_RUNTIME_DIR is tmpfs and 0700, so the copy is out of
+// everyone's reach but this session's own user -- who can write the
+// extension itself anyway -- and it is gone again as soon as gjs has read it.
+// `gen` is the root's generation counter: it makes the name unique even for
+// two reloads of files whose mtimes collide, which a registry keyed by path
+// (gjs 1.80.2) would otherwise answer from its cache.
+function copyForReload(gen, mtime, bytes) {
+    const dir = safe(() => GLib.get_user_runtime_dir(), '') ||
+                safe(() => GLib.get_tmp_dir(), '/tmp');
+    const path = GLib.build_filenamev([dir, `w11-bridge-reload-${gen}-${mtime}.js`]);
+    GLib.file_set_contents(path, bytes);
+    return [safe(() => GLib.filename_to_uri(path, null), `file://${path}`), path];
+}
+
+// This copy's own file, and the mtime it was read at. `import.meta.url` is
+// the extension's own path in the copy gnome-shell read, and the runtime-dir
+// path it was written to in a copy a reload imported -- which is why only the
+// ROOT (the shell's copy) ever calls copyForReload: its SELF_PATH is the file
+// the user edits.
+const SELF_PATH = uriToPath(import.meta.url);
+const SELF_MTIME = fileMtime(SELF_PATH);
 
 export default class W11Bridge extends Extension {
     // D-Bus property `Version` (the method is GetVersion: GJS looks both
@@ -651,7 +782,226 @@ export default class W11Bridge extends Extension {
         return VERSION;
     }
 
+    // `root` is the instance gnome-shell holds; a copy imported by a reload
+    // is constructed with it and does the work. Both are this class: the
+    // stub and the module it loads are the same file, which is what keeps
+    // one extension.js the whole extension (packaging, install-bridge.sh and
+    // the rig all copy exactly metadata.json, extension.js and the interface
+    // XML).
+    constructor(metadata, root = null) {
+        super(metadata);
+        this._root = root;
+        this._live = null;             // root only: the copy that is running
+        this._klass = W11Bridge;       // the class the live copy was made from
+        this._klassMtime = SELF_MTIME; // ...and the mtime of the file it came from
+        this._klassSum = '';           // ...and the SHA256 of the bytes, once read
+        this._gen = 0;                 // every enable/disable/Reload bumps it
+        this._pending = null;          // the import in flight, if any
+        this._on = false;              // between the shell's enable and disable
+        this._reloadDbus = null;
+    }
+
     enable() {
+        if (this._root) {
+            this._enableHere();
+            return;
+        }
+        this._on = true;
+        this._exportReload();
+        // The disk is normally the file the shell just read, so this whole
+        // call is synchronous and the bus name is taken before enable()
+        // returns, exactly as it was before the split. It is asynchronous
+        // only when extension.js changed between the shell reading it and
+        // the extension being switched on -- an upgrade that has not been
+        // logged out of yet, which is the case this whole mechanism exists
+        // for. A bridge running slightly old code is worth far more than no
+        // bridge, so a re-read that fails there falls back to the copy the
+        // shell loaded instead of leaving the session without one.
+        this._pending = this._install(this._read()).catch(e => {
+            if (!this._on)
+                return null;           // disabled while the read was in flight
+            info(`enable: ${SELF_PATH} could not be read again (${e}); ` +
+                 `running the copy gnome-shell loaded`);
+            return this._install(null);
+        }).catch(e => {
+            info(`enable failed: ${e}`);
+            return null;
+        });
+    }
+
+    disable() {
+        if (this._root) {
+            this._disableHere();
+            return;
+        }
+        this._on = false;
+        this._gen += 1;                // an import still in flight is stale
+        const live = this._live;
+        this._live = null;
+        if (live)
+            safe(() => live.disable());
+        if (this._reloadDbus) {
+            safe(() => this._reloadDbus.unexport());
+            this._reloadDbus = null;
+        }
+    }
+
+    // org.w11.BridgeReload1.Reload: re-read extension.js and hand the session
+    // to what it says now. The answer is the JSON of what happened --
+    // {"version": <the reloaded module's bridge version>, "mtime": <the file's>,
+    // "reread": <whether the file was read again>, "path": <which file>} --
+    // so a caller can tell a reload from a no-op without grepping a journal.
+    ReloadAsync(params, invocation) {
+        try {
+            const read = this._read();
+            this._pending = this._install(read).then(live => {
+                const json = JSON.stringify({
+                    version: Number(safe(() => live && live.Version, 0)),
+                    mtime: read.mtime, reread: read.changed, path: SELF_PATH,
+                });
+                info(`reloaded (mtime ${read.mtime}, reread ${read.changed})`);
+                safe(() => invocation.return_value(new GLib.Variant('(s)', [json])));
+                return live;
+            }).catch(e => {
+                this._returnError(invocation, 'Reload', e);
+                return null;
+            });
+        } catch (e) {
+            this._returnError(invocation, 'Reload', e);
+        }
+    }
+
+    _exportReload() {
+        if (this._reloadDbus)
+            return;
+        this._reloadDbus = safe(
+            () => Gio.DBusExportedObject.wrapJSObject(RELOAD_XML, this), null);
+        if (this._reloadDbus)
+            safe(() => this._reloadDbus.export(Gio.DBus.session, OBJECT_PATH));
+        else
+            info(`${RELOAD_IFACE} could not be exported; reload is by logout only`);
+    }
+
+    // extension.js as it stands on disk: the mtime the reply quotes, the
+    // bytes (read once here rather than once to decide and once to copy),
+    // their SHA256, and whether EITHER has moved since the copy that is
+    // running was read.
+    //
+    // The sum is in the key because the clock alone is not evidence. Gio
+    // reports `time::modified` in whole seconds, and even its microseconds
+    // come from the kernel's coarse file-timestamp clock: MEASURED on this
+    // build host (gjs 1.88.0, glib 2.88, overlayfs), six GLib.file_set_contents
+    // in a tight loop produced five distinct `time::modified.time::modified-usec`
+    // stamps for six different contents -- one pair was identical to the
+    // microsecond. So an editor's save-save, or install-bridge.sh's cp landing
+    // in the second a Reload read the file, would be ONE reload key, and the
+    // second write would never be read while Reload answered `"reread":false`.
+    // SHA256 of the 77 KB this file is costs 242 us (100 runs, same host,
+    // GLib.compute_checksum_for_data): the price of never answering
+    // `"reread":false` over bytes this session has never read.
+    //
+    // The mtime stays in the key next to the sum rather than under it: a file
+    // whose timestamp moved is what an upgrade looks like even when the bytes
+    // came back the same, and re-reading it costs one module in the heap
+    // while not re-reading it can cost the session its bridge.
+    _read() {
+        const mtime = fileMtime(SELF_PATH);
+        const [ok, bytes] = safe(() => GLib.file_get_contents(SELF_PATH), [false, null]);
+        const sum = ok && bytes && bytes.length
+            ? safe(() => GLib.compute_checksum_for_data(GLib.ChecksumType.SHA256, bytes), '')
+            : '';
+        const changed = mtime !== this._klassMtime ||
+                        (!!this._klassSum && !!sum && sum !== this._klassSum);
+        return {mtime, bytes: sum ? bytes : null, sum, changed};
+    }
+
+    // Swap the session onto what the file says. A `read` of null, or one
+    // that says neither the timestamp nor the bytes moved, asks for no
+    // import at all: those bytes are the ones already in the heap, and a
+    // copy per Reload would put another of them there for nothing. A read
+    // that says the file moved but could not be read is the half-finished
+    // upgrade, and it is an error rather than a silent no-op -- enable()
+    // falls back on it and says so in the journal.
+    _install(read) {
+        const gen = ++this._gen;
+        if (!read || !read.changed) {
+            return Promise.resolve(this._swap(this._klass, this._klassMtime,
+                                              (read && read.sum) || this._klassSum, gen));
+        }
+        if (!read.bytes)
+            return Promise.reject(new BridgeError(ERR_FAILED, `${SELF_PATH} could not be read`));
+        let uri, copy;
+        try {
+            [uri, copy] = copyForReload(gen, read.mtime, read.bytes);
+        } catch (e) {
+            return Promise.reject(e);
+        }
+        const drop = () => safe(() => GLib.unlink(copy));
+        return import(uri).then(mod => {
+            drop();
+            return this._swap(mod.default, read.mtime, read.sum, gen);
+        }, e => {
+            drop();
+            throw e;
+        });
+    }
+
+    // The swap itself. The old copy goes down BEFORE the new one comes up:
+    // two live copies would both try to export /org/w11/Bridge and the
+    // second would throw with the first already gone from the tools' reach.
+    _swap(klass, mtime, sum, gen) {
+        if (gen !== this._gen) {
+            // disable(), or a later Reload, moved the generation on while
+            // this import was in flight. Handing the caller whatever is live
+            // at this instant would answer them with someone else's edit
+            // (or, after a disable, with a version read off an unexported
+            // object), so the overtaken call gets an error and the copy that
+            // overtook it is left exactly as it is.
+            throw new BridgeError(ERR_FAILED,
+                'the reload was overtaken by a later reload or by disable()');
+        }
+        const old = this._live;
+        this._live = null;
+        if (old)
+            safe(() => old.disable());
+        let live = null;
+        try {
+            live = new klass(this.metadata, this);
+            live.enable();
+            this._klass = klass;
+            this._klassMtime = mtime;
+            this._klassSum = sum;
+            this._live = live;
+            return live;
+        } catch (e) {
+            // A copy that will not enable must not take the session's bridge
+            // with it -- and must not keep half of one either. _enableHere()
+            // exports /org/w11/Bridge, owns org.w11.Bridge and connects the
+            // display and workspace handlers before its last act (tracking
+            // every window) can throw, so an instance that threw part way
+            // through is still holding all of it: the object would refuse
+            // the fallback's own export (GDBus: an interface is already
+            // exported at that path) and every handler it connected would
+            // fire for the life of the session. _disableHere() is written to
+            // survive a half-built instance (`this._selects ?? []`,
+            // `this._handlers?.keys()`, `this._displayIds ?? []`), which is
+            // what makes it safe to call on one. Then fall back to the class
+            // that was running, and say which file was refused.
+            if (live)
+                safe(() => live.disable());
+            if (klass === this._klass)
+                throw e;
+            info(`the copy at mtime ${mtime} would not enable: ${e}`);
+            const back = new this._klass(this.metadata, this);
+            back.enable();
+            this._live = back;
+            throw new BridgeError(ERR_FAILED,
+                `${SELF_PATH} at mtime ${mtime} would not enable (${e}); the ` +
+                `copy from mtime ${this._klassMtime} is running instead`);
+        }
+    }
+
+    _enableHere() {
         this._wins = new Map();        // id -> Meta.Window
         this._handlers = new Map();    // Meta.Window -> {id, ids: [handler ids]}
         this._dead = new WeakSet();    // unmanaged windows whose actor lingers
@@ -701,7 +1051,7 @@ export default class W11Bridge extends Extension {
         info(`enabled (bridge v${VERSION}, gnome-shell ${safe(() => Config.PACKAGE_VERSION, '?')})`);
     }
 
-    disable() {
+    _disableHere() {
         for (const finish of Array.from(this._selects ?? []))
             safe(() => finish(0, ERR_CANCELLED, 'the bridge extension was disabled'));
         this._selects = null;

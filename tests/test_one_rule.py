@@ -73,8 +73,6 @@ ALLOWED_BY_DESIGN = {
     "geometry/rotation words, monitor listings — the mode TABLES differ by design:",
     # KWin's own JS API, described
     "return w.captionNormal;                   /* 6.x: no suffix, by design */",
-    # our own choice of which pointer getmouselocation reports
-    "// the daemon-tracked injected pointer by design; this is how the two are",
     "| `GetPointer` | `() → (iiu)` | the real pointer and Clutter modifier mask. Diagnostic only "
     "(`GnomeBackend.real_pointer()`, no command uses it): `getmouselocation` reports the daemon-tracked "
     "injected pointer by design, and this is how the two are checked against each other |",
@@ -159,11 +157,16 @@ class TheBannedSentences(unittest.TestCase):
     def test_no_file_says_the_compositor_is_right_to_refuse(self):
         self.assertEqual(self.hits(BANNED[2]), [])
 
-    def test_every_by_design_is_one_of_the_seven_that_earned_it(self):
-        """Not a ban: a review gate.  Seven lines in the tree say "by design"
+    def test_every_by_design_is_one_of_the_six_that_earned_it(self):
+        """Not a ban: a review gate.  Six lines in the tree say "by design"
         and every one is about our own design or a documented third-party API,
-        which is the opposite of citing a compositor's design as our reason.  An
-        eighth has to be written down here with its sentence.
+        which is the opposite of citing a compositor's design as our reason.  A
+        seventh has to be written down here with its sentence.
+
+        It was seven until 2026-09-12: the bridge's GetPointer comment said the
+        daemon-tracked injected pointer was left out "by design"; the live-
+        reload rewrite says "deliberately", which is the same fact in a word the
+        grep never stops on.
 
         It was eight until 2026-09-09: wxrandr/core.py's `_container` docstring
         said the state file was "hand-editable by design", which is our own

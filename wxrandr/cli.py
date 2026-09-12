@@ -652,9 +652,21 @@ def canonical_backend(value):
 #: Real xrandr has neither, so neither may reach it: on an X11 session
 #: `--persistent` came back as its `unrecognized option '--persistent'` and
 #: exit 1 with the layout unapplied, where the documents say an X11 apply
-#: works and simply saves nothing (WXRANDR.md, "Keeping a layout").
+#: works and simply saves nothing (WXRANDR.md, "Keeping a layout").  These two
+#: are the pair README's handover paragraph names.
 PERSISTENT_FLAG = "--persistent"
 OWN_APPLY_FLAGS = (PERSISTENT_FLAG, gnome_overlap.FLAG)
+
+#: every option of ours the original must never be handed, which is the pair
+#: above plus the force flag.  `--unsafe-gnome-overlap-unmeasured` modifies a
+#: refusal *check* and not an apply, so it is not one of the two -- and it got
+#: the identical wrong answer until T26: on Xvfb :355 here, `python3 -m wxrandr
+#: --unsafe-gnome-overlap-unmeasured 51` printed the ORIGINAL's `unrecognized
+#: option '--unsafe-gnome-overlap-unmeasured'`, as it did on all nine X11
+#: flavors of the first all-38 run [M goal2/recon/gaps.md 1a #7].  It takes a
+#: value (`_ARITY`), which `_walk_argv` drops with it -- or `51` would reach
+#: the original as a positional and be read as a screen size.
+OWN_ARGV_FLAGS = OWN_APPLY_FLAGS + (gnome_overlap.FORCE_FLAG,)
 
 
 def _walk_argv(argv):
@@ -675,10 +687,10 @@ def _walk_argv(argv):
 
 
 def own_flags_in(argv):
-    """The options of OWN_APPLY_FLAGS this argv really carries, as a set -- an output *named* `--persistent`
+    """The options of OWN_ARGV_FLAGS this argv really carries, as a set -- an output *named* `--persistent`
     is not one of them.  main() asks before handing over: one of these on an X11 session is a user asking for
     something the original has never heard of, and the answer has to be ours."""
-    return {a for a, _take in _walk_argv(argv) if a in OWN_APPLY_FLAGS}
+    return {a for a, _take in _walk_argv(argv) if a in OWN_ARGV_FLAGS}
 
 
 def scan_backend_argv(argv):
@@ -686,7 +698,7 @@ def scan_backend_argv(argv):
     out of a raw argv *before* anything is parsed -- which is where main() has to decide whether this X11
     session hands over to the real xrandr.  The stripped argv is what the original is then exec'd with:
     `--backend x11` asks for the real xrandr, which has no such option to be handed, and neither does it have
-    the two in OWN_APPLY_FLAGS.  A `--backend` with no value at all comes back as `""` -- present, naming
+    the three in OWN_ARGV_FLAGS.  A `--backend` with no value at all comes back as `""` -- present, naming
     nothing -- so that the flag's own error is ours to print on every session, not the original's.
 
     argv is walked by `_walk_argv`, so an output named like one of our options is a value here too.  Never
@@ -719,7 +731,7 @@ def scan_backend_argv(argv):
             take = 11
             while i + take < n and argv[i + take].lower() in core.MODE_FLAGS:
                 take += 1
-        if a not in OWN_APPLY_FLAGS:
+        if a not in OWN_ARGV_FLAGS:
             rest.extend(argv[i:i + take])
         i += take
     return backend, info, rest
@@ -1799,8 +1811,18 @@ def main(argv=None) -> int:
         # unable to be: `x11` there means the real xrandr on any session, exactly like the flag.  A Wayland name
         # in it is still left alone -- not pre-checked, and not allowed to suppress an X11 session's handover.
         forced = "x11"
-    ours = info_only or (flag is not None and asked not in ("auto", "x11"))
     mine = own_flags_in(args)
+    # T26.  The force flag is a *modifier* of `--unsafe-gnome-overlap`, and typed on its own it is a usage
+    # error of ours -- the sentence `_check_force` raises.  Alone it never reached that sentence
+    # on an X11 session, because the handover below replaced the process first: `wxrandr
+    # --unsafe-gnome-overlap-unmeasured 51` answered `xrandr: unrecognized option
+    # '--unsafe-gnome-overlap-unmeasured'` -- the ORIGINAL's words -- on all nine X11 flavors of run
+    # 34628777544, reproduced here on Xvfb :355 [M goal2/recon/gaps.md 1a #7].  So a command line carrying it
+    # WITHOUT `--unsafe-gnome-overlap` is ours all the way to parse(), which is the only place our own words
+    # for it live; with the pair typed together the GNOME refusal below is the right answer and comes first.
+    force_alone = (gnome_overlap.FORCE_FLAG in mine
+                   and gnome_overlap.FLAG not in mine)
+    ours = info_only or force_alone or (flag is not None and asked not in ("auto", "x11"))
     if not ours:
         # The X11 session's own answer to our two apply options, given before the handover because after it
         # there is no code of ours left to give one.  `--persistent` is dropped and the apply goes through:
