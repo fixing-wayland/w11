@@ -1,0 +1,1376 @@
+# live-smoke recording: flavor=arch-kde desktop=kde distro=arch mode=pkg remove=1 heads=3 stamp=20260912-103542
+# replay: 86 pass, 0 fail (mode pkg, remove 1, phases busrec,install,dm,windows,wm,proxy,input,display,kwin,root,nodialog,pkgverify, 2026-09-12)
+### true
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### printf 'w11-desktop-version: '; plasmashell --version
+w11-desktop-version: plasmashell 6.7.5
+### rc=0
+### pkill -x dbus-monitor >/dev/null 2>&1; rm -f $HOME/w11-bus.log; true
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### pgrep -x dbus-monitor | head -1
+1026
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+277
+### rc=0
+### dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus            org.freedesktop.DBus.ListNames >/dev/null 2>&1; sleep 1; true
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+378
+### rc=0
+### cd /tmp && pacman -U --noconfirm ./w11-*.pkg.tar.zst 2>&1
+loading packages...
+resolving dependencies...
+looking for conflicting packages...
+
+Packages (1) w11-0.4.0-1
+
+Total Installed Size:  9.52 MiB
+
+:: Proceed with installation? [Y/n] 
+checking keyring...
+checking package integrity...
+loading package files...
+checking for file conflicts...
+checking available disk space...
+:: Processing package changes...
+installing w11...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules).  Anyone who can open it can type as you.
+  * On an X11 session the tools hand over to the real ones:
+    pacman -S xdotool wmctrl xorg-xprop xorg-xrandr
+
+Optional dependencies for w11
+    python-gobject: the warandr GUI [installed]
+    gtk3: the warandr GUI [installed]
+    wl-mirror: wmirror, region and odd-shape mirroring on wlroots [installed]
+    gnome-shell: the bridge extension, needed by the window commands on GNOME
+    xdotool: the real tool wdotool hands over to, on X11 and through xw11 [installed]
+    wmctrl: the real tool wwmctl hands over to, on X11 and through xw11 [installed]
+    xorg-xprop: the real tool wxprop hands over to, on X11 and through xw11 [installed]
+    xorg-xrandr: the real tool wxrandr hands over to, on X11 and through xw11 [installed]
+:: Running post-transaction hooks...
+(1/3) Reloading device manager configuration...
+(2/3) Arming ConditionNeedsUpdate...
+(3/3) Updating the desktop file MIME type cache...
+### rc=0
+### ( sleep 1; reboot ) >/dev/null 2>&1 &
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### loginctl show-session "${XDG_SESSION_ID:-auto}" -p Service --value 2>/dev/null
+sddm-autologin
+### rc=0
+### rm -f $HOME/w11-smoke.txt; touch $HOME/w11-smoke.txt
+### rc=0
+### setsid nohup kate -n $HOME/w11-smoke.txt >/dev/null 2>&1 </dev/null & sleep 5; true
+### rc=0
+### wdotool search --class kate | head -1
+1150484787
+### rc=0
+### wdotool getwindowname 1150484787
+w11-smoke.txt — Kate
+### rc=0
+### wdotool windowmove 1150484787 100 100; wdotool windowsize 1150484787 800 600
+### rc=0
+### wdotool getwindowgeometry 1150484787
+Window 1150484787
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### wdotool windowactivate --sync 1150484787
+### rc=0
+### wdotool getactivewindow
+1150484787
+### rc=0
+### wdotool windowminimize 1150484787
+### rc=0
+### wdotool getactivewindow 2>&1
+1849536391
+### rc=0
+### wdotool windowactivate --sync 1150484787
+### rc=0
+### wwmctl -n 2
+### rc=0
+### wwmctl -d
+0  * DG: 5760x1080  VP: 0,0  WA: 0,0 5760x1034  Desktop 1
+1  - DG: 5760x1080  VP: N/A  WA: 0,0 5760x1034  Desktop 2
+### rc=0
+### wdotool set_desktop 1
+### rc=0
+### wdotool get_desktop
+1
+### rc=0
+### wdotool set_desktop 0
+### rc=0
+### wdotool get_desktop
+0
+### rc=0
+### wwmctl -n 1
+### rc=0
+### wdotool windowactivate --sync 1150484787
+### rc=0
+### wdotool mousemove 300 300
+### rc=0
+### wdotool getmouselocation
+x:300 y:300 screen:0 window:1150484787
+### rc=0
+### wdotool mousemove 300 300 click 1
+### rc=0
+### wdotool windowactivate --sync 1150484787; wdotool windowmove 1150484787 100 100; wdotool windowsize 1150484787 800 600
+### rc=0
+### wdotool getwindowgeometry 1150484787
+Window 1150484787
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### wwmctl -r :ACTIVE: -b add,maximized_vert,maximized_horz
+### rc=0
+### wdotool getwindowgeometry 1150484787
+Window 1150484787
+  Position: 0,0 (screen: 0)
+  Geometry: 1920x1034
+### rc=0
+### wxprop -id 1150484787 _NET_WM_STATE
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_FOCUSED
+### rc=0
+### wwmctl -r :ACTIVE: -b remove,maximized_vert,maximized_horz
+### rc=0
+### wdotool getwindowgeometry 1150484787
+Window 1150484787
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### wwmctl -l
+0x6e3daf87 -1 arch-kde-smoke 
+0x5e93625e -1 arch-kde-smoke 
+0x492e4b15 -1 arch-kde-smoke 
+0x44930133  0 arch-kde-smoke w11-smoke.txt — Kate
+0x6a4f08b8 -1 arch-kde-smoke 
+### rc=0
+### wwmctl -l -G
+0x6e3daf87 -1 0    0    1920 1080 arch-kde-smoke 
+0x5e93625e -1 3840 0    1920 1080 arch-kde-smoke 
+0x492e4b15 -1 7680 0    1920 1080 arch-kde-smoke 
+0x44930133  0 200  200  800  600  arch-kde-smoke w11-smoke.txt — Kate
+0x6a4f08b8 -1 0    2036 1920 62   arch-kde-smoke 
+### rc=0
+### wwmctl -d
+0  * DG: 5760x1080  VP: 0,0  WA: 0,0 5760x1034  Desktop 1
+### rc=0
+### wxprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x6e3daf87, 0x5e93625e, 0x492e4b15, 0x44930133, 0x6a4f08b8
+### rc=0
+### command -v xw11
+/usr/bin/xw11
+### rc=0
+### xprop -root >/dev/null 2>&1
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null
+:20 1634 :1
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l
+1
+### rc=0
+### DISPLAY=:20 xdotool getdisplaygeometry
+1920 1080
+### rc=0
+### DISPLAY=:20 xdotool search --class kate | head -1
+14680068
+### rc=0
+### wdotool getwindowname 1150484787
+w11-smoke.txt — Kate
+### rc=0
+### DISPLAY=:20 xdotool getwindowname 14680068
+w11-smoke.txt — Kate
+### rc=0
+### wdotool getwindowgeometry 1150484787
+Window 1150484787
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### DISPLAY=:20 xdotool getwindowgeometry 14680068
+Window 14680068
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### DISPLAY=:20 xprop -id 14680068
+_NET_WM_NAME(UTF8_STRING) = "w11-smoke.txt \342\200\224 Kate"
+WM_NAME(UTF8_STRING) = "w11-smoke.txt \342\200\224 Kate"
+WM_CLASS(STRING) = "org.kde.kate", "org.kde.kate"
+_NET_WM_PID(CARDINAL) = 985
+WM_CLIENT_MACHINE(STRING) = "arch-kde-smoke"
+_NET_WM_DESKTOP(CARDINAL) = 0
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_FOCUSED
+_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_NORMAL
+WM_STATE(WM_STATE):
+		window state: Normal
+		icon window: 0x0
+_NET_FRAME_EXTENTS(CARDINAL) = 0, 0, 0, 0
+WM_PROTOCOLS(ATOM): protocols  WM_DELETE_WINDOW
+### rc=0
+### wwmctl -l
+0x6e3daf87 -1 arch-kde-smoke 
+0x5e93625e -1 arch-kde-smoke 
+0x492e4b15 -1 arch-kde-smoke 
+0x44930133  0 arch-kde-smoke w11-smoke.txt — Kate
+0x6a4f08b8 -1 arch-kde-smoke 
+### rc=0
+### DISPLAY=:20 wmctrl -l
+0x00e00001 -1 arch-kde-smoke 
+0x00e00002 -1 arch-kde-smoke 
+0x00e00003 -1 arch-kde-smoke 
+0x00e00004  0 arch-kde-smoke w11-smoke.txt — Kate
+0x00e00005 -1 arch-kde-smoke 
+### rc=0
+### DISPLAY=:20 xdotool get_desktop
+0
+### rc=0
+### DISPLAY=:20 wmctrl -d
+0  * DG: 5760x1080  VP: 0,0  WA: 0,0 5760x1034  Desktop 1
+### rc=0
+### DISPLAY=:20 xprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0xe00001, 0xe00002, 0xe00003, 0xe00004, 0xe00005
+### rc=0
+### W11_PROXY=always wdotool search --class kate | head -1
+14680068
+### rc=0
+### W11_PROXY=never wdotool search --class kate | head -1
+1150484787
+### rc=0
+### wdotool --version
+xdotool version 4.20260303.1
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 3840,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 3840,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x200
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 3840,200
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x0
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 3840,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### DISPLAY=:20 xrandr -q
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### tail -4 ${XW11_LOG:-/tmp/xw11-$(id -u).log}
+xrandr: KWin applies and saves this layout immediately: there is no temporary mode and no confirmation dialog
+xrandr: to restore the previous layout: wxrandr --output Virtual-3 --mode 1920x1080 --rate 75.00 --pos 3840x0 --rotate normal --reflect normal --scale 1 --output Virtual-2 --mode 1920x1080 --rate 75.00 --pos 1920x0 --rotate normal --reflect normal --scale 1 --output Virtual-1 --mode 1920x1080 --rate 75.00 --pos 0x0 --rotate normal --reflect normal --scale 1 --primary
+1789209515.911 xw11[1634] xw11: applied a RandR batch of 1 crtc(s) in 63 ms through kwin (Virtual-3 on)
+1789209518.715 xw11[1634] xw11: applied a RandR batch of 1 crtc(s) in 61 ms through kwin (Virtual-3 on)
+### rc=0
+### DISPLAY=:20 xdotool windowactivate --sync 14680068
+### rc=0
+### wdotool windowactivate --sync 1150484787; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### DISPLAY=:20 xdotool type --delay 30 -- 'proxy: yz@'
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+proxy: yz@
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-2 --primary                      >/dev/null 2>&1; wxrandr --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-2 connected primary 1920x1080+1920+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+### rc=0
+### DISPLAY=:20; export DISPLAY; s=$(date +%s%N); xdotool search --class kate >/dev/null 2>&1; printf '%s ms\n' $(( ($(date +%s%N) - s) / 1000000 ))
+34 ms
+### rc=0
+### xw11 --stop
+### rc=0
+### printf "%s %s" "$(pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l)" \                   "$(test -e $XDG_RUNTIME_DIR/xw11/display && echo 1 || echo 0)"
+0 0
+### rc=0
+### wdotool windowactivate --sync 1150484787
+### rc=0
+### wdotool windowactivate --sync 1150484787; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### wdotool type --delay 30 -- 'us: yz@'
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+us: yz@
+### rc=0
+### wdotool windowactivate --sync 1150484787; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### wdotool type --delay 30 -- abc; wdotool key Return; wdotool type --delay 30 -- def
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+abc
+def
+### rc=0
+### plasmashell --version 2>/dev/null
+plasmashell 6.7.5
+### rc=0
+### kwriteconfig6 --notify --file kxkbrc --group Layout --key LayoutList us,gb
+### rc=0
+### kwriteconfig6 --notify --file kxkbrc --group Layout --key LayoutList us,de
+### rc=0
+### kwriteconfig6 --notify --file kxkbrc --group Layout --key Use true
+### rc=0
+### gdbus call --session --dest org.kde.KWin --object-path /Layouts --method org.kde.KeyboardLayouts.setLayout 1
+(true,)
+### rc=0
+### wdotool windowactivate --sync 1150484787
+### rc=0
+### wdotool keys explain yz@ 2>&1
+layout: German -- group 2 of 2, from wayland + kwin
+level keys: shift = key 42 <LFSH>   level3 = key 100 <RALT>   level5 = key 195 <LVL5>   (what wdotool presses)
+'y' -- 1 press on German
+    press key 44 <AB01> -> 'y'
+    wdotool key 52                             (keycodes)
+    wdotool type 'y'                           (characters)
+'z' -- 1 press on German
+    press key 21 <AD06> -> 'z'
+    wdotool key 29                             (keycodes)
+    wdotool type 'z'                           (characters)
+'@' -- 1 press on German
+    press key 16 <AD01> with level3 (key 100 <RALT>, ISO_Level3_Shift) -> '@'
+    wdotool key 108+24                         (keycodes)
+    wdotool type '@'                           (characters)
+### rc=0
+### wdotool keys explain yz@ 2>&1
+layout: German -- group 2 of 2, from wayland + kwin
+level keys: shift = key 42 <LFSH>   level3 = key 100 <RALT>   level5 = key 195 <LVL5>   (what wdotool presses)
+'y' -- 1 press on German
+    press key 44 <AB01> -> 'y'
+    wdotool key 52                             (keycodes)
+    wdotool type 'y'                           (characters)
+'z' -- 1 press on German
+    press key 21 <AD06> -> 'z'
+    wdotool key 29                             (keycodes)
+    wdotool type 'z'                           (characters)
+'@' -- 1 press on German
+    press key 16 <AD01> with level3 (key 100 <RALT>, ISO_Level3_Shift) -> '@'
+    wdotool key 108+24                         (keycodes)
+    wdotool type '@'                           (characters)
+### rc=0
+### wdotool windowactivate --sync 1150484787; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### wdotool type --delay 30 -- 'yz@ Straße'
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+yz@ Straße
+### rc=0
+### gdbus call --session --dest org.kde.KWin --object-path /Layouts --method org.kde.KeyboardLayouts.setLayout 0
+(true,)
+### rc=0
+### wdotool windowactivate --sync 1150484787; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### wdotool type --delay 30 -- 'yz@ Straße'
+Can't type character 'ß' (not on the US layout). Skipping.
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+yz@ Strae
+### rc=0
+### gdbus call --session --dest org.kde.KWin --object-path /Layouts --method org.kde.KeyboardLayouts.setLayout 1
+(true,)
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 3840,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 3840,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### wxrandr --listmonitors
+Monitors: 3
+ 0: +*Virtual-2 1920/487x1080/274+1920+0  Virtual-2
+ 1: +Virtual-3 1920/487x1080/274+3840+0  Virtual-3
+ 2: +Virtual-1 1920/487x1080/274+0+0  Virtual-1
+### rc=0
+### wxrandr --output Virtual-3 --off
+xrandr: KWin applies and saves this layout immediately: there is no temporary mode and no confirmation dialog
+xrandr: to restore the previous layout: wxrandr --output Virtual-3 --mode 1920x1080 --rate 75.00 --pos 3840x0 --rotate normal --reflect normal --scale 1 --output Virtual-2 --mode 1920x1080 --rate 75.00 --pos 1920x0 --rotate normal --reflect normal --scale 1 --primary --output Virtual-1 --mode 1920x1080 --rate 75.00 --pos 0x0 --rotate normal --reflect normal --scale 1
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### wxrandr --output Virtual-3 --auto
+xrandr: KWin applies and saves this layout immediately: there is no temporary mode and no confirmation dialog
+xrandr: to restore the previous layout: wxrandr --output Virtual-3 --off --output Virtual-2 --mode 1920x1080 --rate 75.00 --pos 1920x0 --rotate normal --reflect normal --scale 1 --primary --output Virtual-1 --mode 1920x1080 --rate 75.00 --pos 0x0 --rotate normal --reflect normal --scale 1
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 0,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+xrandr: KWin applies and saves this layout immediately: there is no temporary mode and no confirmation dialog
+xrandr: to restore the previous layout: wxrandr --output Virtual-3 --mode 1920x1080 --rate 75.00 --pos 0x0 --rotate normal --reflect normal --scale 1 --output Virtual-2 --mode 1920x1080 --rate 75.00 --pos 1920x0 --rotate normal --reflect normal --scale 1 --primary --output Virtual-1 --mode 1920x1080 --rate 75.00 --pos 0x0 --rotate normal --reflect normal --scale 1
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 3840,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 3840,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### wxrandr --output Virtual-3 --below Virtual-2
+xrandr: KWin applies and saves this layout immediately: there is no temporary mode and no confirmation dialog
+xrandr: to restore the previous layout: wxrandr --output Virtual-3 --mode 1920x1080 --rate 75.00 --pos 3840x0 --rotate normal --reflect normal --scale 1 --output Virtual-2 --mode 1920x1080 --rate 75.00 --pos 1920x0 --rotate normal --reflect normal --scale 1 --primary --output Virtual-1 --mode 1920x1080 --rate 75.00 --pos 0x0 --rotate normal --reflect normal --scale 1
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 1920,1080
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 1920,1080
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+xrandr: KWin applies and saves this layout immediately: there is no temporary mode and no confirmation dialog
+xrandr: to restore the previous layout: wxrandr --output Virtual-3 --mode 1920x1080 --rate 75.00 --pos 1920x1080 --rotate normal --reflect normal --scale 1 --output Virtual-2 --mode 1920x1080 --rate 75.00 --pos 1920x0 --rotate normal --reflect normal --scale 1 --primary --output Virtual-1 --mode 1920x1080 --rate 75.00 --pos 0x0 --rotate normal --reflect normal --scale 1
+### rc=0
+### wxrandr --backends 2>&1
+  sway      unavailable  no sway or i3 IPC socket ($SWAYSOCK)
+  hypr      unavailable  no Hyprland IPC socket ($HYPRLAND_INSTANCE_SIGNATURE)
+* kwin      available    kde_output_management_v2 version 21
+  mutter    unavailable  org.gnome.Mutter.DisplayConfig is not on the session bus
+  cinnamon  unavailable  org.cinnamon.Muffin.DisplayConfig is not on the session bus
+  wlr       unavailable  the compositor does not advertise zwlr_output_manager_v1
+  x11       available    /usr/bin/xrandr
+### rc=0
+### wxrandr --print-backend --verbose 2>&1
+kwin
+session: wayland
+chosen by: detection
+compositor: KWin
+protocol: kde_output_management_v2 version 21
+available: yes
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 3840,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### wxrandr --query 2>&1
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-2 connected primary 1920x1080+1920+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 3840,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### wxrandr --output Virtual-3 --off 2>&1
+xrandr: KWin applies and saves this layout immediately: there is no temporary mode and no confirmation dialog
+xrandr: to restore the previous layout: wxrandr --output Virtual-3 --mode 1920x1080 --rate 75.00 --pos 3840x0 --rotate normal --reflect normal --scale 1 --output Virtual-2 --mode 1920x1080 --rate 75.00 --pos 1920x0 --rotate normal --reflect normal --scale 1 --primary --output Virtual-1 --mode 1920x1080 --rate 75.00 --pos 0x0 --rotate normal --reflect normal --scale 1
+### rc=0
+### wxrandr --output Virtual-3 --auto
+xrandr: KWin applies and saves this layout immediately: there is no temporary mode and no confirmation dialog
+xrandr: to restore the previous layout: wxrandr --output Virtual-3 --off --output Virtual-2 --mode 1920x1080 --rate 75.00 --pos 1920x0 --rotate normal --reflect normal --scale 1 --primary --output Virtual-1 --mode 1920x1080 --rate 75.00 --pos 0x0 --rotate normal --reflect normal --scale 1
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+xrandr: KWin applies and saves this layout immediately: there is no temporary mode and no confirmation dialog
+xrandr: to restore the previous layout: wxrandr --output Virtual-3 --mode 1920x1080 --rate 75.00 --pos 0x0 --rotate normal --reflect normal --scale 1 --output Virtual-2 --mode 1920x1080 --rate 75.00 --pos 1920x0 --rotate normal --reflect normal --scale 1 --primary --output Virtual-1 --mode 1920x1080 --rate 75.00 --pos 0x0 --rotate normal --reflect normal --scale 1
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 3840,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### wxrandr --output Virtual-3 --same-as Virtual-2
+xrandr: KWin applies and saves this layout immediately: there is no temporary mode and no confirmation dialog
+xrandr: to restore the previous layout: wxrandr --output Virtual-3 --mode 1920x1080 --rate 75.00 --pos 3840x0 --rotate normal --reflect normal --scale 1 --output Virtual-2 --mode 1920x1080 --rate 75.00 --pos 1920x0 --rotate normal --reflect normal --scale 1 --primary --output Virtual-1 --mode 1920x1080 --rate 75.00 --pos 0x0 --rotate normal --reflect normal --scale 1
+### rc=0
+### test -e ~/.config/kwinoutputconfig.json
+### rc=0
+### cat ~/.config/kwinoutputconfig.json 2>&1
+[
+    {
+        "data": [
+            {
+                "abmLevel": 0,
+                "allowDdcCi": true,
+                "allowSdrSoftwareBrightness": true,
+                "autoBrightnessCurve": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                ],
+                "autoRotation": "InTabletMode",
+                "automaticBrightness": false,
+                "brightness": 1,
+                "colorPowerTradeoff": "PreferEfficiency",
+                "colorProfileSource": "sRGB",
+                "connectorName": "Virtual-1",
+                "customModes": [
+                ],
+                "detectedDdcCi": false,
+                "edidHash": "8c6ca83f950ea28c799205ea5c534cfd",
+                "edidIdentifier": "RHT 4660 0 42 2014 0",
+                "edrPolicy": "always",
+                "hdrColorProfileSource": "EDID",
+                "hdrIccProfilePath": "",
+                "highDynamicRange": false,
+                "iccProfilePath": "",
+                "maxBitsPerColor": 0,
+                "mode": {
+                    "flags": 1,
+                    "height": 1080,
+                    "refreshRate": 74998,
+                    "width": 1920
+                },
+                "overscan": 0,
+                "rgbRange": "Automatic",
+                "scale": 1,
+                "sdrBrightness": 200,
+                "sdrGamutWideness": 0,
+                "sharpness": 0,
+                "transform": "Normal",
+                "uuid": "935c5c3a-d554-474d-a790-5220aa85a74a",
+                "vrrPolicy": "Never",
+                "wideColorGamut": false
+            },
+            {
+                "abmLevel": 0,
+                "allowDdcCi": true,
+                "allowSdrSoftwareBrightness": true,
+                "autoBrightnessCurve": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                ],
+                "autoRotation": "InTabletMode",
+                "automaticBrightness": false,
+                "brightness": 1,
+                "colorPowerTradeoff": "PreferEfficiency",
+                "colorProfileSource": "sRGB",
+                "connectorName": "Virtual-2",
+                "customModes": [
+                ],
+                "detectedDdcCi": false,
+                "edidHash": "8c6ca83f950ea28c799205ea5c534cfd",
+                "edidIdentifier": "RHT 4660 0 42 2014 0",
+                "edrPolicy": "always",
+                "hdrColorProfileSource": "EDID",
+                "hdrIccProfilePath": "",
+                "highDynamicRange": false,
+                "iccProfilePath": "",
+                "maxBitsPerColor": 0,
+                "mode": {
+                    "flags": 1,
+                    "height": 1080,
+                    "refreshRate": 74998,
+                    "width": 1920
+                },
+                "overscan": 0,
+                "rgbRange": "Automatic",
+                "scale": 1,
+                "sdrBrightness": 200,
+                "sdrGamutWideness": 0,
+                "sharpness": 0,
+                "transform": "Normal",
+                "uuid": "eceb0ff2-7459-498a-bd19-b31c06907111",
+                "vrrPolicy": "Never",
+                "wideColorGamut": false
+            },
+            {
+                "abmLevel": 0,
+                "allowDdcCi": true,
+                "allowSdrSoftwareBrightness": true,
+                "autoBrightnessCurve": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                ],
+                "autoRotation": "InTabletMode",
+                "automaticBrightness": false,
+                "brightness": 1,
+                "colorPowerTradeoff": "PreferEfficiency",
+                "colorProfileSource": "sRGB",
+                "connectorName": "Virtual-3",
+                "customModes": [
+                ],
+                "detectedDdcCi": false,
+                "edidHash": "8c6ca83f950ea28c799205ea5c534cfd",
+                "edidIdentifier": "RHT 4660 0 42 2014 0",
+                "edrPolicy": "always",
+                "hdrColorProfileSource": "EDID",
+                "hdrIccProfilePath": "",
+                "highDynamicRange": false,
+                "iccProfilePath": "",
+                "maxBitsPerColor": 0,
+                "mode": {
+                    "flags": 1,
+                    "height": 1080,
+                    "refreshRate": 74998,
+                    "width": 1920
+                },
+                "overscan": 0,
+                "rgbRange": "Automatic",
+                "scale": 1,
+                "sdrBrightness": 200,
+                "sdrGamutWideness": 0,
+                "sharpness": 0,
+                "transform": "Normal",
+                "uuid": "0d6b0201-715b-4cef-bbcb-7aec94657077",
+                "vrrPolicy": "Never",
+                "wideColorGamut": false
+            }
+        ],
+        "name": "outputs"
+    },
+    {
+        "data": [
+            {
+                "lidClosed": false,
+                "outputs": [
+                    {
+                        "enabled": true,
+                        "outputIndex": 0,
+                        "position": {
+                            "x": 0,
+                            "y": 0
+                        },
+                        "priority": 2,
+                        "replicationSource": ""
+                    },
+                    {
+                        "enabled": true,
+                        "outputIndex": 1,
+                        "position": {
+                            "x": 1920,
+                            "y": 0
+                        },
+                        "priority": 1,
+                        "replicationSource": ""
+                    },
+                    {
+                        "enabled": true,
+                        "outputIndex": 2,
+                        "position": {
+                            "x": 1920,
+                            "y": 0
+                        },
+                        "priority": 3,
+                        "replicationSource": ""
+                    }
+                ]
+            }
+        ],
+        "name": "setups"
+    }
+]
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+xrandr: KWin applies and saves this layout immediately: there is no temporary mode and no confirmation dialog
+xrandr: to restore the previous layout: wxrandr --output Virtual-3 --mode 1920x1080 --rate 75.00 --pos 1920x0 --rotate normal --reflect normal --scale 1 --output Virtual-2 --mode 1920x1080 --rate 75.00 --pos 1920x0 --rotate normal --reflect normal --scale 1 --primary --output Virtual-1 --mode 1920x1080 --rate 75.00 --pos 0x0 --rotate normal --reflect normal --scale 1
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 3840,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### python3 $HOME/w11-oracle.py kde
+Virtual-3 3840,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### command -v xterm
+/usr/bin/xterm
+### rc=0
+### setsid nohup xterm -T fwtwin -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null &                setsid nohup xterm -T fwtwin -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 1; true
+### rc=0
+### wdotool search --name '^fwtwin$' | grep -cE '^[0-9]+$'
+2
+### rc=0
+### wdotool search --name '^fwtwin$'
+1213440151
+1853370110
+### rc=0
+### wdotool getwindowgeometry 1853370110
+Window 1853370110
+  Position: 2678,367 (screen: 0)
+  Geometry: 484x344
+### rc=0
+### wwmctl -i -r 1853370110 -e 0,700,120,600,400
+### rc=0
+### wdotool getwindowgeometry 1853370110
+Window 1853370110
+  Position: 700,120 (screen: 0)
+  Geometry: 600x428
+### rc=0
+### wdotool search --name '^fwtwin$' | while read w; do wdotool windowkill $w; done; pkill xterm; true
+### rc=0
+### wwmctl -l | wc -l
+5
+### rc=0
+### wwmctl -l | wc -l
+5
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-3
+Virtual-2
+Virtual-1
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-3
+Virtual-2
+Virtual-1
+### rc=0
+### wmirror --list
+### rc=0
+### wxrandr --persistent --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-2 connected primary 1920x1080+1920+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+### rc=0
+### wwmctl -l
+0x00e00001 -1 arch-kde-smoke 
+0x00e00002 -1 arch-kde-smoke 
+0x00e00003 -1 arch-kde-smoke 
+0x00e00004  0 arch-kde-smoke w11-smoke.txt — Kate
+0x00e00005 -1 arch-kde-smoke 
+### rc=0
+### wwmctl -l
+0x00e00001 -1 arch-kde-smoke 
+0x00e00002 -1 arch-kde-smoke 
+0x00e00003 -1 arch-kde-smoke 
+0x00e00004  0 arch-kde-smoke w11-smoke.txt — Kate
+0x00e00005 -1 arch-kde-smoke 
+### rc=0
+### wxrandr --query
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected primary 1920x1080+1920+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### wxrandr --query
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected primary 1920x1080+1920+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### ls /run/user/0/xw11/display /tmp/wdotool-0/xw11/display 2>/dev/null
+### rc=2
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+28816
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep -c 'interface=org.freedesktop.portal\.'
+0
+### rc=1
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal.Inhibit' | sed -n 's/.*sender=\([^ ]*\).*/\1/p' | sort -u
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal\.'                  | grep -vE 'interface=org.freedesktop.portal.(Settings|Request|Session)'                  | grep -v 'interface=org.freedesktop.portal.Documents; member=GetMountPoint'                   | head -5
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.PolicyKit1' | head -3
+### rc=0
+### grep -Ec '^signal ' $HOME/w11-bus.log
+744
+### rc=0
+### grep -o 'org.freedesktop.portal.[A-Za-z]*' $HOME/w11-bus.log | sort | uniq -c | sort -rn | head
+    131 org.freedesktop.portal.Desktop
+     77 org/freedesktop/portal/desktop
+     58 org.freedesktop.portal.Documents
+     23 org.freedesktop.portal.Screenshot
+     18 org.freedesktop.portal.Error
+      9 org.freedesktop.portal.Settings
+### rc=0
+### pacman -Qkk w11 2>&1
+w11: 370 total files, 0 altered files
+### rc=0
+### pacman -R --noconfirm w11 2>&1
+checking dependencies...
+
+Packages (1) w11-0.4.0-1
+
+Total Removed Size:  9.52 MiB
+
+:: Do you want to remove these packages? [Y/n] 
+:: Processing package changes...
+removing w11...
+:: Running post-transaction hooks...
+(1/3) Reloading device manager configuration...
+(2/3) Arming ConditionNeedsUpdate...
+(3/3) Updating the desktop file MIME type cache...
+### rc=0
+### ls -d /usr/lib/w11 /var/lib/w11 /etc/xdg/autostart/w11-enable-bridge.desktop /usr/share/gnome-shell/extensions/w11-bridge@w11 /usr/share/gnome-shell/extensions/w11-overlap@w11  2>/dev/null | tr '\n' ' '
+### rc=0
+### for t in wdotool wwmctl wxprop wxrandr warandr wmirror; do command -v $t; done 2>/dev/null
+### rc=1
+### stat -c '%U:%G %a' /dev/uinput 2>/dev/null
+root:root 600
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+# file: /dev/uinput
+# owner: root
+# group: root
+user::rw-
+group::---
+other::---
+
+### rc=0
+### grep -l uinput /run/udev/tags/uaccess/* 2>/dev/null
+### rc=1
+### find /usr/lib/w11 /usr/bin -name __pycache__ 2>/dev/null
+### rc=1
+### cd /tmp && pacman -U --noconfirm ./w11-*.pkg.tar.zst 2>&1
+loading packages...
+resolving dependencies...
+looking for conflicting packages...
+
+Packages (1) w11-0.4.0-1
+
+Total Installed Size:  9.52 MiB
+
+:: Proceed with installation? [Y/n] 
+checking keyring...
+checking package integrity...
+loading package files...
+checking for file conflicts...
+checking available disk space...
+:: Processing package changes...
+installing w11...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules).  Anyone who can open it can type as you.
+  * On an X11 session the tools hand over to the real ones:
+    pacman -S xdotool wmctrl xorg-xprop xorg-xrandr
+
+Optional dependencies for w11
+    python-gobject: the warandr GUI [installed]
+    gtk3: the warandr GUI [installed]
+    wl-mirror: wmirror, region and odd-shape mirroring on wlroots [installed]
+    gnome-shell: the bridge extension, needed by the window commands on GNOME
+    xdotool: the real tool wdotool hands over to, on X11 and through xw11 [installed]
+    wmctrl: the real tool wwmctl hands over to, on X11 and through xw11 [installed]
+    xorg-xprop: the real tool wxprop hands over to, on X11 and through xw11 [installed]
+    xorg-xrandr: the real tool wxrandr hands over to, on X11 and through xw11 [installed]
+:: Running post-transaction hooks...
+(1/3) Reloading device manager configuration...
+(2/3) Arming ConditionNeedsUpdate...
+(3/3) Updating the desktop file MIME type cache...
+### rc=0

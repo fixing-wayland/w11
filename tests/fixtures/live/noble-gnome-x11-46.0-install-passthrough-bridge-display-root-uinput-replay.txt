@@ -1,0 +1,666 @@
+# live-smoke recording: flavor=noble-gnome-x11 desktop=gnome-x11 distro=ubuntu mode=pkg remove=1 heads=3 stamp=20260912-103615
+# replay: 63 pass, 0 fail (mode pkg, remove 1, phases install,passthrough,bridge,display,root,uinput, 2026-09-12)
+### true
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### printf 'w11-desktop-version: '; gnome-shell --version
+w11-desktop-version: GNOME Shell 46.0
+### rc=0
+### for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \           systemctl stop unattended-upgrades.service 2>/dev/null; true
+### rc=0
+### cd /tmp && DEBIAN_FRONTEND=noninteractive apt-get install -y ./w11.deb 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Suggested packages:
+  wl-mirror
+The following NEW packages will be installed:
+  w11
+0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.
+Need to get 0 B/677 kB of archives.
+After this operation, 2850 kB of additional disk space will be used.
+Get:1 /tmp/w11.deb w11 all 0.4.0 [677 kB]
+Selecting previously unselected package w11.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 157298 files and directories currently installed.)
+Preparing to unpack /tmp/w11.deb ...
+Unpacking w11 (0.4.0) ...
+Setting up w11 (0.4.0) ...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.  The
+    extension is installed and is enabled for you automatically in that first
+    session.  wxrandr and warandr work already; until the relogin the window
+    commands say the bridge is not running and name gnome/install-bridge.sh,
+    which is the from-a-clone route -- this package has done that part.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules), which is what lets wdotool type and click
+    without root.  Anyone who can open it can type as you -- see the threat
+    model in /usr/share/doc/w11/README.md.gz.
+  * On an X11 session the tools hand over to the real ones; install those
+    with: apt install xdotool wmctrl
+
+Processing triggers for gnome-menus (3.36.0-1.1ubuntu3) ...
+Processing triggers for desktop-file-utils (0.27-2build1) ...
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+### rc=0
+### ( sleep 1; reboot ) >/dev/null 2>&1 &
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### for t in xdotool wmctrl xprop xrandr; do             [ -x /usr/bin/$t ] || continue             { echo "#!/bin/sh"               echo "echo \"$t:\$*\" >> /tmp/w11-argv.log"               echo "exec /usr/bin/$t \"\$@\""             } > /usr/local/bin/$t             chmod 0755 /usr/local/bin/$t           done; head -99 /usr/local/bin/xdotool
+#!/bin/sh
+echo "xdotool:$*" >> /tmp/w11-argv.log
+exec /usr/bin/xdotool "$@"
+### rc=0
+### ls /usr/local/bin/xdotool /usr/local/bin/wmctrl /usr/local/bin/xprop /usr/local/bin/xrandr
+/usr/local/bin/wmctrl
+/usr/local/bin/xdotool
+/usr/local/bin/xprop
+/usr/local/bin/xrandr
+### rc=0
+### rm -f /tmp/w11-argv.log; touch /tmp/w11-argv.log
+### rc=0
+### setsid nohup gnome-text-editor $HOME/w11-smoke.txt >/dev/null 2>&1 </dev/null & sleep 3; true
+### rc=0
+### wdotool search --name w11smoke
+### rc=1
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+### rc=0
+### wwmctl -l -G
+0x00a00008 -1 0    0    1920 1080 noble-gnome-x11-smoke Desktop Icons 1
+0x00a0000c -1 3840 0    1920 1080 noble-gnome-x11-smoke Desktop Icons 2
+0x00a00010 -1 7680 0    1920 1080 noble-gnome-x11-smoke Desktop Icons 3
+0x01e00004  0 462  -42  822  642  noble-gnome-x11-smoke w11-smoke.txt (~/) - Text Editor
+### rc=0
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+wmctrl:-l -G
+### rc=0
+### wxprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0xa00008, 0xa0000c, 0xa00010, 0x1e00004
+### rc=0
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+wmctrl:-l -G
+xprop:-root _NET_CLIENT_LIST
+### rc=0
+### wxrandr --query
+Screen 0: minimum 320 x 200, current 5760 x 1080, maximum 8192 x 8192
+Virtual-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    50.00    59.94  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     60.00  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    50.00    59.94  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     60.00  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    50.00    59.94  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     60.00  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-4 disconnected (normal left inverted right x axis y axis)
+### rc=0
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+wmctrl:-l -G
+xprop:-root _NET_CLIENT_LIST
+xrandr:--query
+### rc=0
+### wxrandr --output Virtual-1 --auto --persistent 2>&1
+xrandr: --persistent is dropped on X11: the X server keeps no saved layout of its own and the real xrandr has never had the option; the rest of the command is handed over unchanged
+### rc=0
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+wmctrl:-l -G
+xprop:-root _NET_CLIENT_LIST
+xrandr:--query
+xrandr:--output Virtual-1 --auto
+### rc=0
+### wxrandr --unsafe-gnome-overlap --output Virtual-1 --pos 100x0 2>&1
+xrandr: --unsafe-gnome-overlap only means anything on GNOME; this session is x11, which places overlapping monitors without it
+### rc=1
+### wxrandr --unsafe-gnome-overlap-unmeasured 51 2>&1
+xrandr: --unsafe-gnome-overlap-unmeasured only means something together with --unsafe-gnome-overlap, which is the only option that turns this on at all
+Try 'xrandr --help' for more information.
+### rc=1
+### wmirror --check 2>&1
+problem:  this is an X11 session: there is no wl-mirror here
+          X11 mirrors whole outputs with `xrandr --output B --same-as A`; a region is not done here yet -- it needs an X capture client of our own (XShm off the root window), which is a tool this toolbox has not written
+helper:   not installed
+          wl-mirror is not installed (no `wl-mirror` on PATH)
+          on Ubuntu/Debian: sudo apt install wl-mirror
+wayland:  none
+### rc=1
+### cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null || echo none
+none
+### rc=0
+### pkill xterm; true
+### rc=0
+### rm -f /usr/local/bin/xdotool /usr/local/bin/wmctrl /usr/local/bin/xprop /usr/local/bin/xrandr
+### rc=0
+### gnome-shell --version
+GNOME Shell 46.0
+### rc=0
+### echo $XDG_SESSION_TYPE
+x11
+### rc=0
+### setsid nohup gnome-text-editor $HOME/w11-smoke.txt >/dev/null 2>&1 </dev/null & sleep 3; true
+### rc=0
+### gsettings get org.gnome.shell disable-user-extensions
+false
+### rc=0
+### pgrep -x gnome-shell | head -1
+1396
+### rc=0
+### gnome-extensions info w11-bridge@w11
+w11-bridge@w11
+  Name: w11 bridge
+  Description: Exports Mutter window, workspace and monitor control over D-Bus (org.w11.Bridge) so wdotool, wwmctl and wxprop can drive a GNOME Wayland session. wxrandr and warandr do not need it: monitors go through Mutter's own DisplayConfig.
+  Path: /usr/share/gnome-shell/extensions/w11-bridge@w11
+  URL: https://github.com/zardus/w11
+  Version: 3
+  Enabled: Yes
+  State: ACTIVE
+### rc=0
+### gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus                    --method org.freedesktop.DBus.ListNames 2>&1 | tr ',' '\n' | grep w11
+ 'org.w11.Bridge'
+### rc=0
+### gdbus call --session --dest org.freedesktop.DBus                       --object-path /org/freedesktop/DBus                       --method org.freedesktop.DBus.GetConnectionUnixProcessID org.w11.Bridge                       2>&1 | sed -n 's/.*uint32 \([0-9]*\).*/\1/p'
+1396
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.Bridge1.GetVersion 2>&1
+(uint32 3,)
+### rc=0
+### gnome-extensions disable w11-bridge@w11
+### rc=0
+### gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus            --method org.freedesktop.DBus.NameHasOwner org.w11.Bridge 2>&1
+(false,)
+### rc=0
+### gnome-extensions enable w11-bridge@w11
+### rc=0
+### gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus            --method org.freedesktop.DBus.NameHasOwner org.w11.Bridge 2>&1
+(true,)
+### rc=0
+### pgrep -x gnome-shell | head -1
+1396
+### rc=0
+### gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell                     --method org.gnome.Shell.Extensions.ReloadExtension w11-bridge@w11 2>&1
+Error: GDBus.Error:org.freedesktop.DBus.Error.NotSupported: ReloadExtension is deprecated and does not work
+### rc=1
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.BridgeReload1.Reload 2>&1
+('{"version":3,"mtime":1788685200,"reread":false,"path":"/usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js"}',)
+### rc=0
+### sed -n 's/^const VERSION = \([0-9]*\);/\1/p' /usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js
+3
+### rc=0
+### sed -i 's/^const VERSION = [0-9]*;/const VERSION = 99;/' /usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.BridgeReload1.Reload 2>&1
+('{"version":99,"mtime":1789209478,"reread":true,"path":"/usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js"}',)
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.Bridge1.GetVersion 2>&1
+(uint32 99,)
+### rc=0
+### pgrep -x gnome-shell | head -1
+1396
+### rc=0
+### touch -d '2030-01-01 00:00:00' /usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.BridgeReload1.Reload 2>&1
+('{"version":99,"mtime":1893456000,"reread":true,"path":"/usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js"}',)
+### rc=0
+### touch -d '2030-01-02 00:00:00' /usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.BridgeReload1.Reload 2>&1
+('{"version":99,"mtime":1893542400,"reread":true,"path":"/usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js"}',)
+### rc=0
+### touch -d '2030-01-03 00:00:00' /usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.BridgeReload1.Reload 2>&1
+('{"version":99,"mtime":1893628800,"reread":true,"path":"/usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js"}',)
+### rc=0
+### sed -i 's/^const VERSION = 99;/const VERSION = 3;/' /usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.BridgeReload1.Reload
+('{"version":3,"mtime":1789209482,"reread":true,"path":"/usr/share/gnome-shell/extensions/w11-bridge@w11/extension.js"}',)
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.Bridge1.GetVersion 2>&1
+(uint32 3,)
+### rc=0
+### wdotool --version
+xdotool version 3.20160805.1
+### rc=0
+### wxrandr --print-backend
+x11
+### rc=0
+### W11_PASSTHROUGH=never wwmctl -l -x 2>&1
+0x00a00008 -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 1
+0x00a0000c -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 2
+0x00a00010 -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 3
+0x01e00004  0 gnome-text-editor.gnome-text-editor  noble-gnome-x11-smoke w11-smoke.txt (~/) - Text Editor
+### rc=0
+### wmctrl -l -x | awk '/TextEditor|Text Editor/ { print $1; exit }'
+0x01e00004
+### rc=0
+### wmctrl -l -x
+0x00a00008 -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 1
+0x00a0000c -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 2
+0x00a00010 -1 gjs.Gjs               noble-gnome-x11-smoke Desktop Icons 3
+0x01e00004  0 gnome-text-editor.gnome-text-editor  noble-gnome-x11-smoke w11-smoke.txt (~/) - Text Editor
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --listmonitors
+Monitors: 3
+ 0: +*Virtual-1 1920/487x1080/274+0+0  Virtual-1
+ 1: +Virtual-2 1920/487x1080/274+1920+0  Virtual-2
+ 2: +Virtual-3 1920/487x1080/274+3840+0  Virtual-3
+### rc=0
+### wxrandr --output Virtual-3 --off
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+### rc=0
+### wxrandr --output Virtual-3 --auto
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 0,0
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --output Virtual-3 --below Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,1080
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,1080
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### wxrandr --backends
+  sway      unavailable  no sway or i3 IPC socket ($SWAYSOCK)
+  hypr      unavailable  no Hyprland IPC socket ($HYPRLAND_INSTANCE_SIGNATURE)
+  kwin      unavailable  no wayland socket
+  mutter    available    org.gnome.Mutter.DisplayConfig on the session bus
+  cinnamon  unavailable  org.cinnamon.Muffin.DisplayConfig is not on the session bus
+  wlr       unavailable  no wayland socket
+* x11       available    /usr/bin/xrandr
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --output Virtual-3 --pos 1920x0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,0
+### rc=0
+### wxrandr --output Virtual-3 --pos 3840x0
+### rc=0
+### wxrandr --print-backend --backend mutter --verbose 2>&1
+mutter
+session: x11
+chosen by: flag (--backend mutter)
+compositor: Mutter
+protocol: org.gnome.Mutter.DisplayConfig (D-Bus)
+available: yes
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --backend mutter --output Virtual-3 --pos 1920x0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,0
+### rc=0
+### wxrandr --output Virtual-3 --pos 3840x0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome-x11
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --gnome-overlap-status 2>&1
+unavailable
+shell: 46.0
+reason: this session is x11, which places overlapping monitors without it
+file: /home/test/.config/w11/overlap-consent.json
+### rc=0
+### setsid nohup gnome-text-editor $HOME/w11-smoke.txt >/dev/null 2>&1 </dev/null & sleep 3; true
+### rc=0
+### wwmctl -l | wc -l
+4
+### rc=0
+### w=$(command -v wwmctl); env -i "$w" -l | wc -l
+4
+### rc=0
+### env -i /usr/bin/wmctrl -l 2>&1
+Cannot open display.
+### rc=1
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-1
+Virtual-2
+Virtual-3
+### rc=0
+### w=$(command -v wxrandr); env -i "$w" --query 2>/dev/null | awk "\$2==\"connected\"{print \$1}"
+Virtual-1
+Virtual-2
+Virtual-3
+### rc=0
+### ls -l /run/user/1000/gdm/Xauthority 2>&1
+-rwx------ 1 test test 130 Sep 12 10:37 /run/user/1000/gdm/Xauthority
+### rc=0
+### echo $XAUTHORITY
+/run/user/1000/gdm/Xauthority
+### rc=0
+### w=$(command -v wdotool); env -i "$w" search --onlyvisible --class 'gnome-text-editor'                   2>&1 | head -1
+31457284
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+# file: /dev/uinput
+# owner: root
+# group: root
+user::rw-
+user:test:rw-
+group::---
+mask::rw-
+other::---
+
+### rc=0
+### setsid nohup gnome-text-editor $HOME/w11-smoke.txt >/dev/null 2>&1 </dev/null & sleep 3; true
+### rc=0
+### wdotool search --onlyvisible --class 'gnome-text-editor' | head -1
+31457284
+### rc=0
+### wdotool windowactivate --sync 31457284
+### rc=0
+### rm -f $HOME/w11-smoke.txt; touch $HOME/w11-smoke.txt
+### rc=0
+### W11_PASSTHROUGH=never wdotool type --delay 30 -- 'x11 uinput' 2>&1
+wdotool: cannot read the compositor's keymap (no wayland socket found); typing with the built-in US layout table
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+x11 uinput
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+x11 uinput
+### rc=0
+### for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \           systemctl stop unattended-upgrades.service 2>/dev/null; true
+### rc=0
+### DEBIAN_FRONTEND=noninteractive apt-get remove -y w11 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following packages will be REMOVED:
+  w11
+0 upgraded, 0 newly installed, 1 to remove and 0 not upgraded.
+After this operation, 2850 kB disk space will be freed.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 157442 files and directories currently installed.)
+Removing w11 (0.4.0) ...
+Processing triggers for gnome-menus (3.36.0-1.1ubuntu3) ...
+Processing triggers for desktop-file-utils (0.27-2build1) ...
+### rc=0
+### ls -d /usr/lib/w11 /var/lib/w11 /etc/xdg/autostart/w11-enable-bridge.desktop /usr/share/gnome-shell/extensions/w11-bridge@w11 /usr/share/gnome-shell/extensions/w11-overlap@w11  2>/dev/null | tr '\n' ' '
+### rc=0
+### for t in wdotool wwmctl wxprop wxrandr warandr wmirror; do command -v $t; done 2>/dev/null
+### rc=127
+### stat -c '%U:%G %a' /dev/uinput 2>/dev/null
+root:root 600
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+# file: /dev/uinput
+# owner: root
+# group: root
+user::rw-
+group::---
+other::---
+
+### rc=0
+### grep -l uinput /run/udev/tags/uaccess/* 2>/dev/null
+### rc=1
+### find /usr/lib/w11 /usr/bin -name __pycache__ 2>/dev/null
+### rc=1
+### cd /tmp && DEBIAN_FRONTEND=noninteractive apt-get install -y ./w11.deb 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Suggested packages:
+  wl-mirror
+The following NEW packages will be installed:
+  w11
+0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.
+Need to get 0 B/677 kB of archives.
+After this operation, 2850 kB of additional disk space will be used.
+Get:1 /tmp/w11.deb w11 all 0.4.0 [677 kB]
+Selecting previously unselected package w11.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 157298 files and directories currently installed.)
+Preparing to unpack /tmp/w11.deb ...
+Unpacking w11 (0.4.0) ...
+Setting up w11 (0.4.0) ...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.  The
+    extension is installed and is enabled for you automatically in that first
+    session.  wxrandr and warandr work already; until the relogin the window
+    commands say the bridge is not running and name gnome/install-bridge.sh,
+    which is the from-a-clone route -- this package has done that part.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules), which is what lets wdotool type and click
+    without root.  Anyone who can open it can type as you -- see the threat
+    model in /usr/share/doc/w11/README.md.gz.
+  * On an X11 session the tools hand over to the real ones; install those
+    with: apt install xdotool wmctrl
+
+Processing triggers for gnome-menus (3.36.0-1.1ubuntu3) ...
+Processing triggers for desktop-file-utils (0.27-2build1) ...
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+User sessions running outdated binaries:
+ root @ session #111: wdotool[10326]
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+### rc=0

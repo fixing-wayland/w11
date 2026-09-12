@@ -156,7 +156,55 @@ and the bytes are named wherever a number is.
   is not worth a process that outlives the command by fifteen minutes. The package now
   **Recommends** `xdotool`, `wmctrl`, `x11-utils` and `x11-xserver-utils` rather than
   suggesting them, on all three packagings.
-- **5438 tests**, up from 4146, the new ones being the four new window and display
+- **The rig records itself, and a second job replays it.** `vm/live-smoke.sh --pkg --remove
+  --record` runs on every flavor on every push and leaves a `<flavor>-<stamp>-capture.txt`
+  beside its log — every guest command and the bytes it answered — and `scripts/rig-recordings.sh
+  <run-id>` turns those captures into `tests/fixtures/live/*-replay.txt`, named after the log's
+  phase list and the run's `w11-desktop-version:` note and kept only when the replay reproduces
+  the tally the log recorded. `LIVE_SMOKE_SLEEP=0` takes the phases' sleeps out (they are for a
+  real compositor), so a full 38-recording replay costs minutes, not half an hour. The wave's
+  harvest closed `tests/fixtures/live/NOT-YET-RUN` down to the flavors whose version command still
+  prints nothing (kde, river, lxqt) and the one that replays a check short (wayfire), each named.
+- **CI: the nine `continue-on-error` keys are gone.** The Ubuntu, Fedora and Arch base images are
+  pinned by digest (and declared in each Dockerfile, so the pin is part of the image key), Arch
+  syncs against an `archive.archlinux.org` snapshot of the base tag's date, Arch's `wmctrl --help`
+  was counted (6801 bytes, the nixpkgs 1.07 size), and the headless-sway proxy probe gates the four
+  jobs that run it. `scripts/parity-oracle.sh` gained `W11_PARITY_PROXY=native` and
+  `W11_PARITY_SWAY=1` — the byte-parity set through the proxy in its synthesizing mode over a
+  compositor's Xwayland, byte-identical, +5.3 s (measured by the proxy batch on this box,
+  2026-09-12; the set itself runs 6.4 s, per `scripts/parity-oracle.sh` and recon/recordings.md 2.2).
+- **RandR `--primary` moves the compositor's own primary** on the two backends that have one:
+  Mutter's `ApplyMonitorsConfig` primary flag and KWin's `set_priority`. Measured on KWin 6.5
+  (resolute-kde): `xrandr --output Virtual-2 --primary` reads back `Virtual-2`, grabbed and
+  `--nograb` alike. On sway, the wlr floor and Hyprland the flag stays Xwayland's, both planes agree,
+  and no compositor is told — not yet, route 1, a foreign primary verb no protocol carries.
+- **X-plane geometry for XWayland windows on the wlr floor** (labwc, river, Budgie, Xfce-on-Wayland,
+  LXQt-on-Wayland): `WlrBackend.list()` folds the X server's rectangle and pid into every row it can
+  pair with `_NET_CLIENT_LIST`, so `getwindowgeometry`/`getwindowpid` on an xterm answer `718,395
+  484x316` where the floor said `0,0 1920x1080`. A native toplevel is still the output rectangle —
+  the one surviving geometry not-yet, route 1, a foreign-toplevel protocol that carries a rect.
+- **COSMIC:** `getactivewindow`, `wxprop -id _NET_WM_STATE`, `getwindowgeometry` and
+  `set_desktop`/`get_desktop` answer on a live cosmic-comp — the backend waits for the `state` and
+  `geometry` events cosmic-comp sends 150 ms after the request, and numbers desktops group by group
+  (one workspace group per output). `zcosmic_toplevel_handle_v1.geometry` carries a rect, so COSMIC
+  leaves the no-rectangle class.
+- **Hyprland:** `wxrandr` applies on a 0.56.2 session that stores `hyprctl keyword monitor` and does
+  not apply it, by writing `~/.config/hypr/w11-monitors.conf`, sourcing it and reloading (route 2);
+  `--persistent` is the first Hyprland one that does anything. `wdotool windowsize` no longer moves a
+  0.56 window (0.56 resizes about the centre), and `wdotool type` types the session's layout through
+  `/dev/uinput` by putting the injected device in the group the text is encoded for.
+- **The GNOME bridge re-reads its own `extension.js`** without a logout (`org.w11.BridgeReload1.Reload`,
+  route 3), and the overlap extension has a record for GNOME 49 (libmutter-17), measured on Fedora 43:
+  `MetaMonitorsConfig` 80 bytes, three tail slots, the shared region byte-identical on three heads.
+  Overlap has now run on GNOME 46, 49, 50 and 51.
+- **rig: `resolute-cinnamon-wayland`'s golden installs Debian's pinned `xwayland_24.1.13-1`** (route 5)
+  — Ubuntu 26.04's `2:24.1.10-1` segfaults in `damage_report()` and takes the Cinnamon session with
+  it (not the GPU: `/dev/dri/renderD128` is present and the same crash happens with `-glamor off`).
+  Four of the flavor's xwants became plain checks with it (the mixed X/native window list,
+  `_NET_CLIENT_LIST`, `_NET_WM_STATE_SHADED`, and the `--vkbd` refusal naming Muffin). `wmctrl
+  --true-geometry` — a flag wmctrl never had — prints the compositor's own rectangle instead of
+  wmctrl's doubled `absolute + parent-relative` origin.
+- **5441 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and

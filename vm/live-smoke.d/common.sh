@@ -121,7 +121,7 @@ desktop_version_cmd() {
         sway)                                   echo 'sway --version' ;;
         labwc|xfce-wayland|budgie|lxqt-wayland) echo 'labwc --version' ;;
         hypr)                                   echo 'hyprctl version | head -1' ;;
-        river)                                  echo 'riverctl -version' ;;
+        river)                                  echo 'river --version' ;;
         wayfire)                                echo 'wayfire --version' ;;
         cosmic)                                 echo 'cosmic-comp --version' ;;
         gnome|gnome-x11)                        echo 'gnome-shell --version' ;;

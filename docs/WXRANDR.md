@@ -1755,6 +1755,17 @@ accepted. What each group does here:
   to place a mirror — is **not yet** on Cinnamon and the desktops with no output protocol.
   The route is the compositor's own display bus or IPC, which wxrandr already speaks four
   of (route 2), at the cost of one layout reader per compositor.
+* **A mode that GROWS a head back after a shrink** — xrandr grows a head as readily as it
+  shrinks one — is **not yet** reproducible on the rig. Measured on Hyprland
+  (`vm/live-smoke.d/hypr.sh`): `--output <h> --mode 1280x1024` shrinks the head and lands,
+  then `--output <h> --mode 1920x1080` to grow it back does not, because the runner has no
+  KMS/DRM render node — `-device virtio-vga-gl` with `-display dbus,gl=on` is refused with
+  `egl: no drm render node available`, and there is no `/dev/dri` on the dsb guest
+  (goal2/recon/gl.md §4). The route is a KMS device the runner has not got: a render node
+  under `-device virtio-vga-gl`, or a different KMS device (qxl, bochs-display,
+  virtio-gpu `blob=on`, untried) — **route 4**, the parts around the compositor. It is the
+  rig that refuses, not the backend: `wxrandr` sends the grow and the modeset path is what
+  wedges, which is why this is a rig/`wxrandr` xwant and not a proxy What-differs row.
 
 ## Known limitations
 

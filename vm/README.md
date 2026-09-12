@@ -1358,7 +1358,11 @@ wrong with `wayland` alone), and `cosmic-randr list --kdl` off a real KMS head r
 `modes` block in which only the current mode carries any flag. One build-cost correction while
 we are here: `dnf group install cosmic-desktop-environment` resolves to **1,147 packages** and
 the install alone was still running after **40 minutes** on 2 vCPU / 3 GiB, so the plan's
-"~8 min" for this flavor is wrong by a lot and the CI job needs a timeout to match.
+"~8 min" for this flavor is wrong by a lot and the CI job needs a timeout to match. On
+`arch-cosmic` the flavor also pins `LP_NUM_THREADS=0` (in `vm/flavors/arch-cosmic.yaml`),
+rasterising software-GL on the calling thread to route around an Arch mesa 26.2.2 llvmpipe
+SIGSEGV in the per-output worker threads that otherwise crashes cosmic-comp ~13 s into a
+session — a rig GL-stack workaround (route 4), not a w11 tool behaviour.
 
 **river** (`arch-river`) — **river 0.4's wlr-foreign-toplevel is read-only, and this flavor
 exists to say so.** `Window.zig` creates the handle and only ever pushes title, app_id and

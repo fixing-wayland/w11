@@ -1,0 +1,469 @@
+# live-smoke recording: flavor=resolute-i3 desktop=i3 distro=ubuntu mode=pkg remove=1 heads=3 stamp=20260912-103923
+# replay: 42 pass, 0 fail (mode pkg, remove 1, phases install,passthrough,i3ipc, 2026-09-12)
+### true
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### printf 'w11-desktop-version: '; i3 --version
+w11-desktop-version: i3 version 4.25.1 (2026-02-06) © 2009 Michael Stapelberg and contributors
+### rc=0
+### for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \           systemctl stop unattended-upgrades.service 2>/dev/null; true
+### rc=0
+### cd /tmp && DEBIAN_FRONTEND=noninteractive apt-get install -y ./w11.deb 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following additional packages will be installed:
+  gir1.2-atk-1.0 gir1.2-freedesktop gir1.2-gdkpixbuf-2.0 gir1.2-gtk-3.0
+  gir1.2-harfbuzz-0.0 gir1.2-pango-1.0 libharfbuzz-gobject0 libpangoxft-1.0-0
+Suggested packages:
+  wl-mirror
+The following NEW packages will be installed:
+  gir1.2-atk-1.0 gir1.2-freedesktop gir1.2-gdkpixbuf-2.0 gir1.2-gtk-3.0
+  gir1.2-harfbuzz-0.0 gir1.2-pango-1.0 libharfbuzz-gobject0 libpangoxft-1.0-0
+  w11
+0 upgraded, 9 newly installed, 0 to remove and 96 not upgraded.
+Need to get 472 kB/1149 kB of archives.
+After this operation, 4822 kB of additional disk space will be used.
+Get:1 /tmp/w11.deb w11 all 0.4.0 [677 kB]
+Get:2 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 gir1.2-atk-1.0 amd64 2.60.4-0ubuntu0.1 [23.2 kB]
+Get:3 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-freedesktop amd64 1.86.0-6build1 [66.0 kB]
+Get:4 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-gdkpixbuf-2.0 amd64 2.44.5+dfsg-4ubuntu1 [9312 B]
+Get:5 http://archive.ubuntu.com/ubuntu resolute/main amd64 libharfbuzz-gobject0 amd64 12.3.2-2 [33.3 kB]
+Get:6 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-harfbuzz-0.0 amd64 12.3.2-2 [44.6 kB]
+Get:7 http://archive.ubuntu.com/ubuntu resolute/main amd64 libpangoxft-1.0-0 amd64 1.57.0-1 [20.6 kB]
+Get:8 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-pango-1.0 amd64 1.57.0-1 [34.8 kB]
+Get:9 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-gtk-3.0 amd64 3.24.52-0ubuntu1 [240 kB]
+Fetched 472 kB in 2s (278 kB/s)
+Selecting previously unselected package gir1.2-atk-1.0:amd64.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 103101 files and directories currently installed.)
+Preparing to unpack .../0-gir1.2-atk-1.0_2.60.4-0ubuntu0.1_amd64.deb ...
+Unpacking gir1.2-atk-1.0:amd64 (2.60.4-0ubuntu0.1) ...
+Selecting previously unselected package gir1.2-freedesktop:amd64.
+Preparing to unpack .../1-gir1.2-freedesktop_1.86.0-6build1_amd64.deb ...
+Unpacking gir1.2-freedesktop:amd64 (1.86.0-6build1) ...
+Selecting previously unselected package gir1.2-gdkpixbuf-2.0:amd64.
+Preparing to unpack .../2-gir1.2-gdkpixbuf-2.0_2.44.5+dfsg-4ubuntu1_amd64.deb ...
+Unpacking gir1.2-gdkpixbuf-2.0:amd64 (2.44.5+dfsg-4ubuntu1) ...
+Selecting previously unselected package libharfbuzz-gobject0:amd64.
+Preparing to unpack .../3-libharfbuzz-gobject0_12.3.2-2_amd64.deb ...
+Unpacking libharfbuzz-gobject0:amd64 (12.3.2-2) ...
+Selecting previously unselected package gir1.2-harfbuzz-0.0:amd64.
+Preparing to unpack .../4-gir1.2-harfbuzz-0.0_12.3.2-2_amd64.deb ...
+Unpacking gir1.2-harfbuzz-0.0:amd64 (12.3.2-2) ...
+Selecting previously unselected package libpangoxft-1.0-0:amd64.
+Preparing to unpack .../5-libpangoxft-1.0-0_1.57.0-1_amd64.deb ...
+Unpacking libpangoxft-1.0-0:amd64 (1.57.0-1) ...
+Selecting previously unselected package gir1.2-pango-1.0:amd64.
+Preparing to unpack .../6-gir1.2-pango-1.0_1.57.0-1_amd64.deb ...
+Unpacking gir1.2-pango-1.0:amd64 (1.57.0-1) ...
+Selecting previously unselected package gir1.2-gtk-3.0:amd64.
+Preparing to unpack .../7-gir1.2-gtk-3.0_3.24.52-0ubuntu1_amd64.deb ...
+Unpacking gir1.2-gtk-3.0:amd64 (3.24.52-0ubuntu1) ...
+Selecting previously unselected package w11.
+Preparing to unpack .../8-w11.deb ...
+Unpacking w11 (0.4.0) ...
+Setting up gir1.2-freedesktop:amd64 (1.86.0-6build1) ...
+Setting up libpangoxft-1.0-0:amd64 (1.57.0-1) ...
+Setting up gir1.2-gdkpixbuf-2.0:amd64 (2.44.5+dfsg-4ubuntu1) ...
+Setting up gir1.2-atk-1.0:amd64 (2.60.4-0ubuntu0.1) ...
+Setting up libharfbuzz-gobject0:amd64 (12.3.2-2) ...
+Setting up gir1.2-harfbuzz-0.0:amd64 (12.3.2-2) ...
+Setting up gir1.2-pango-1.0:amd64 (1.57.0-1) ...
+Setting up gir1.2-gtk-3.0:amd64 (3.24.52-0ubuntu1) ...
+Setting up w11 (0.4.0) ...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.  The
+    extension is installed and is enabled for you automatically in that first
+    session.  wxrandr and warandr work already; until the relogin the window
+    commands say the bridge is not running and name gnome/install-bridge.sh,
+    which is the from-a-clone route -- this package has done that part.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules), which is what lets wdotool type and click
+    without root.  Anyone who can open it can type as you -- see the threat
+    model in /usr/share/doc/w11/README.md.gz.
+  * On an X11 session the tools hand over to the real ones; install those
+    with: apt install xdotool wmctrl
+
+Processing triggers for libc-bin (2.43-2ubuntu2.3) ...
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+### rc=0
+### ( sleep 1; reboot ) >/dev/null 2>&1 &
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### for t in xdotool wmctrl xprop xrandr; do             [ -x /usr/bin/$t ] || continue             { echo "#!/bin/sh"               echo "echo \"$t:\$*\" >> /tmp/w11-argv.log"               echo "exec /usr/bin/$t \"\$@\""             } > /usr/local/bin/$t             chmod 0755 /usr/local/bin/$t           done; head -99 /usr/local/bin/xdotool
+#!/bin/sh
+echo "xdotool:$*" >> /tmp/w11-argv.log
+exec /usr/bin/xdotool "$@"
+### rc=0
+### ls /usr/local/bin/xdotool /usr/local/bin/wmctrl /usr/local/bin/xprop /usr/local/bin/xrandr
+/usr/local/bin/wmctrl
+/usr/local/bin/xdotool
+/usr/local/bin/xprop
+/usr/local/bin/xrandr
+### rc=0
+### rm -f /tmp/w11-argv.log; touch /tmp/w11-argv.log
+### rc=0
+### setsid nohup xterm -T w11smoke -e sh -c 'while :; do sleep 3600; done'            >/dev/null 2>&1 </dev/null & sleep 2; true
+### rc=0
+### wdotool search --name w11smoke
+10485774
+### rc=0
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+### rc=0
+### wwmctl -l -G
+0x00a0000e  1 1925 37   1914 1039 resolute-i3-smoke w11smoke
+### rc=0
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+wmctrl:-l -G
+### rc=0
+### wxprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0xa0000e
+### rc=0
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+wmctrl:-l -G
+xprop:-root _NET_CLIENT_LIST
+### rc=0
+### wxrandr --query
+Screen 0: minimum 320 x 200, current 5760 x 1080, maximum 8192 x 8192
+Virtual-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    50.00    59.94  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     60.00  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    50.00    59.94  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     60.00  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    50.00    59.94  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     60.00  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-4 disconnected (normal left inverted right x axis y axis)
+### rc=0
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+wmctrl:-l -G
+xprop:-root _NET_CLIENT_LIST
+xrandr:--query
+### rc=0
+### wxrandr --output Virtual-1 --auto --persistent 2>&1
+xrandr: --persistent is dropped on X11: the X server keeps no saved layout of its own and the real xrandr has never had the option; the rest of the command is handed over unchanged
+### rc=0
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+wmctrl:-l -G
+xprop:-root _NET_CLIENT_LIST
+xrandr:--query
+xrandr:--output Virtual-1 --auto
+### rc=0
+### wxrandr --unsafe-gnome-overlap --output Virtual-1 --pos 100x0 2>&1
+xrandr: --unsafe-gnome-overlap only means anything on GNOME; this session is x11, which places overlapping monitors without it
+### rc=1
+### wxrandr --unsafe-gnome-overlap-unmeasured 51 2>&1
+xrandr: --unsafe-gnome-overlap-unmeasured only means something together with --unsafe-gnome-overlap, which is the only option that turns this on at all
+Try 'xrandr --help' for more information.
+### rc=1
+### wmirror --check 2>&1
+problem:  this is an X11 session: there is no wl-mirror here
+          X11 mirrors whole outputs with `xrandr --output B --same-as A`; a region is not done here yet -- it needs an X capture client of our own (XShm off the root window), which is a tool this toolbox has not written
+helper:   not installed
+          wl-mirror is not installed (no `wl-mirror` on PATH)
+          on Ubuntu/Debian: sudo apt install wl-mirror
+wayland:  none
+### rc=1
+### cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null || echo none
+none
+### rc=0
+### pkill xterm; true
+### rc=0
+### rm -f /usr/local/bin/xdotool /usr/local/bin/wmctrl /usr/local/bin/xprop /usr/local/bin/xrandr
+### rc=0
+### setsid nohup xterm -T w11smoke -e sh -c 'while :; do sleep 3600; done'            >/dev/null 2>&1 </dev/null & sleep 2; true
+### rc=0
+### i3 --get-socketpath
+/run/user/1000/i3/ipc-socket.1336
+### rc=0
+### echo $I3SOCK
+/run/user/1000/i3/ipc-socket.1336
+### rc=0
+### wdotool --version
+xdotool version 3.20160805.1
+### rc=0
+### wdotool search --name w11smoke | head -1
+10485774
+### rc=0
+### W11_PASSTHROUGH=never env -u I3SOCK wdotool search --name w11smoke 2>&1 | head -1
+10485774
+### rc=0
+### W11_PASSTHROUGH=never env -u I3SOCK wxprop -id 0x00a0000e WM_CLASS 2>&1
+WM_CLASS(STRING) = "xterm", "XTerm"
+### rc=0
+### W11_PASSTHROUGH=never env -u I3SOCK wdotool getwindowpid 10485774 2>&1 | head -1
+3082
+### rc=0
+### W11_PASSTHROUGH=never env -u I3SOCK wdotool search --onlyvisible --name w11smoke 2>&1 | head -1
+10485774
+### rc=0
+### i3-msg '[title="w11smoke"] floating enable'
+[{"success":true}]
+### rc=0
+### wdotool getwindowgeometry 10485774
+Window 10485774
+  Position: 2640,398 (screen: 0)
+  Geometry: 484x316
+### rc=0
+### W11_PASSTHROUGH=never env -u I3SOCK wdotool windowmove 10485774 120 140 2>&1
+### rc=0
+### wdotool getwindowgeometry 10485774
+Window 10485774
+  Position: 125,159 (screen: 0)
+  Geometry: 484x316
+### rc=0
+### i3-msg '[title="w11smoke"] floating disable'
+[{"success":true}]
+### rc=0
+### W11_PASSTHROUGH=never env -u I3SOCK wdotool getdisplaygeometry 2>&1
+5760 1080
+### rc=0
+### W11_PASSTHROUGH=never env -u I3SOCK wxrandr --backend sway --print-backend --verbose 2>&1
+sway
+session: wayland
+chosen by: flag (--backend sway)
+compositor: i3 4.25.1 (2026-02-06)
+protocol: sway IPC (i3-ipc)
+available: yes
+### rc=0
+### W11_PASSTHROUGH=never env -u I3SOCK wxrandr --backend sway --output Virtual-1 --pos 0x0 2>&1
+xrandr: this is i3, which has no output command; the X server owns the layout here -- use xrandr (or drop --backend sway)
+### rc=1
+### W11_PASSTHROUGH=never env -u I3SOCK wwmctl -m 2>&1
+Name: i3
+Class: N/A
+PID: N/A
+Window manager's "showing the desktop" mode: N/A
+### rc=0
+### wmctrl -m 2>&1
+Name: i3
+Class: N/A
+PID: N/A
+Window manager's "showing the desktop" mode: N/A
+### rc=0
+### W11_PASSTHROUGH=never env -u I3SOCK wdotool windowsize 10485774 400 300 2>&1
+i3: cannot resize a tiled window to an absolute size (floating enable it first)
+xdo_set_window_size on window:10485774 reported an error
+### rc=0
+### pkill xterm; true
+### rc=0
+### for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \           systemctl stop unattended-upgrades.service 2>/dev/null; true
+### rc=0
+### DEBIAN_FRONTEND=noninteractive apt-get remove -y w11 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following packages were automatically installed and are no longer required:
+  gir1.2-atk-1.0 gir1.2-freedesktop gir1.2-gdkpixbuf-2.0 gir1.2-gtk-3.0
+  gir1.2-harfbuzz-0.0 gir1.2-pango-1.0 libharfbuzz-gobject0 libpangoxft-1.0-0
+Use 'apt autoremove' to remove them.
+The following packages will be REMOVED:
+  w11
+0 upgraded, 0 newly installed, 1 to remove and 96 not upgraded.
+After this operation, 2850 kB disk space will be freed.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 103298 files and directories currently installed.)
+Removing w11 (0.4.0) ...
+### rc=0
+### ls -d /usr/lib/w11 /var/lib/w11 /etc/xdg/autostart/w11-enable-bridge.desktop /usr/share/gnome-shell/extensions/w11-bridge@w11 /usr/share/gnome-shell/extensions/w11-overlap@w11  2>/dev/null | tr '\n' ' '
+### rc=0
+### for t in wdotool wwmctl wxprop wxrandr warandr wmirror; do command -v $t; done 2>/dev/null
+### rc=127
+### stat -c '%U:%G %a' /dev/uinput 2>/dev/null
+root:root 600
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+### rc=127
+### grep -l uinput /run/udev/tags/uaccess/* 2>/dev/null
+### rc=1
+### find /usr/lib/w11 /usr/bin -name __pycache__ 2>/dev/null
+### rc=1
+### cd /tmp && DEBIAN_FRONTEND=noninteractive apt-get install -y ./w11.deb 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+Suggested packages:
+  wl-mirror
+The following NEW packages will be installed:
+  w11
+0 upgraded, 1 newly installed, 0 to remove and 96 not upgraded.
+Need to get 0 B/677 kB of archives.
+After this operation, 2850 kB of additional disk space will be used.
+Get:1 /tmp/w11.deb w11 all 0.4.0 [677 kB]
+Selecting previously unselected package w11.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 103154 files and directories currently installed.)
+Preparing to unpack /tmp/w11.deb ...
+Unpacking w11 (0.4.0) ...
+Setting up w11 (0.4.0) ...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.  The
+    extension is installed and is enabled for you automatically in that first
+    session.  wxrandr and warandr work already; until the relogin the window
+    commands say the bridge is not running and name gnome/install-bridge.sh,
+    which is the from-a-clone route -- this package has done that part.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules), which is what lets wdotool type and click
+    without root.  Anyone who can open it can type as you -- see the threat
+    model in /usr/share/doc/w11/README.md.gz.
+  * On an X11 session the tools hand over to the real ones; install those
+    with: apt install xdotool wmctrl
+
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+User sessions running outdated binaries:
+ root @ session #44: wdotool[3956]
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+### rc=0

@@ -43,9 +43,11 @@ bytes gets them or an error, never a silently different implementation.
 which is not all of `CLONE_ONLY`. `--persistent`, `--unsafe-gnome-overlap*`
 (wxrandr/cli.py:1829, which passes the full args) and `--layout`/`--vkbd`
 (wdotool/cli.py:414, the same) are sent on and the original rejects them in its
-own words. `--backend`, `--backends`, `--print-backend`, `keys` and `__keymap`
-never get here at all: their own `main()` has answered and returned several
-screens above this call, whatever the variable says -- which is right. A user
+own words. `--backend`, `--backends`, `--print-backend`, `keys`, `__keymap` and
+`wmctrl`'s `--true-geometry` (caught by `wwmctl.cli.own_flags_in` before both
+handovers, cli.py:431, the same `--print-backend` shape) never get here at
+all: their own `main()` has answered and returned several screens above this
+call, whatever the variable says -- which is right. A user
 who spells `--backend sway` has named the backend, and `--print-backend` and
 `wdotool keys explain` describe our own code and have nothing in the original
 to hand over to. `CLONE_ONLY` still lists them, because the table's job is
@@ -79,11 +81,12 @@ from w11common import passthrough
 #: find nothing -- the test is where the two meet.
 #:
 #: `wdotool`'s three: `--layout` and `--vkbd` are ours, and `keys` is our own
-#: command word (`wdotool keys explain a`).  `wmctrl` and `xprop` have none --
-#: every byte either of those clones accepts, the original accepts too.
+#: command word (`wdotool keys explain a`).  `wmctrl`'s one is `--true-geometry`,
+#: a flag wmctrl 1.07 never had (batch 17); only `xprop` has none -- every byte
+#: that clone accepts, the original accepts too.
 CLONE_ONLY = {
     "xdotool": frozenset({"--layout", "--vkbd", "keys"}),
-    "wmctrl": frozenset(),
+    "wmctrl": frozenset({"--true-geometry"}),
     "xprop": frozenset(),
     "xrandr": frozenset({
         "--backend", "--backends", "--print-backend", "--persistent",

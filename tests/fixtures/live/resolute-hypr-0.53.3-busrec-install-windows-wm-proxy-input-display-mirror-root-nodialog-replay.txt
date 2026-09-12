@@ -1,0 +1,2481 @@
+# live-smoke recording: flavor=resolute-hypr desktop=hypr distro=ubuntu mode=pkg remove=1 heads=3 stamp=20260912-103555
+# replay: 101 pass, 0 fail (mode pkg, remove 1, phases busrec,install,windows,wm,proxy,input,display,mirror,root,nodialog, 2026-09-12)
+### true
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### printf 'w11-desktop-version: '; hyprctl version | head -1
+w11-desktop-version: Hyprland 0.53.3 built from branch v0.53.3 at commit dd220efe7b1e292415bd0ea7161f63df9c95bfd3 clean (version: bump to 0.53.3).
+### rc=0
+### pkill -x dbus-monitor >/dev/null 2>&1; rm -f $HOME/w11-bus.log; true
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### pgrep -x dbus-monitor | head -1
+3719
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+4
+### rc=0
+### dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus            org.freedesktop.DBus.ListNames >/dev/null 2>&1; sleep 1; true
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+30
+### rc=0
+### for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \           systemctl stop unattended-upgrades.service 2>/dev/null; true
+### rc=0
+### cd /tmp && DEBIAN_FRONTEND=noninteractive apt-get install -y ./w11.deb 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following additional packages will be installed:
+  gir1.2-atk-1.0 gir1.2-freedesktop gir1.2-gdkpixbuf-2.0 gir1.2-gtk-3.0
+  gir1.2-harfbuzz-0.0 gir1.2-pango-1.0 libharfbuzz-gobject0 libpangoxft-1.0-0
+The following NEW packages will be installed:
+  gir1.2-atk-1.0 gir1.2-freedesktop gir1.2-gdkpixbuf-2.0 gir1.2-gtk-3.0
+  gir1.2-harfbuzz-0.0 gir1.2-pango-1.0 libharfbuzz-gobject0 libpangoxft-1.0-0
+  w11
+0 upgraded, 9 newly installed, 0 to remove and 96 not upgraded.
+Need to get 472 kB/1149 kB of archives.
+After this operation, 4822 kB of additional disk space will be used.
+Get:1 /tmp/w11.deb w11 all 0.4.0 [677 kB]
+Get:2 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 gir1.2-atk-1.0 amd64 2.60.4-0ubuntu0.1 [23.2 kB]
+Get:3 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-freedesktop amd64 1.86.0-6build1 [66.0 kB]
+Get:4 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-gdkpixbuf-2.0 amd64 2.44.5+dfsg-4ubuntu1 [9312 B]
+Get:5 http://archive.ubuntu.com/ubuntu resolute/main amd64 libharfbuzz-gobject0 amd64 12.3.2-2 [33.3 kB]
+Get:6 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-harfbuzz-0.0 amd64 12.3.2-2 [44.6 kB]
+Get:7 http://archive.ubuntu.com/ubuntu resolute/main amd64 libpangoxft-1.0-0 amd64 1.57.0-1 [20.6 kB]
+Get:8 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-pango-1.0 amd64 1.57.0-1 [34.8 kB]
+Get:9 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-gtk-3.0 amd64 3.24.52-0ubuntu1 [240 kB]
+Fetched 472 kB in 0s (2590 kB/s)
+Selecting previously unselected package gir1.2-atk-1.0:amd64.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 98776 files and directories currently installed.)
+Preparing to unpack .../0-gir1.2-atk-1.0_2.60.4-0ubuntu0.1_amd64.deb ...
+Unpacking gir1.2-atk-1.0:amd64 (2.60.4-0ubuntu0.1) ...
+Selecting previously unselected package gir1.2-freedesktop:amd64.
+Preparing to unpack .../1-gir1.2-freedesktop_1.86.0-6build1_amd64.deb ...
+Unpacking gir1.2-freedesktop:amd64 (1.86.0-6build1) ...
+Selecting previously unselected package gir1.2-gdkpixbuf-2.0:amd64.
+Preparing to unpack .../2-gir1.2-gdkpixbuf-2.0_2.44.5+dfsg-4ubuntu1_amd64.deb ...
+Unpacking gir1.2-gdkpixbuf-2.0:amd64 (2.44.5+dfsg-4ubuntu1) ...
+Selecting previously unselected package libharfbuzz-gobject0:amd64.
+Preparing to unpack .../3-libharfbuzz-gobject0_12.3.2-2_amd64.deb ...
+Unpacking libharfbuzz-gobject0:amd64 (12.3.2-2) ...
+Selecting previously unselected package gir1.2-harfbuzz-0.0:amd64.
+Preparing to unpack .../4-gir1.2-harfbuzz-0.0_12.3.2-2_amd64.deb ...
+Unpacking gir1.2-harfbuzz-0.0:amd64 (12.3.2-2) ...
+Selecting previously unselected package libpangoxft-1.0-0:amd64.
+Preparing to unpack .../5-libpangoxft-1.0-0_1.57.0-1_amd64.deb ...
+Unpacking libpangoxft-1.0-0:amd64 (1.57.0-1) ...
+Selecting previously unselected package gir1.2-pango-1.0:amd64.
+Preparing to unpack .../6-gir1.2-pango-1.0_1.57.0-1_amd64.deb ...
+Unpacking gir1.2-pango-1.0:amd64 (1.57.0-1) ...
+Selecting previously unselected package gir1.2-gtk-3.0:amd64.
+Preparing to unpack .../7-gir1.2-gtk-3.0_3.24.52-0ubuntu1_amd64.deb ...
+Unpacking gir1.2-gtk-3.0:amd64 (3.24.52-0ubuntu1) ...
+Selecting previously unselected package w11.
+Preparing to unpack .../8-w11.deb ...
+Unpacking w11 (0.4.0) ...
+Setting up gir1.2-freedesktop:amd64 (1.86.0-6build1) ...
+Setting up libpangoxft-1.0-0:amd64 (1.57.0-1) ...
+Setting up gir1.2-gdkpixbuf-2.0:amd64 (2.44.5+dfsg-4ubuntu1) ...
+Setting up gir1.2-atk-1.0:amd64 (2.60.4-0ubuntu0.1) ...
+Setting up libharfbuzz-gobject0:amd64 (12.3.2-2) ...
+Setting up gir1.2-harfbuzz-0.0:amd64 (12.3.2-2) ...
+Setting up gir1.2-pango-1.0:amd64 (1.57.0-1) ...
+Setting up gir1.2-gtk-3.0:amd64 (3.24.52-0ubuntu1) ...
+Setting up w11 (0.4.0) ...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.  The
+    extension is installed and is enabled for you automatically in that first
+    session.  wxrandr and warandr work already; until the relogin the window
+    commands say the bridge is not running and name gnome/install-bridge.sh,
+    which is the from-a-clone route -- this package has done that part.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules), which is what lets wdotool type and click
+    without root.  Anyone who can open it can type as you -- see the threat
+    model in /usr/share/doc/w11/README.md.gz.
+  * On an X11 session the tools hand over to the real ones; install those
+    with: apt install xdotool wmctrl
+
+Processing triggers for libc-bin (2.43-2ubuntu2.3) ...
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+### rc=0
+### ( sleep 1; reboot ) >/dev/null 2>&1 &
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### rm -f $HOME/w11-smoke.txt; touch $HOME/w11-smoke.txt
+### rc=0
+### rm -f $HOME/w11-smoke.txt; setsid nohup foot -- sh -c 'cat >> $HOME/w11-smoke.txt' >/dev/null 2>&1 </dev/null &            sleep 3; true
+### rc=0
+### wdotool search --class foot | head -1
+1914238758
+### rc=0
+### hyprctl -j clients
+[{
+    "address": "0x5767ebb94eb0",
+    "mapped": true,
+    "hidden": false,
+    "at": [22, 22],
+    "size": [1876, 1036],
+    "workspace": {
+        "id": 1,
+        "name": "1"
+    },
+    "floating": false,
+    "pseudo": false,
+    "monitor": 0,
+    "class": "foot",
+    "title": "foot",
+    "initialClass": "foot",
+    "initialTitle": "foot",
+    "pid": 3652,
+    "xwayland": false,
+    "pinned": false,
+    "fullscreen": 0,
+    "fullscreenClient": 0,
+    "grouped": [],
+    "tags": [],
+    "swallowing": "0x0",
+    "focusHistoryID": 0,
+    "inhibitingIdle": false,
+    "xdgTag": "",
+    "xdgDescription": "",
+    "contentType": "none"
+}]
+### rc=0
+### wdotool getwindowname 1914238758
+foot
+### rc=0
+### wdotool windowmove 1914238758 100 100 2>&1
+hypr: cannot move a tiled window to an absolute position (setfloating it first)
+xdo_move_window reported an error while moving window 1914238758
+### rc=0
+### wdotool windowactivate --sync 1914238758; hyprctl dispatch setfloating
+ok
+### rc=0
+### wdotool windowmove 1914238758 100 100; wdotool windowsize 1914238758 800 600
+### rc=0
+### wdotool getwindowgeometry 1914238758
+Window 1914238758
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### hyprctl -j clients
+[{
+    "address": "0x5767ebb94eb0",
+    "mapped": true,
+    "hidden": false,
+    "at": [100, 100],
+    "size": [800, 600],
+    "workspace": {
+        "id": 1,
+        "name": "1"
+    },
+    "floating": true,
+    "pseudo": false,
+    "monitor": 0,
+    "class": "foot",
+    "title": "foot",
+    "initialClass": "foot",
+    "initialTitle": "foot",
+    "pid": 3652,
+    "xwayland": false,
+    "pinned": false,
+    "fullscreen": 0,
+    "fullscreenClient": 0,
+    "grouped": [],
+    "tags": [],
+    "swallowing": "0x0",
+    "focusHistoryID": 0,
+    "inhibitingIdle": false,
+    "xdgTag": "",
+    "xdgDescription": "",
+    "contentType": "none"
+}]
+### rc=0
+### wdotool windowactivate --sync 1914238758
+### rc=0
+### wdotool getactivewindow
+1914238758
+### rc=0
+### wdotool windowminimize 1914238758 2>&1
+windowminimize is not supported by the hypr backend (Hyprland has no minimize); not yet here, and the route is Hyprland's own IPC (AGENTS.md route 2), a special workspace to stash the window in, at the cost of the bookkeeping that brings it back and a listing that keeps showing it while it is stashed
+### rc=1
+### wdotool set_desktop 1
+### rc=0
+### wdotool get_desktop
+1
+### rc=0
+### wdotool set_desktop 0
+### rc=0
+### wdotool get_desktop
+0
+### rc=0
+### wdotool windowactivate --sync 1914238758
+### rc=0
+### wdotool mousemove 300 300
+### rc=0
+### wdotool getmouselocation
+x:300 y:300 screen:0 window:1914238758
+### rc=0
+### hyprctl cursorpos
+300, 300
+### rc=0
+### wdotool mousemove 300 300 click 1
+### rc=0
+### wdotool windowactivate --sync 1914238758; wdotool windowmove 1914238758 100 100;            wdotool windowsize 1914238758 800 600
+### rc=0
+### wdotool getwindowgeometry 1914238758
+Window 1914238758
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### wwmctl -r :ACTIVE: -b add,maximized_vert,maximized_horz
+### rc=0
+### wdotool getwindowgeometry 1914238758
+Window 1914238758
+  Position: 22,22 (screen: 0)
+  Geometry: 1876x1036
+### rc=0
+### wxprop -id 1914238758 _NET_WM_STATE
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_FOCUSED
+### rc=0
+### hyprctl -j clients
+[{
+    "address": "0x5767ebb94eb0",
+    "mapped": true,
+    "hidden": false,
+    "at": [22, 22],
+    "size": [1876, 1036],
+    "workspace": {
+        "id": 1,
+        "name": "1"
+    },
+    "floating": true,
+    "pseudo": false,
+    "monitor": 0,
+    "class": "foot",
+    "title": "foot",
+    "initialClass": "foot",
+    "initialTitle": "foot",
+    "pid": 3652,
+    "xwayland": false,
+    "pinned": false,
+    "fullscreen": 1,
+    "fullscreenClient": 1,
+    "grouped": [],
+    "tags": [],
+    "swallowing": "0x0",
+    "focusHistoryID": 0,
+    "inhibitingIdle": false,
+    "xdgTag": "",
+    "xdgDescription": "",
+    "contentType": "none"
+}]
+### rc=0
+### wwmctl -r :ACTIVE: -b add,maximized_vert 2>&1
+wwmctl: windowstate MAXIMIZED_VERT is not supported by the hypr backend (Hyprland maximizes both axes at once; ask for both); not yet here, and the route is a patched Hyprland (AGENTS.md route 6), one dispatcher each; ignoring
+### rc=0
+### wwmctl -r :ACTIVE: -b remove,maximized_vert,maximized_horz
+### rc=0
+### wdotool getwindowgeometry 1914238758
+Window 1914238758
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### hyprctl -j clients
+[{
+    "address": "0x5767ebb94eb0",
+    "mapped": true,
+    "hidden": false,
+    "at": [100, 100],
+    "size": [800, 600],
+    "workspace": {
+        "id": 1,
+        "name": "1"
+    },
+    "floating": true,
+    "pseudo": false,
+    "monitor": 0,
+    "class": "foot",
+    "title": "foot",
+    "initialClass": "foot",
+    "initialTitle": "foot",
+    "pid": 3652,
+    "xwayland": false,
+    "pinned": false,
+    "fullscreen": 0,
+    "fullscreenClient": 0,
+    "grouped": [],
+    "tags": [],
+    "swallowing": "0x0",
+    "focusHistoryID": 0,
+    "inhibitingIdle": false,
+    "xdgTag": "",
+    "xdgDescription": "",
+    "contentType": "none"
+}]
+### rc=0
+### wwmctl -r :ACTIVE: -b add,fullscreen
+### rc=0
+### hyprctl -j clients
+[{
+    "address": "0x5767ebb94eb0",
+    "mapped": true,
+    "hidden": false,
+    "at": [0, 0],
+    "size": [1920, 1080],
+    "workspace": {
+        "id": 1,
+        "name": "1"
+    },
+    "floating": true,
+    "pseudo": false,
+    "monitor": 0,
+    "class": "foot",
+    "title": "foot",
+    "initialClass": "foot",
+    "initialTitle": "foot",
+    "pid": 3652,
+    "xwayland": false,
+    "pinned": false,
+    "fullscreen": 2,
+    "fullscreenClient": 2,
+    "grouped": [],
+    "tags": [],
+    "swallowing": "0x0",
+    "focusHistoryID": 0,
+    "inhibitingIdle": false,
+    "xdgTag": "",
+    "xdgDescription": "",
+    "contentType": "none"
+}]
+### rc=0
+### wwmctl -r :ACTIVE: -b remove,fullscreen
+### rc=0
+### wdotool getwindowgeometry 1914238758
+Window 1914238758
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### wwmctl -l
+0x7218f726  0 resolute-hypr-smoke foot
+### rc=0
+### wwmctl --true-geometry -lGpx
+0x7218f726  0 3652   100  100  800  600  foot.foot             resolute-hypr-smoke foot
+### rc=0
+### wwmctl -lGpx
+0x7218f726  0 3652   200  200  800  600  foot.foot             resolute-hypr-smoke foot
+### rc=0
+### wwmctl -d
+0  * DG: 5760x1080  VP: 0,0  WA: 0,0 1920x1080     1
+1  - DG: 5760x1080  VP: 0,0  WA: 1920,0 1920x1080  2
+2  - DG: 5760x1080  VP: 0,0  WA: 3840,0 1920x1080  3
+### rc=0
+### wwmctl -m
+Name: Hyprland :D
+Class: N/A
+PID: N/A
+Window manager's "showing the desktop" mode: N/A
+### rc=0
+### command -v xmessage
+/usr/bin/xmessage
+### rc=0
+### setsid nohup xmessage -geometry 400x300+300+200 smokex >/dev/null 2>&1 </dev/null & sleep 3; true
+### rc=0
+### xprop -root _NET_CLIENT_LIST 2>/dev/null
+_NET_CLIENT_LIST(WINDOW): window id # 0x400020
+### rc=0
+### wxprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x7218f726, 0x400020
+### rc=0
+### wwmctl -lpx
+0x7218f726  0 3652   foot.foot             resolute-hypr-smoke foot
+0x00400020  0 6186   xmessage.Xmessage     resolute-hypr-smoke xmessage
+### rc=0
+### wwmctl -lGpx
+0x7218f726  0 3652   200  200  800  600  foot.foot             resolute-hypr-smoke foot
+0x00400020  0 6186   600  400  400  300  xmessage.Xmessage     resolute-hypr-smoke xmessage
+### rc=0
+### wmctrl -lGpx
+0x00400020  0 0      600  400  400  300  xmessage.Xmessage     resolute-hypr-smoke xmessage
+### rc=0
+### pkill -x xmessage; true
+### rc=0
+### setsid nohup foot -- sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 3; true
+### rc=0
+### wdotool search --class foot
+1914238758
+1929476377
+### rc=0
+### wdotool getwindowpid 1929476377
+6614
+### rc=0
+### wdotool getwindowpid 1914238758
+3652
+### rc=0
+### kill 3652 2>/dev/null; true
+### rc=0
+### wdotool search --class foot
+1929476377
+### rc=0
+### hyprctl dispatch alterzorder top
+alterZOrder: no window
+### rc=0
+### kill 6614; true
+### rc=0
+### rm -f $HOME/w11-smoke.txt; setsid nohup foot -- sh -c 'cat >> $HOME/w11-smoke.txt' >/dev/null 2>&1 </dev/null &            sleep 3; true
+### rc=0
+### wdotool search --class foot | head -1
+1929476377
+### rc=0
+### wdotool windowactivate --sync 1929476377; hyprctl dispatch setfloating
+ok
+### rc=0
+### command -v xw11
+/usr/bin/xw11
+### rc=0
+### xprop -root >/dev/null 2>&1
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null
+:20 7431 :0
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l
+1
+### rc=0
+### DISPLAY=:20 xdotool getdisplaygeometry
+1920 1080
+### rc=0
+### DISPLAY=:20 xdotool search --class foot | head -1
+4194305
+### rc=0
+### wdotool getwindowname 1929476377
+foot
+### rc=0
+### DISPLAY=:20 xdotool getwindowname 4194305
+foot
+### rc=0
+### wdotool getwindowgeometry 1929476377
+Window 1929476377
+  Position: 0,0 (screen: 0)
+  Geometry: 1920x1080
+### rc=0
+### DISPLAY=:20 xdotool getwindowgeometry 4194305
+Window 4194305
+  Position: 0,0 (screen: 0)
+  Geometry: 1920x1080
+### rc=0
+### DISPLAY=:20 xprop -id 4194305
+_NET_WM_NAME(UTF8_STRING) = "foot"
+WM_NAME(STRING) = "foot"
+WM_CLASS(STRING) = "foot", "foot"
+_NET_WM_PID(CARDINAL) = 7110
+WM_CLIENT_MACHINE(STRING) = "resolute-hypr-smoke"
+_NET_WM_DESKTOP(CARDINAL) = 0
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_FOCUSED
+_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_NORMAL
+WM_STATE(WM_STATE):
+		window state: Normal
+		icon window: 0x0
+_NET_FRAME_EXTENTS(CARDINAL) = 0, 0, 0, 0
+WM_PROTOCOLS(ATOM): protocols  WM_DELETE_WINDOW
+### rc=0
+### wwmctl -l
+0x73017919  0 resolute-hypr-smoke foot
+### rc=0
+### DISPLAY=:20 wmctrl -l
+0x00400001  0 resolute-hypr-smoke foot
+### rc=0
+### DISPLAY=:20 xdotool get_desktop
+0
+### rc=0
+### DISPLAY=:20 wmctrl -d
+0  * DG: 5760x1080  VP: 0,0  WA: 0,0 1920x1080  1
+1  - DG: 5760x1080  VP: 0,0  WA: N/A            2
+2  - DG: 5760x1080  VP: 0,0  WA: N/A            3
+### rc=0
+### DISPLAY=:20 xprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x400001
+### rc=0
+### W11_PROXY=always wdotool search --class foot | head -1
+4194305
+### rc=0
+### W11_PROXY=never wdotool search --class foot | head -1
+1929476377
+### rc=0
+### wdotool --version
+xdotool version 4.20260303.1
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x200
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,200
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x0
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### DISPLAY=:20 xrandr -q
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### tail -4 ${XW11_LOG:-/tmp/xw11-$(id -u).log}
+1789209605.258 xw11[7431] own connection to :0: root 0x2f4, ids 0x400000|n, 70 atoms, 7 extensions
+1789209614.728 xw11[7431] xw11: RandR writes apply through the hypr backend (detection), state keyed by /run/user/1000/wayland-1
+1789209614.818 xw11[7431] xw11: applied a RandR batch of 1 crtc(s) in 101 ms through hypr (Virtual-3 on)
+1789209617.881 xw11[7431] xw11: applied a RandR batch of 1 crtc(s) in 69 ms through hypr (Virtual-3 on)
+### rc=0
+### xw11 --stop
+### rc=0
+### printf "%s %s" "$(pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l)" \                   "$(test -e $XDG_RUNTIME_DIR/xw11/display && echo 1 || echo 0)"
+0 0
+### rc=0
+### wdotool windowactivate --sync 1929476377
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool type --delay 30 -- 'us: yz@'
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+us: yz@
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool type --delay 30 -- abc; wdotool key Return;            wdotool type --delay 30 -- def
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+abc
+def
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool --vkbd on type --delay 30 -- 'vkbd: yz@'
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+vkbd: yz@
+### rc=0
+### hyprctl -j devices
+{
+"mice": [
+    {
+        "address": "0x5767eb9ce4a0",
+        "name": "virtualps/2-vmware-vmmouse",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x5767ebb5bc50",
+        "name": "virtualps/2-vmware-vmmouse-1",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x5767ec87ed30",
+        "name": "wdotool-virtual-mouse",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x5767eba51a80",
+        "name": "wdotool-virtual-tablet",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    }
+],
+"keyboards": [
+    {
+        "address": "0x5767e736ddf0",
+        "name": "power-button",
+        "rules": "",
+        "model": "",
+        "layout": "us",
+        "variant": "",
+        "options": "",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": false
+    },    {
+        "address": "0x5767ebb68a20",
+        "name": "at-translated-set-2-keyboard",
+        "rules": "",
+        "model": "",
+        "layout": "us",
+        "variant": "",
+        "options": "",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": false
+    },    {
+        "address": "0x5767ebdcc4a0",
+        "name": "wdotool-virtual-keyboard",
+        "rules": "",
+        "model": "",
+        "layout": "us",
+        "variant": "",
+        "options": "",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": true
+    },    {
+        "address": "0x5767ebacf700",
+        "name": "hl-virtual-keyboard-python3.14",
+        "rules": "",
+        "model": "",
+        "layout": "us",
+        "variant": "",
+        "options": "",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": false
+    }
+],
+"tablets": [
+
+],
+"touch": [
+
+],
+"switches": [
+
+]
+}
+
+### rc=0
+### hyprctl keyword input:kb_layout 'us,de'; hyprctl keyword input:kb_options grp:alt_shift_toggle
+ok
+ok
+### rc=0
+### hyprctl -j devices
+{
+"mice": [
+    {
+        "address": "0x5767eb9ce4a0",
+        "name": "virtualps/2-vmware-vmmouse",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x5767ebb5bc50",
+        "name": "virtualps/2-vmware-vmmouse-1",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x5767ec87ed30",
+        "name": "wdotool-virtual-mouse",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x5767eba51a80",
+        "name": "wdotool-virtual-tablet",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    }
+],
+"keyboards": [
+    {
+        "address": "0x5767e736ddf0",
+        "name": "power-button",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:alt_shift_toggle",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": false
+    },    {
+        "address": "0x5767ebb68a20",
+        "name": "at-translated-set-2-keyboard",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:alt_shift_toggle",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": false
+    },    {
+        "address": "0x5767ebdcc4a0",
+        "name": "wdotool-virtual-keyboard",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:alt_shift_toggle",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": true
+    },    {
+        "address": "0x5767ebacf700",
+        "name": "hl-virtual-keyboard-python3.14",
+        "rules": "",
+        "model": "",
+        "layout": "us",
+        "variant": "",
+        "options": "",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": false
+    }
+],
+"tablets": [
+
+],
+"touch": [
+
+],
+"switches": [
+
+]
+}
+
+### rc=0
+### hyprctl switchxkblayout at-translated-set-2-keyboard 1
+ok
+### rc=0
+### hyprctl -j devices
+{
+"mice": [
+    {
+        "address": "0x5767eb9ce4a0",
+        "name": "virtualps/2-vmware-vmmouse",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x5767ebb5bc50",
+        "name": "virtualps/2-vmware-vmmouse-1",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x5767ec87ed30",
+        "name": "wdotool-virtual-mouse",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x5767eba51a80",
+        "name": "wdotool-virtual-tablet",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    }
+],
+"keyboards": [
+    {
+        "address": "0x5767e736ddf0",
+        "name": "power-button",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:alt_shift_toggle",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": false
+    },    {
+        "address": "0x5767ebb68a20",
+        "name": "at-translated-set-2-keyboard",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:alt_shift_toggle",
+        "active_layout_index": 1,
+        "active_keymap": "German",
+        "capsLock": false,
+        "numLock": false,
+        "main": true
+    },    {
+        "address": "0x5767ebdcc4a0",
+        "name": "wdotool-virtual-keyboard",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:alt_shift_toggle",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": false
+    },    {
+        "address": "0x5767ebacf700",
+        "name": "hl-virtual-keyboard-python3.14",
+        "rules": "",
+        "model": "",
+        "layout": "us",
+        "variant": "",
+        "options": "",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": false
+    }
+],
+"tablets": [
+
+],
+"touch": [
+
+],
+"switches": [
+
+]
+}
+
+### rc=0
+### wdotool windowactivate --sync 1929476377
+### rc=0
+### wdotool keys explain yz@ 2>&1
+layout: German -- group 2 of 2, from wayland + hyprland devices
+level keys: shift = key 42 <LFSH>   level3 = key 100 <RALT>   level5 = key 195 <LVL5>   (what wdotool presses)
+'y' -- 1 press on German
+    press key 44 <AB01> -> 'y'
+    wdotool key 52                             (keycodes)
+    wdotool type 'y'                           (characters)
+'z' -- 1 press on German
+    press key 21 <AD06> -> 'z'
+    wdotool key 29                             (keycodes)
+    wdotool type 'z'                           (characters)
+'@' -- 1 press on German
+    press key 16 <AD01> with level3 (key 100 <RALT>, ISO_Level3_Shift) -> '@'
+    wdotool key 108+24                         (keycodes)
+    wdotool type '@'                           (characters)
+### rc=0
+### wdotool keys explain yz@ 2>&1
+layout: German -- group 2 of 2, from wayland + hyprland devices
+level keys: shift = key 42 <LFSH>   level3 = key 100 <RALT>   level5 = key 195 <LVL5>   (what wdotool presses)
+'y' -- 1 press on German
+    press key 44 <AB01> -> 'y'
+    wdotool key 52                             (keycodes)
+    wdotool type 'y'                           (characters)
+'z' -- 1 press on German
+    press key 21 <AD06> -> 'z'
+    wdotool key 29                             (keycodes)
+    wdotool type 'z'                           (characters)
+'@' -- 1 press on German
+    press key 16 <AD01> with level3 (key 100 <RALT>, ISO_Level3_Shift) -> '@'
+    wdotool key 108+24                         (keycodes)
+    wdotool type '@'                           (characters)
+### rc=0
+### wdotool keys explain yz@ 2>&1
+layout: German -- group 2 of 2, from wayland + hyprland devices
+level keys: shift = key 42 <LFSH>   level3 = key 100 <RALT>   level5 = key 195 <LVL5>   (what wdotool presses)
+'y' -- 1 press on German
+    press key 44 <AB01> -> 'y'
+    wdotool key 52                             (keycodes)
+    wdotool type 'y'                           (characters)
+'z' -- 1 press on German
+    press key 21 <AD06> -> 'z'
+    wdotool key 29                             (keycodes)
+    wdotool type 'z'                           (characters)
+'@' -- 1 press on German
+    press key 16 <AD01> with level3 (key 100 <RALT>, ISO_Level3_Shift) -> '@'
+    wdotool key 108+24                         (keycodes)
+    wdotool type '@'                           (characters)
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool type --delay 30 -- 'yz@ Straße'
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+yz@ Straße
+### rc=0
+### hyprctl -j devices
+{
+"mice": [
+    {
+        "address": "0x5767eb9ce4a0",
+        "name": "virtualps/2-vmware-vmmouse",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x5767ebb5bc50",
+        "name": "virtualps/2-vmware-vmmouse-1",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x5767ec87ed30",
+        "name": "wdotool-virtual-mouse",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x5767eba51a80",
+        "name": "wdotool-virtual-tablet",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    }
+],
+"keyboards": [
+    {
+        "address": "0x5767e736ddf0",
+        "name": "power-button",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:alt_shift_toggle",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": false
+    },    {
+        "address": "0x5767ebb68a20",
+        "name": "at-translated-set-2-keyboard",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:alt_shift_toggle",
+        "active_layout_index": 1,
+        "active_keymap": "German",
+        "capsLock": false,
+        "numLock": false,
+        "main": false
+    },    {
+        "address": "0x5767ebdcc4a0",
+        "name": "wdotool-virtual-keyboard",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:alt_shift_toggle",
+        "active_layout_index": 1,
+        "active_keymap": "German",
+        "capsLock": false,
+        "numLock": false,
+        "main": true
+    },    {
+        "address": "0x5767ebacf700",
+        "name": "hl-virtual-keyboard-python3.14",
+        "rules": "",
+        "model": "",
+        "layout": "us",
+        "variant": "",
+        "options": "",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": false,
+        "main": false
+    }
+],
+"tablets": [
+
+],
+"touch": [
+
+],
+"switches": [
+
+]
+}
+
+### rc=0
+### hyprctl switchxkblayout at-translated-set-2-keyboard 0
+ok
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool type --delay 30 -- 'us: yz@'
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+us: yz@
+### rc=0
+### wxrandr --print-backend
+hypr
+### rc=0
+### wxrandr --print-backend --verbose
+hypr
+session: wayland
+chosen by: detection
+compositor: Hyprland 0.53.3
+protocol: Hyprland IPC (hyprctl)
+available: yes
+### rc=0
+### wxrandr --print-backend --verbose
+hypr
+session: wayland
+chosen by: detection
+compositor: Hyprland 0.53.3
+protocol: Hyprland IPC (hyprctl)
+available: yes
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --listmonitors
+Monitors: 3
+ 0: +Virtual-1 1920/480x1080/270+0+0  Virtual-1
+ 1: +Virtual-2 1920/480x1080/270+1920+0  Virtual-2
+ 2: +Virtual-3 1920/480x1080/270+3840+0  Virtual-3
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### hyprctl -j monitors
+[{
+    "id": 0,
+    "name": "Virtual-1",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 0,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 1,
+        "name": "1"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": true,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+},{
+    "id": 1,
+    "name": "Virtual-2",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 1920,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 2,
+        "name": "2"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": false,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+},{
+    "id": 2,
+    "name": "Virtual-3",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 3840,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 3,
+        "name": "3"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": false,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+}]
+### rc=0
+### wxrandr --backend wlr --output Virtual-2 --mode 1680x1050
+xrandr: timed out waiting for the compositor to apply the output configuration (Hyprland answers only the first output-configuration apply of a session; use --backend hypr)
+### rc=1
+### wxrandr --backend wlr --output Virtual-2 --mode 1280x1024 2>&1
+xrandr: timed out waiting for the compositor to apply the output configuration (Hyprland answers only the first output-configuration apply of a session; use --backend hypr)
+### rc=1
+### hyprctl -j monitors
+[{
+    "id": 0,
+    "name": "Virtual-1",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 0,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 1,
+        "name": "1"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": true,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+},{
+    "id": 1,
+    "name": "Virtual-2",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 1920,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 2,
+        "name": "2"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": false,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+},{
+    "id": 2,
+    "name": "Virtual-3",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 3840,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 3,
+        "name": "3"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": false,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+}]
+### rc=0
+### wxrandr --output Virtual-2 --mode 1680x1050
+### rc=0
+### hyprctl -j monitors
+[{
+    "id": 0,
+    "name": "Virtual-1",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 0,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 1,
+        "name": "1"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": true,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+},{
+    "id": 1,
+    "name": "Virtual-2",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1680,
+    "height": 1050,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 59.95400,
+    "x": 1920,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 2,
+        "name": "2"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": false,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+},{
+    "id": 2,
+    "name": "Virtual-3",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 3840,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 3,
+        "name": "3"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": false,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+}]
+### rc=0
+### wxrandr --output Virtual-2 --mode 1280x1024
+### rc=0
+### hyprctl -j monitors
+[{
+    "id": 0,
+    "name": "Virtual-1",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 0,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 1,
+        "name": "1"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": true,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+},{
+    "id": 1,
+    "name": "Virtual-2",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1280,
+    "height": 1024,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 60.02000,
+    "x": 1920,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 2,
+        "name": "2"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": false,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+},{
+    "id": 2,
+    "name": "Virtual-3",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 3840,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 3,
+        "name": "3"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": false,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+}]
+### rc=0
+### wxrandr --output Virtual-2 --mode 1920x1080
+xrandr: added a `source = /home/test/.config/hypr/w11-monitors.conf` line to /home/test/.config/hypr/hyprland.conf
+xrandr: Hyprland accepted the mode 1920x1080 for Virtual-2 and did not apply it (it reports 1280x1024)
+### rc=1
+### hyprctl -j monitors
+[{
+    "id": 0,
+    "name": "Virtual-1",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 0,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 1,
+        "name": "1"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": true,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["NOTIFICATION","WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+},{
+    "id": 1,
+    "name": "Virtual-2",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1280,
+    "height": 1024,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 60.02000,
+    "x": 1920,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 2,
+        "name": "2"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": false,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["NOTIFICATION","WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+},{
+    "id": 2,
+    "name": "Virtual-3",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 3840,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 3,
+        "name": "3"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": false,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["NOTIFICATION","WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+}]
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --listmonitors
+Monitors: 3
+ 0: +Virtual-1 1920/480x1080/270+0+0  Virtual-1
+ 1: +Virtual-2 1280/480x1024/270+1920+0  Virtual-2
+ 2: +Virtual-3 1920/480x1080/270+3840+0  Virtual-3
+### rc=0
+### wxrandr --output Virtual-3 --off
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+### rc=0
+### wxrandr --output Virtual-3 --auto
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 0,0
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3200,0
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3200,0
+### rc=0
+### wxrandr --output Virtual-3 --below Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,1024
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,1024
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### wxrandr --backend wlr --output Virtual-2 --mode 1920x1080 2>&1
+xrandr: the compositor accepted the mode 1920x1080 for Virtual-2 and did not apply it (it reports 1280x1024)
+### rc=1
+### hyprctl -j monitors
+[{
+    "id": 0,
+    "name": "Virtual-1",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 0,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 1,
+        "name": "1"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": true,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["NOTIFICATION","WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+},{
+    "id": 1,
+    "name": "Virtual-2",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1280,
+    "height": 1024,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 60.02000,
+    "x": 1920,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 2,
+        "name": "2"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": false,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["NOTIFICATION","WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+},{
+    "id": 2,
+    "name": "Virtual-3",
+    "description": "Red Hat Inc. QEMU Monitor",
+    "make": "Red Hat, Inc.",
+    "model": "QEMU Monitor",
+    "serial": "",
+    "width": 1920,
+    "height": 1080,
+    "physicalWidth": 480,
+    "physicalHeight": 270,
+    "refreshRate": 74.99800,
+    "x": 3200,
+    "y": 0,
+    "activeWorkspace": {
+        "id": 3,
+        "name": "3"
+    },
+    "specialWorkspace": {
+        "id": 0,
+        "name": ""
+    },
+    "reserved": [0, 0, 0, 0],
+    "scale": 1.00,
+    "transform": 0,
+    "focused": false,
+    "dpmsStatus": true,
+    "vrr": false,
+    "solitary": "0",
+    "solitaryBlockedBy": ["NOTIFICATION","WINDOWED","CANDIDATE"],
+    "activelyTearing": false,
+    "tearingBlockedBy": ["NOT_TORN","USER","CANDIDATE"],
+    "directScanoutTo": "0",
+    "directScanoutBlockedBy": ["USER","SW","CANDIDATE"],
+    "disabled": false,
+    "currentFormat": "XRGB8888",
+    "mirrorOf": "none",
+    "availableModes": ["1920x1080@75.00Hz","5120x2160@50.00Hz","4096x2160@50.00Hz","3840x2160@60.00Hz","3840x2160@59.94Hz","3840x2160@50.00Hz","1920x1440@60.00Hz","2560x1080@50.00Hz","1856x1392@59.99Hz","1792x1344@60.00Hz","2048x1152@60.00Hz","1920x1200@59.88Hz","1920x1080@60.00Hz","1920x1080@50.00Hz","1600x1200@60.00Hz","1680x1050@59.95Hz","1400x1050@59.98Hz","1280x1024@60.02Hz","1440x900@59.89Hz","1280x960@60.00Hz","1360x768@60.02Hz","1280x768@59.87Hz","1024x768@60.00Hz","800x600@60.32Hz","640x480@60.00Hz","640x480@59.94Hz"],
+    "colorManagementPreset": "srgb",
+    "sdrBrightness": 1.00,
+    "sdrSaturation": 1.00,
+    "sdrMinLuminance": 0.20,
+    "sdrMaxLuminance": 80
+}]
+### rc=0
+### wmirror --check
+helper:   /usr/bin/wl-mirror (wl-mirror v0.18.5)
+wayland:  /run/user/1000/wayland-1
+capture:  zwlr_screencopy_manager_v1 v3
+outputs:  Virtual-1 1920x1080+0+0, Virtual-2 1280x1024+1920+0, Virtual-3 1920x1080+3200+0
+mirrors:  none
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3200,0
+### rc=0
+### python3 $HOME/w11-oracle.py hypr
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3200,0
+### rc=0
+### wmirror Virtual-2 --to Virtual-3 --region 800x600+2020+100
+Virtual-3 <- Virtual-2  region 800x600+2020+100  scaling fit  wl-mirror pid 13367
+### rc=0
+### wmirror --list
+Virtual-3 <- Virtual-2  region 800x600+2020+100  scaling fit  wl-mirror pid 13367
+### rc=0
+### wmirror --stop Virtual-3
+stopped  Virtual-3 <- Virtual-2  region 800x600+2020+100  scaling fit  wl-mirror pid 13367
+### rc=0
+### pgrep -x wl-mirror
+### rc=1
+### wwmctl -l | wc -l
+1
+### rc=0
+### wwmctl -l | wc -l
+1
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-1
+Virtual-2
+Virtual-3
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-1
+Virtual-2
+Virtual-3
+### rc=0
+### wmirror --list
+### rc=0
+### wxrandr --persistent --query
+Screen 0: minimum 16 x 16, current 5120 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-2 connected 1280x1024+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     75.00 +  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02* 
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-3 connected 1920x1080+3200+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+### rc=0
+### wwmctl -l
+0x00400001  0 resolute-hypr-smoke foot
+### rc=0
+### wwmctl -l
+0x00400001  0 resolute-hypr-smoke foot
+### rc=0
+### wxrandr --query
+Screen 0: minimum 16 x 16, current 5120 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1280x1024+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1280x1024     59.89*+
+   1280x960      59.94  
+   1152x864      59.96  
+   1024x768      59.92  
+   800x600       59.86  
+   640x480       59.38  
+   320x240       59.29  
+   1280x800      59.81  
+   1152x720      59.97  
+   960x600       59.96  
+   928x580       59.88  
+   800x500       59.50  
+   768x480       59.90  
+   720x480       59.71  
+   640x400       59.95  
+   320x200       58.14  
+   1280x720      59.86  
+   1024x576      59.90  
+   864x486       59.92  
+   720x400       59.27  
+   640x350       59.28  
+Virtual-3 connected 1920x1080+3200+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### wxrandr --query
+Screen 0: minimum 16 x 16, current 5120 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1280x1024+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1280x1024     59.89*+
+   1280x960      59.94  
+   1152x864      59.96  
+   1024x768      59.92  
+   800x600       59.86  
+   640x480       59.38  
+   320x240       59.29  
+   1280x800      59.81  
+   1152x720      59.97  
+   960x600       59.96  
+   928x580       59.88  
+   800x500       59.50  
+   768x480       59.90  
+   720x480       59.71  
+   640x400       59.95  
+   320x200       58.14  
+   1280x720      59.86  
+   1024x576      59.90  
+   864x486       59.92  
+   720x400       59.27  
+   640x350       59.28  
+Virtual-3 connected 1920x1080+3200+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### ls /run/user/0/xw11/display /tmp/wdotool-0/xw11/display 2>/dev/null
+### rc=2
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+1022
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep -c 'interface=org.freedesktop.portal\.'
+4
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal.Inhibit' | sed -n 's/.*sender=\([^ ]*\).*/\1/p' | sort -u
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal\.'                  | grep -vE 'interface=org.freedesktop.portal.(Settings|Request|Session)'                  | grep -v 'interface=org.freedesktop.portal.Documents; member=GetMountPoint'                   | head -5
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.PolicyKit1' | head -3
+### rc=0
+### grep -Ec '^signal ' $HOME/w11-bus.log
+52
+### rc=0
+### grep -o 'org.freedesktop.portal.[A-Za-z]*' $HOME/w11-bus.log | sort | uniq -c | sort -rn | head
+     48 org/freedesktop/portal/desktop
+     17 org.freedesktop.portal.Documents
+      9 org.freedesktop.portal.Desktop
+      4 org/freedesktop/portal/documents
+      3 org.freedesktop.portal.Settings
+### rc=0
+### for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \           systemctl stop unattended-upgrades.service 2>/dev/null; true
+### rc=0
+### DEBIAN_FRONTEND=noninteractive apt-get remove -y w11 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following packages were automatically installed and are no longer required:
+  gir1.2-atk-1.0 gir1.2-freedesktop gir1.2-gdkpixbuf-2.0 gir1.2-gtk-3.0
+  gir1.2-harfbuzz-0.0 gir1.2-pango-1.0 libharfbuzz-gobject0 libpangoxft-1.0-0
+Use 'apt autoremove' to remove them.
+The following packages will be REMOVED:
+  w11
+0 upgraded, 0 newly installed, 1 to remove and 96 not upgraded.
+After this operation, 2850 kB disk space will be freed.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 98973 files and directories currently installed.)
+Removing w11 (0.4.0) ...
+### rc=0
+### ls -d /usr/lib/w11 /var/lib/w11 /etc/xdg/autostart/w11-enable-bridge.desktop /usr/share/gnome-shell/extensions/w11-bridge@w11 /usr/share/gnome-shell/extensions/w11-overlap@w11  2>/dev/null | tr '\n' ' '
+### rc=0
+### for t in wdotool wwmctl wxprop wxrandr warandr wmirror; do command -v $t; done 2>/dev/null
+### rc=127
+### stat -c '%U:%G %a' /dev/uinput 2>/dev/null
+root:root 600
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+### rc=127
+### grep -l uinput /run/udev/tags/uaccess/* 2>/dev/null
+### rc=1
+### find /usr/lib/w11 /usr/bin -name __pycache__ 2>/dev/null
+### rc=1
+### cd /tmp && DEBIAN_FRONTEND=noninteractive apt-get install -y ./w11.deb 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following NEW packages will be installed:
+  w11
+0 upgraded, 1 newly installed, 0 to remove and 96 not upgraded.
+Need to get 0 B/677 kB of archives.
+After this operation, 2850 kB of additional disk space will be used.
+Get:1 /tmp/w11.deb w11 all 0.4.0 [677 kB]
+Selecting previously unselected package w11.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 98829 files and directories currently installed.)
+Preparing to unpack /tmp/w11.deb ...
+Unpacking w11 (0.4.0) ...
+Setting up w11 (0.4.0) ...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.  The
+    extension is installed and is enabled for you automatically in that first
+    session.  wxrandr and warandr work already; until the relogin the window
+    commands say the bridge is not running and name gnome/install-bridge.sh,
+    which is the from-a-clone route -- this package has done that part.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules), which is what lets wdotool type and click
+    without root.  Anyone who can open it can type as you -- see the threat
+    model in /usr/share/doc/w11/README.md.gz.
+  * On an X11 session the tools hand over to the real ones; install those
+    with: apt install xdotool wmctrl
+
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+User sessions running outdated binaries:
+ root @ session #211: xw11[13997]
+ root @ session #61: wdotool[4712]
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+### rc=0

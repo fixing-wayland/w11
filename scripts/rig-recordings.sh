@@ -119,8 +119,11 @@ version_of() {   # version_of <capture> -> the token, or nothing
     # and under the script's own `set -euo pipefail` the grep that finds nothing would
     # otherwise abort the whole run with no message at all (measured here on a capture
     # with the note stripped out, 2026-09-12).
+    # A compositor version is dotted (1.11, 6.7.5, 0.53.3, 46.0); require the dot so a
+    # stray stderr integer that slipped into the note (a `QThreadStorage: entry 7` number)
+    # can never be mistaken for one and name the fixture after it.
     sed -n 's/^w11-desktop-version: //p' "$1" | head -1 \
-        | tr ' ' '\n' | grep -E '^[0-9]+(\.[0-9A-Za-z]+)*$' | head -1 || true
+        | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9A-Za-z][0-9A-Za-z.+~-]*$' | head -1 || true
 }
 
 # The mode the run was made in, which is the mode it has to be replayed in.  `--record`
@@ -261,7 +264,12 @@ for fl in $flavors; do
     # (it was cut from an older step file) and pass 6 would go on replaying it forever, so
     # the drift inventory could never empty and SELFTEST_STRICT=1 could never be turned on.
     # The NOT-YET-RUN edit below already assumes one per flavor.
-    for old in "$OUT/$fl"-*-replay.txt; do
+    # `-[0-9]*` not `-*`: the token after the flavor is the VERSION, always a digit, so
+    # this matches only THIS flavor's older fixtures and never a longer-prefix sibling
+    # (resolute-cinnamon must not delete resolute-cinnamon-wayland; noble-gnome must not
+    # delete noble-gnome-x11 or the curated noble-gnome-46.0 baseline).  Run 34688228778
+    # showed the `-*` glob clobbering five siblings and two curated test baselines.
+    for old in "$OUT/$fl"-[0-9]*-replay.txt; do
         [ -e "$old" ] || continue
         [ "$(basename "$old")" = "$name" ] && continue
         echo "    superseded: $(basename "$old") (cut from an older step file; removed)"

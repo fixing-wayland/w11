@@ -2097,7 +2097,7 @@ themselves. They are not part of the interface.
 
 ## 9. Module → test file → fake
 
-5438 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
+5441 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
 hold across all of them and are enforced by tests of their own:
 
 * **every `tests/test_*.py` sets `W11_PASSTHROUGH=never`**, or the suite
@@ -2282,9 +2282,18 @@ carries the mirror claim, read off the pid file rather than a process pattern: n
 `$XDG_RUNTIME_DIR/xw11/display` exists after the four tools have run, because on an X11
 session the handover happens one line above the wrapper's call. First run on
 **resolute-sway (sway 1.11, Xwayland 24.1.10) on 2026-09-11: 27 pass, 0 fail**, recorded
-as `tests/fixtures/live/resolute-sway-1.11-windows-wm-proxy-replay.txt`;
-`tests/fixtures/live/NOT-YET-RUN` carries a `proxy:<flavor>` line for each of the other
-28 Wayland flavors until their own run.
+as `tests/fixtures/live/resolute-sway-1.11-windows-wm-proxy-replay.txt`. The wave then
+harvested the rest from a green rig run: `vm/live-smoke.sh --record` leaves a capture of
+every guest command and the bytes it answered beside each job's log, and
+`scripts/rig-recordings.sh <run-id>` turns the `live-smoke-<flavor>` artifacts a run
+uploaded into `tests/fixtures/live/*-replay.txt`, one per flavor, named after the log's
+phase list and its `w11-desktop-version:` note, keeping only the ones whose replay
+reproduces the tally the log recorded. As of the all-38 SMOKE-green run **34688228778**
+(commit `c0db8c5`) every phase of every flavor is recorded but for five the harvest could
+not yet name — an empty or noisy desktop-version note, or a proxy transcript one check
+short: `tests/fixtures/live/NOT-YET-RUN` keeps eight lines and no others, the `lxqt`,
+`river` and `wayfire` step tokens and the `proxy:` lines for arch-river, noble-kde,
+resolute-kde, resolute-wayfire and stonking-kde.
 
 That script has a regression of its own that needs no VM. `vm/live-smoke.d/selftest-offline.sh`
 runs the `windows` and `wm` phases against `vm/live-smoke.d/fake-vmctl`, which replays
@@ -2292,8 +2301,16 @@ runs the `windows` and `wm` phases against `vm/live-smoke.d/fake-vmctl`, which r
 asserts that 17 assertions pass on the recording and that exactly one — b7a60f0's — fails when the
 pre-fix geometry is put back; two further passes do the same for the `busrec` phase (T65's
 session-bus recorder) against two hand-written transcripts, where it has to pass when a
-`dbus-monitor` process exists and the log grows, and fail when neither is true. Two seconds in
-all. `tests/fixtures/live/` holds the recordings, and its README says what each one is and which
+`dbus-monitor` process exists and the log grows, and fail when neither is true. Those four
+passes cost about two seconds. A fifth pass checks that every step file is either recorded or
+declared in `NOT-YET-RUN`, and a sixth **replays every committed `*-replay.txt` against its own
+flavor's step file** — the fixtures `scripts/rig-recordings.sh` cut from that green run, each in
+the mode its own header names — and again with `FAKE_VMCTL_STRICT=1` to name any command the
+recording has nothing for. Pass 6 is why the self-test now costs minutes and not two seconds: it
+replays the whole harvested set (`LIVE_SMOKE_SLEEP=0` takes the phases' sleeps out, which keeps
+that replay to minutes instead of half an hour). CI runs the same replay as a `recordings` job
+per flavor, so a fixture that no longer reproduces its run goes red on the next push.
+`tests/fixtures/live/` holds the recordings, and its README says what each one is and which
 claim rests on it.
 
 ## 10. The VM rig
@@ -2369,13 +2386,20 @@ static half is exempted at exactly that width — one interface, by name — and
 pool allows: one job per test file per Ubuntu release (24.04, 26.04 and 26.10, each in a
 container built from `.github/ci/Dockerfile` and cached in GHCR by that file's hash, as an
 unprivileged user, with a real sway, GTK, Xvfb, node and g-ir-compiler present so nothing
-skips), the parity oracle under nix (`scripts/parity-oracle.sh`), the package built from the
-tree and `apt install`ed on each release, and one job per flavor of the rig: KVM is on the
-runner, the golden image comes from a GHCR cache keyed by the recipe (`scripts/ci-golden.sh`,
-which builds it there when the key is new, ISO installs included, and pushes it for the
-next run; bump `vm/golden-epoch` to force a rebuild), and `vm/live-smoke.sh --deb --remove`
-runs against it with its log and screenshots kept as the job's artifact. The 26.10 jobs may
-fail without failing the run; that release moves under the flavor.
+skips), the whole suite once more on Fedora 44 and on Arch, the parity oracle under nix
+(`scripts/parity-oracle.sh`, three times — direct, through a pass-through `xw11`, and
+through an `xw11` in its synthesizing mode in front of a headless sway's Xwayland), the
+package built from the tree and `apt`/`dnf`/`pacman`-installed on each release, and one job
+per flavor of the rig: KVM is on the runner, the golden image comes from a GHCR cache keyed
+by the recipe (`scripts/ci-golden.sh`, which builds it there when the key is new, ISO
+installs included, and pushes it for the next run; bump `vm/golden-epoch` to force a
+rebuild), and `vm/live-smoke.sh --pkg --remove --record` runs against it with its log,
+screenshots and **recording** kept as the job's artifact. A second `recordings` job per
+flavor replays that recording through `vm/live-smoke.d/fake-vmctl` with no VM at all, which
+is the pipeline the `tests/fixtures/live/*-replay.txt` fixtures are cut with. **No job in
+that file is `continue-on-error`:** the base images are pinned by digest (and the Arch one
+syncs against a dated `archive.archlinux.org` snapshot), so 26.10 and rolling Arch are
+frozen bytes rather than a release that moves under the flavor.
 
 ## 11. Installing: what each route costs
 

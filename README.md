@@ -210,8 +210,9 @@ distribution it cannot identify gets Debian's, which is what every box printed b
 The tools are meant to be installed **over** the originals, so on a plain X11 session
 (Xfce, i3, MATE, Cinnamon, LXQt/Openbox, GNOME/KDE on Xorg) they detect the session and hand over to the
 real `xdotool`, `wmctrl`, `xprop` or `xrandr` with `execve`, argv untouched but for
-wxrandr's own options — `--backend`, `--persistent` and `--unsafe-gnome-overlap`, which
-the original has never had — and the same exit status, signals and stdio, no extra
+wxrandr's own options — `--backend`, `--persistent`, `--unsafe-gnome-overlap` and
+`--unsafe-gnome-overlap-unmeasured`, and `wmctrl`'s own `--true-geometry`, which
+the originals have never had — and the same exit status, signals and stdio, no extra
 process. `--persistent` is dropped with a line saying so; `--unsafe-gnome-overlap`
 is refused.
 
@@ -1076,18 +1077,19 @@ being counted in it: a default Ubuntu 26.04 and a default 24.04 desktop installe
 the release ISOs, on which this whole install guide was re-run verbatim, a Plasma 6.7
 cloud image, which is a probe for one protocol change rather than a support target,
 and a GNOME 51 desktop on 26.10, which is where the third GNOME of the overlap route
-was measured and is not a support target either. Thirteen more flavors exist and have
-not been built in CI yet — Fedora 43 and 44, Arch and NixOS, and with them COSMIC and
-river — so nothing about those is claimed here; `vm/README.md` says what each is and
-what it is waiting for.
+was measured and is not a support target either. The Fedora 43 and 44, Arch and NixOS
+flavors — and with them COSMIC and river — are now built and SMOKE-green in CI (run
+**34688228778**, commit `c0db8c5`, every one of the 38 flavors green); which of them are
+support targets rather than protocol probes is the owner's call, and `vm/README.md` says
+what each is.
 `vm/README.md` keeps the rig and the verbatim messages behind these cells, and
 [docs/Technical.md § 10](docs/Technical.md#10-the-vm-rig) is what the images are and
 where a cloud flavor is measurably not a desktop install. The last whole-rig measurement
-is CI run **34340513060** (commit `a544dec`, the rig installing the `.deb` built from the
-tree): of its 38 jobs, 25 ran the smoke and every one of them was green with no FAIL
-anywhere — `noble-gnome` and `resolute-gnome` printing `90 pass, 0 fail` apiece, the X11
-handovers `19 pass, 0 fail` — while five ended before the smoke started, because CI has
-no golden-fetch rule for a Fedora, Arch or NixOS image yet. The per-flavor tallies are
+is CI run **34688228778** (commit `c0db8c5`, the rig installing the package built from
+the tree for each distribution): all **38 jobs** ran the smoke and every one was
+SMOKE-green with no FAIL anywhere — Fedora, Arch and NixOS now fetched and booted
+alongside the Ubuntu flavors, where a run before them stopped short of the smoke for want
+of a golden-fetch rule. The per-flavor tallies are
 the table in
 [vm/README.md § What the tools do on each flavor](vm/README.md#what-the-tools-do-on-each-flavor).
 
@@ -1444,7 +1446,7 @@ GNOME. Running this README against that install is also what found the last of
 it, an overlap route whose every message spoke only to somebody who had a clone
 rather than the package. Both desktops report their active layout there, `wayland + kwin` on one and
 `wayland + gnome input-sources` on the other, and stderr is silent on both. The suite
-stands at **5438 tests**.
+stands at **5441 tests**.
 <!-- release-notes: 0.3 -->
 ### 0.3
 
@@ -1492,7 +1494,7 @@ Developed against real desktops, not against a model of them. `vm/` is the rig:
 `vmctl` builds and runs 38 flavors over four distributions, each with up to four virtual monitors
 that can be plugged, resized and unplugged from outside the guest, and every head
 screenshotted. `vm/README.md` documents the whole thing and `vm/SETUP.md` is how to
-set the rig up on a machine of your own. `tests/` holds the suite, 5438 tests: unit
+set the rig up on a machine of your own. `tests/` holds the suite, 5441 tests: unit
 tests, wire-level fake compositors and X servers, live-compositor integration,
 hostile-input torture, byte-parity oracles against the real xdotool, wmctrl, xprop
 and xrandr, and one static check that no package ever reaches for PolicyKit or for

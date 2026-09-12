@@ -1,0 +1,751 @@
+# live-smoke recording: flavor=nixos-sway desktop=sway distro=nixos mode=pkg remove=1 heads=3 stamp=20260912-104601
+# replay: 57 pass, 0 fail (mode pkg, remove 1, phases busrec,install,windows,wm,proxy,input,display,root,nodialog, 2026-09-12)
+### true
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### printf 'w11-desktop-version: '; sway --version
+w11-desktop-version: sway version 1.12
+### rc=0
+### pkill -x dbus-monitor >/dev/null 2>&1; rm -f $HOME/w11-bus.log; true
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### pgrep -x dbus-monitor | head -1
+1023
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+4
+### rc=0
+### dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus            org.freedesktop.DBus.ListNames >/dev/null 2>&1; sleep 1; true
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+33
+### rc=0
+### readlink -f $(command -v wdotool)
+/nix/store/363lp71f5v98vk9175zf8cdp8zl9cq32-w11-0.4.0/bin/wdotool
+### rc=0
+### test -d /run/current-system/specialisation/without-w11 && echo yes || echo no
+yes
+### rc=0
+### rm -f $HOME/w11-smoke.txt; touch $HOME/w11-smoke.txt
+### rc=0
+### rm -f $HOME/w11-smoke.txt; setsid nohup foot -- sh -c 'cat >> $HOME/w11-smoke.txt' >/dev/null 2>&1 </dev/null &            sleep 3; true
+### rc=0
+### wdotool search --class foot | head -1
+9
+### rc=0
+### wdotool getwindowname 9
+foot
+### rc=0
+### wdotool getwindowgeometry 9
+Window 9
+  Position: 0,48 (screen: 0)
+  Geometry: 1920x1032
+### rc=0
+### wdotool windowactivate --sync 9
+### rc=0
+### wdotool getactivewindow
+9
+### rc=0
+### wdotool set_desktop 1
+### rc=0
+### wdotool get_desktop
+1
+### rc=0
+### wdotool set_desktop 0
+### rc=0
+### wdotool get_desktop
+0
+### rc=0
+### wdotool windowactivate --sync 9
+### rc=0
+### wdotool mousemove 300 300
+### rc=0
+### wdotool getmouselocation
+x:300 y:300 screen:0 window:9
+### rc=0
+### wdotool mousemove 300 300 click 1
+### rc=0
+### wwmctl -l
+0x00000009  0 nixos-sway foot
+### rc=0
+### wwmctl -l -G
+0x00000009  0 0    96   1920 1032 nixos-sway foot
+### rc=0
+### wxprop -id 9 _NET_WM_STATE
+_NET_WM_STATE(ATOM) = 
+### rc=0
+### command -v xterm
+/run/current-system/sw/bin/xterm
+### rc=0
+### setsid nohup xterm -T smokex -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 3; true
+### rc=0
+### wxprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x40000c
+### rc=0
+### pkill -x xterm; true
+### rc=0
+### command -v xw11
+/run/current-system/sw/bin/xw11
+### rc=0
+### xprop -root >/dev/null 2>&1
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null
+:20 1758 :0
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l
+1
+### rc=0
+### DISPLAY=:20 xdotool getdisplaygeometry
+1920 1080
+### rc=0
+### DISPLAY=:20 xdotool search --class foot | head -1
+6291457
+### rc=0
+### wdotool getwindowname 9
+foot
+### rc=0
+### DISPLAY=:20 xdotool getwindowname 6291457
+foot
+### rc=0
+### wdotool getwindowgeometry 9
+Window 9
+  Position: 0,48 (screen: 0)
+  Geometry: 960x1032
+### rc=0
+### DISPLAY=:20 xdotool getwindowgeometry 6291457
+Window 6291457
+  Position: 0,48 (screen: 0)
+  Geometry: 960x1032
+### rc=0
+### DISPLAY=:20 xprop -id 6291457
+_NET_WM_NAME(UTF8_STRING) = "foot"
+WM_NAME(STRING) = "foot"
+WM_CLASS(STRING) = "foot", "foot"
+_NET_WM_PID(CARDINAL) = 1215
+WM_CLIENT_MACHINE(STRING) = "nixos-sway"
+_NET_WM_DESKTOP(CARDINAL) = 0
+_NET_WM_STATE(ATOM) = 
+_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_NORMAL
+WM_STATE(WM_STATE):
+		window state: Normal
+		icon window: 0x0
+_NET_FRAME_EXTENTS(CARDINAL) = 0, 0, 0, 0
+WM_PROTOCOLS(ATOM): protocols  WM_DELETE_WINDOW
+### rc=0
+### wwmctl -l
+0x00000009  0 nixos-sway foot
+0x0040000c  0 nixos-sway smokex
+### rc=0
+### DISPLAY=:20 wmctrl -l
+0x00600001  0 nixos-sway foot
+0x0040000c  0 nixos-sway smokex
+### rc=0
+### DISPLAY=:20 xdotool get_desktop
+0
+### rc=0
+### DISPLAY=:20 wmctrl -d
+0  * DG: 5760x1080  VP: 0,0  WA: N/A  1
+1  - DG: 5760x1080  VP: 0,0  WA: N/A  2
+2  - DG: 5760x1080  VP: 0,0  WA: N/A  3
+### rc=0
+### DISPLAY=:20 xprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x600001, 0x40000c
+### rc=0
+### W11_PROXY=always wdotool search --class foot | head -1
+6291457
+### rc=0
+### W11_PROXY=never wdotool search --class foot | head -1
+9
+### rc=0
+### wdotool --version
+xdotool version 4.20260303.1
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-3 0,0
+Virtual-2 1920,0
+Virtual-1 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-3 0,0
+Virtual-2 1920,0
+Virtual-1 3840,0
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-1 --pos 3840x200
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-3 0,0
+Virtual-2 1920,0
+Virtual-1 3840,200
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-1 --pos 3840x0
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-3 0,0
+Virtual-2 1920,0
+Virtual-1 3840,0
+### rc=0
+### DISPLAY=:20 xrandr -q
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-3 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-1 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### tail -4 ${XW11_LOG:-/tmp/xw11-$(id -u).log}
+1789210009.442 xw11[1758] own connection to :0: root 0x2f4, ids 0x600000|n, 70 atoms, 7 extensions
+1789210017.176 xw11[1758] xw11: RandR writes apply through the sway backend (detection), state keyed by /run/user/1000/wayland-1
+1789210017.233 xw11[1758] xw11: applied a RandR batch of 1 crtc(s) in 79 ms through sway (Virtual-1 on)
+1789210020.012 xw11[1758] xw11: applied a RandR batch of 1 crtc(s) in 62 ms through sway (Virtual-1 on)
+### rc=0
+### xw11 --stop
+### rc=0
+### printf "%s %s" "$(pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l)" \                   "$(test -e $XDG_RUNTIME_DIR/xw11/display && echo 1 || echo 0)"
+0 0
+### rc=0
+### wdotool windowactivate --sync 9
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool type --delay 30 -- 'us: yz@'
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+us: yz@
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool type --delay 30 -- abc; wdotool key Return; wdotool type --delay 30 -- def
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+abc
+def
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool --vkbd on type --delay 30 -- 'vkbd: yz@'
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+vkbd: yz@
+### rc=0
+### wwmctl -d
+0  * DG: 5760x1080  VP: 0,0  WA: 0,23 1920x1057     1
+1  - DG: 5760x1080  VP: 0,0  WA: 1920,23 1920x1057  2
+2  - DG: 5760x1080  VP: 0,0  WA: 3840,23 1920x1057  3
+### rc=0
+### wxrandr --listmonitors
+Monitors: 3
+ 0: +Virtual-3 1920/480x1080/270+0+0  Virtual-3
+ 1: +Virtual-2 1920/480x1080/270+1920+0  Virtual-2
+ 2: +Virtual-1 1920/480x1080/270+3840+0  Virtual-1
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-3 0,0
+Virtual-2 1920,0
+Virtual-1 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-3 0,0
+Virtual-2 1920,0
+Virtual-1 3840,0
+### rc=0
+### wxrandr --listmonitors
+Monitors: 3
+ 0: +Virtual-3 1920/480x1080/270+0+0  Virtual-3
+ 1: +Virtual-2 1920/480x1080/270+1920+0  Virtual-2
+ 2: +Virtual-1 1920/480x1080/270+3840+0  Virtual-1
+### rc=0
+### wxrandr --output Virtual-1 --off
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-3 0,0
+Virtual-2 1920,0
+### rc=0
+### wxrandr --output Virtual-1 --auto
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-3 0,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### wxrandr --output Virtual-1 --right-of Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-3 0,0
+Virtual-2 1920,0
+Virtual-1 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-3 0,0
+Virtual-2 1920,0
+Virtual-1 3840,0
+### rc=0
+### wxrandr --output Virtual-1 --below Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-3 0,0
+Virtual-2 1920,0
+Virtual-1 1920,1080
+### rc=0
+### python3 $HOME/w11-oracle.py sway
+Virtual-3 0,0
+Virtual-2 1920,0
+Virtual-1 1920,1080
+### rc=0
+### wxrandr --output Virtual-1 --right-of Virtual-2
+### rc=0
+### wwmctl -l | wc -l
+2
+### rc=0
+### wwmctl -l | wc -l
+2
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-3
+Virtual-2
+Virtual-1
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-3
+Virtual-2
+Virtual-1
+### rc=0
+### wmirror --list
+### rc=0
+### wxrandr --persistent --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-3 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-1 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+### rc=0
+### wwmctl -l
+0x00600001  0 nixos-sway foot
+0x0040000c  0 nixos-sway smokex
+### rc=0
+### wwmctl -l
+0x00600001  0 nixos-sway foot
+0x0040000c  0 nixos-sway smokex
+### rc=0
+### wxrandr --query
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-3 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-1 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### wxrandr --query
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-3 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-1 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### ls /run/user/0/xw11/display /tmp/wdotool-0/xw11/display 2>/dev/null
+### rc=2
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+33
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep -c 'interface=org.freedesktop.portal\.'
+0
+### rc=1
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal.Inhibit' | sed -n 's/.*sender=\([^ ]*\).*/\1/p' | sort -u
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal\.'                  | grep -vE 'interface=org.freedesktop.portal.(Settings|Request|Session)'                  | grep -v 'interface=org.freedesktop.portal.Documents; member=GetMountPoint'                   | head -5
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.PolicyKit1' | head -3
+### rc=0
+### grep -Ec '^signal ' $HOME/w11-bus.log
+6
+### rc=0
+### grep -o 'org.freedesktop.portal.[A-Za-z]*' $HOME/w11-bus.log | sort | uniq -c | sort -rn | head
+### rc=0
+### readlink -f /run/current-system
+/nix/store/rdydlzcv6d9dcf4c6fv0kr7rjh7agd9n-nixos-system-nixos-sway-qcow2-26.05.20260907.93108a5
+### rc=0
+### /run/current-system/specialisation/without-w11/bin/switch-to-configuration test 2>&1
+Checking switch inhibitors... done
+stopping the following units: systemd-modules-load.service
+activating the configuration...
+setting up /etc...
+reloading user units for root...
+reloading the following user units: dbus-broker.service
+restarting the following user units: nixos-activation.service
+reloading user units for test...
+reloading the following user units: dbus-broker.service
+restarting the following user units: nixos-activation.service
+restarting sysinit-reactivation.target
+reloading the following units: dbus-broker.service
+restarting the following units: polkit.service, systemd-udevd.service
+starting the following units: systemd-modules-load.service
+the following new units were started: sysinit-reactivation.target, systemd-tmpfiles-resetup.service
+### rc=0
+### ls -d /run/current-system/sw/share/gnome-shell/extensions/w11-bridge@w11 /run/current-system/sw/share/gnome-shell/extensions/w11-overlap@w11  2>/dev/null | tr '\n' ' '
+### rc=0
+### for t in wdotool wwmctl wxprop wxrandr warandr wmirror; do command -v $t; done 2>/dev/null
+### rc=1
+### stat -c '%U:%G %a' /dev/uinput 2>/dev/null
+root:root 660
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+# file: /dev/uinput
+# owner: root
+# group: root
+user::rw-
+user:test:rw-
+group::---
+mask::rw-
+other::---
+
+### rc=0
+### grep -l uinput /run/udev/tags/uaccess/* 2>/dev/null
+### rc=1
+### find /run/current-system/sw/share/gnome-shell/extensions/w11-bridge@w11 /usr/bin -name __pycache__ 2>/dev/null
+### rc=1
+### /nix/store/rdydlzcv6d9dcf4c6fv0kr7rjh7agd9n-nixos-system-nixos-sway-qcow2-26.05.20260907.93108a5/bin/switch-to-configuration test 2>&1
+Checking switch inhibitors... done
+stopping the following units: systemd-modules-load.service
+activating the configuration...
+setting up /etc...
+reloading user units for root...
+reloading the following user units: dbus-broker.service
+restarting the following user units: nixos-activation.service
+reloading user units for test...
+reloading the following user units: dbus-broker.service
+restarting the following user units: nixos-activation.service
+restarting sysinit-reactivation.target
+reloading the following units: dbus-broker.service
+restarting the following units: polkit.service, systemd-udevd.service
+starting the following units: systemd-modules-load.service
+### rc=0
+### command -v wdotool
+/run/current-system/sw/bin/wdotool
+### rc=0

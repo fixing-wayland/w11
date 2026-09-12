@@ -60,13 +60,13 @@ SILENT = {
     # every option of ours is missing from it on purpose.  They are documented
     # in docs/WXRANDR.md, "Command surface".
     # `xw11 --help` prints all six of its own options.  What this table holds
-    # is the other twelve strings `options_in_code` finds under `xw11/`: the
-    # word the daemonised child is re-exec'd with, and the eleven clone-only
+    # is the other thirteen strings `options_in_code` finds under `xw11/`: the
+    # word the daemonised child is re-exec'd with, and the twelve clone-only
     # tokens of `xw11/wrap.py:CLONE_ONLY`, which are not options of `xw11` at
     # all -- they are the argv words that make a wrapped tool run OUR code
     # instead of the original, and each is an option of the clone that owns it.
-    # Measured 2026-09-11: without these twelve entries this script reports
-    # twelve disagreements for a tree in which nothing disagrees.
+    # Measured 2026-09-11: without these thirteen entries this script reports
+    # thirteen disagreements for a tree in which nothing disagrees.
     "xw11": {
         "__serve": "not an option: the argv the daemonised child is re-exec'd "
                    "with, the way `wdotool __daemon` is.  It is deliberately "
@@ -74,6 +74,9 @@ SILENT = {
         "--layout": "wdotool's, read here to recognise it: xw11/wrap.py's "
                     "CLONE_ONLY is the table of argv words that keep the clone",
         "--vkbd": "wdotool's, the same",
+        "--true-geometry": "wwmctl's own flag (a flag wmctrl never had, batch 17), read here "
+                           "to recognise it: xw11/wrap.py's CLONE_ONLY[\"wmctrl\"] keeps the "
+                           "wmctrl clone on our code for it, and it is documented in docs/WWMCTL.md",
         "--backend": "wxrandr's, the same",
         "--backends": "wxrandr's, the same",
         "--print-backend": "wxrandr's, the same",

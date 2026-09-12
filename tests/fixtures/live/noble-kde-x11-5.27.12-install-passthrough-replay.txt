@@ -1,0 +1,350 @@
+# live-smoke recording: flavor=noble-kde-x11 desktop=kde-x11 distro=ubuntu mode=pkg remove=1 heads=3 stamp=20260912-103700
+# replay: 24 pass, 0 fail (mode pkg, remove 1, phases install,passthrough, 2026-09-12)
+### true
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### printf 'w11-desktop-version: '; plasmashell --version
+w11-desktop-version: plasmashell 5.27.12
+### rc=0
+### for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \           systemctl stop unattended-upgrades.service 2>/dev/null; true
+### rc=0
+### cd /tmp && DEBIAN_FRONTEND=noninteractive apt-get install -y ./w11.deb 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Suggested packages:
+  wl-mirror
+The following NEW packages will be installed:
+  w11
+0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.
+Need to get 0 B/677 kB of archives.
+After this operation, 2850 kB of additional disk space will be used.
+Get:1 /tmp/w11.deb w11 all 0.4.0 [677 kB]
+Selecting previously unselected package w11.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 189946 files and directories currently installed.)
+Preparing to unpack /tmp/w11.deb ...
+Unpacking w11 (0.4.0) ...
+Setting up w11 (0.4.0) ...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.  The
+    extension is installed and is enabled for you automatically in that first
+    session.  wxrandr and warandr work already; until the relogin the window
+    commands say the bridge is not running and name gnome/install-bridge.sh,
+    which is the from-a-clone route -- this package has done that part.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules), which is what lets wdotool type and click
+    without root.  Anyone who can open it can type as you -- see the threat
+    model in /usr/share/doc/w11/README.md.gz.
+  * On an X11 session the tools hand over to the real ones; install those
+    with: apt install xdotool wmctrl
+
+Processing triggers for desktop-file-utils (0.27-2build1) ...
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+### rc=0
+### ( sleep 1; reboot ) >/dev/null 2>&1 &
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### for t in xdotool wmctrl xprop xrandr; do             [ -x /usr/bin/$t ] || continue             { echo "#!/bin/sh"               echo "echo \"$t:\$*\" >> /tmp/w11-argv.log"               echo "exec /usr/bin/$t \"\$@\""             } > /usr/local/bin/$t             chmod 0755 /usr/local/bin/$t           done; head -99 /usr/local/bin/xdotool
+#!/bin/sh
+echo "xdotool:$*" >> /tmp/w11-argv.log
+exec /usr/bin/xdotool "$@"
+### rc=0
+### ls /usr/local/bin/xdotool /usr/local/bin/wmctrl /usr/local/bin/xprop /usr/local/bin/xrandr
+/usr/local/bin/wmctrl
+/usr/local/bin/xdotool
+/usr/local/bin/xprop
+/usr/local/bin/xrandr
+### rc=0
+### rm -f /tmp/w11-argv.log; touch /tmp/w11-argv.log
+### rc=0
+### setsid nohup xterm -T w11smoke -e sh -c 'while :; do sleep 3600; done'            >/dev/null 2>&1 </dev/null & sleep 2; true
+### rc=0
+### wdotool search --name w11smoke
+### rc=1
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+### rc=0
+### wwmctl -l -G
+0x01800015 -1 0    0    1920 1080 noble-kde-x11-smoke Desktop @ QRect(0,0 1920x1080)  — Plasma
+0x0180001b -1 1920 0    1920 1080 noble-kde-x11-smoke Desktop @ QRect(1920,0 1920x1080)  — Plasma
+0x0180001f -1 3840 0    1920 1080 noble-kde-x11-smoke Desktop @ QRect(3840,0 1920x1080)  — Plasma
+0x0180003b -1 0    1036 1920 44   noble-kde-x11-smoke Plasma
+### rc=0
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+wmctrl:-l -G
+### rc=0
+### wxprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x1800015, 0x180001b, 0x180001f, 0x180003b
+### rc=0
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+wmctrl:-l -G
+xprop:-root _NET_CLIENT_LIST
+### rc=0
+### wxrandr --query
+Screen 0: minimum 320 x 200, current 5760 x 1080, maximum 8192 x 8192
+Virtual-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    50.00    59.94  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     60.00  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    50.00    59.94  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     60.00  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 487mm x 274mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    50.00    59.94  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     60.00  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-4 disconnected (normal left inverted right x axis y axis)
+### rc=0
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+wmctrl:-l -G
+xprop:-root _NET_CLIENT_LIST
+xrandr:--query
+### rc=0
+### wxrandr --output Virtual-1 --auto --persistent 2>&1
+xrandr: --persistent is dropped on X11: the X server keeps no saved layout of its own and the real xrandr has never had the option; the rest of the command is handed over unchanged
+### rc=0
+### cat /tmp/w11-argv.log
+xdotool:search --name w11smoke
+wmctrl:-l -G
+xprop:-root _NET_CLIENT_LIST
+xrandr:--query
+xrandr:--output Virtual-1 --auto
+### rc=0
+### wxrandr --unsafe-gnome-overlap --output Virtual-1 --pos 100x0 2>&1
+xrandr: --unsafe-gnome-overlap only means anything on GNOME; this session is x11, which places overlapping monitors without it
+### rc=1
+### wxrandr --unsafe-gnome-overlap-unmeasured 51 2>&1
+xrandr: --unsafe-gnome-overlap-unmeasured only means something together with --unsafe-gnome-overlap, which is the only option that turns this on at all
+Try 'xrandr --help' for more information.
+### rc=1
+### wmirror --check 2>&1
+problem:  this is an X11 session: there is no wl-mirror here
+          X11 mirrors whole outputs with `xrandr --output B --same-as A`; a region is not done here yet -- it needs an X capture client of our own (XShm off the root window), which is a tool this toolbox has not written
+helper:   not installed
+          wl-mirror is not installed (no `wl-mirror` on PATH)
+          on Ubuntu/Debian: sudo apt install wl-mirror
+wayland:  none
+### rc=1
+### cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null || echo none
+none
+### rc=0
+### pkill xterm; true
+### rc=0
+### rm -f /usr/local/bin/xdotool /usr/local/bin/wmctrl /usr/local/bin/xprop /usr/local/bin/xrandr
+### rc=0
+### for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \           systemctl stop unattended-upgrades.service 2>/dev/null; true
+### rc=0
+### DEBIAN_FRONTEND=noninteractive apt-get remove -y w11 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following packages will be REMOVED:
+  w11
+0 upgraded, 0 newly installed, 1 to remove and 0 not upgraded.
+After this operation, 2850 kB disk space will be freed.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 190092 files and directories currently installed.)
+Removing w11 (0.4.0) ...
+Processing triggers for desktop-file-utils (0.27-2build1) ...
+### rc=0
+### ls -d /usr/lib/w11 /var/lib/w11 /etc/xdg/autostart/w11-enable-bridge.desktop /usr/share/gnome-shell/extensions/w11-bridge@w11 /usr/share/gnome-shell/extensions/w11-overlap@w11  2>/dev/null | tr '\n' ' '
+### rc=0
+### for t in wdotool wwmctl wxprop wxrandr warandr wmirror; do command -v $t; done 2>/dev/null
+### rc=127
+### stat -c '%U:%G %a' /dev/uinput 2>/dev/null
+root:root 600
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+# file: /dev/uinput
+# owner: root
+# group: root
+user::rw-
+group::---
+other::---
+
+### rc=0
+### grep -l uinput /run/udev/tags/uaccess/* 2>/dev/null
+### rc=1
+### find /usr/lib/w11 /usr/bin -name __pycache__ 2>/dev/null
+### rc=1
+### cd /tmp && DEBIAN_FRONTEND=noninteractive apt-get install -y ./w11.deb 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Suggested packages:
+  wl-mirror
+The following NEW packages will be installed:
+  w11
+0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.
+Need to get 0 B/677 kB of archives.
+After this operation, 2850 kB of additional disk space will be used.
+Get:1 /tmp/w11.deb w11 all 0.4.0 [677 kB]
+Selecting previously unselected package w11.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 189946 files and directories currently installed.)
+Preparing to unpack /tmp/w11.deb ...
+Unpacking w11 (0.4.0) ...
+Setting up w11 (0.4.0) ...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.  The
+    extension is installed and is enabled for you automatically in that first
+    session.  wxrandr and warandr work already; until the relogin the window
+    commands say the bridge is not running and name gnome/install-bridge.sh,
+    which is the from-a-clone route -- this package has done that part.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules), which is what lets wdotool type and click
+    without root.  Anyone who can open it can type as you -- see the threat
+    model in /usr/share/doc/w11/README.md.gz.
+  * On an X11 session the tools hand over to the real ones; install those
+    with: apt install xdotool wmctrl
+
+Processing triggers for desktop-file-utils (0.27-2build1) ...
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+### rc=0
