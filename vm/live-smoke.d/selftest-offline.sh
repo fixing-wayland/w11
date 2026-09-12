@@ -30,8 +30,31 @@
 # Without it a new step file could ship with no recording, no entry, and nothing
 # saying so -- and its checks would have been run by nobody.
 #
-# Takes a couple of seconds and needs nothing but bash and python3.
-#   usage: vm/live-smoke.d/selftest-offline.sh
+# Pass 6 replays every OTHER recording in tests/fixtures/live/ against its own
+# flavor's step file, IN THE MODE THE RUN THAT MADE IT WAS IN -- `vm/live-smoke.sh
+# --record` writes that mode into the capture's first line, and a --pkg --remove
+# run replayed with --reuse loses 14 of its checks with no red line anywhere (3
+# install, 9 remove, 2 proxy: measured on the resolute-sway artifact of
+# 2026-09-12, 59 pass in the run's own mode against 45 in tree mode).  It then
+# replays it a second time with FAKE_VMCTL_STRICT to
+# ask what the recording has NOTHING for.  Without that second pass the drift
+# between a recording and the step file it was cut from is invisible: fake-vmctl
+# answers an unrecorded command with empty output and status 0, a guard takes a
+# branch by luck, and the checks behind it pass on nothing.  A recording that
+# cannot answer something the run asks is named, with the commands, and is not a
+# failure -- it is a recording waiting for the rig to cut a new one
+# (scripts/rig-recordings.sh off a CI run).  SELFTEST_STRICT=1 makes it fatal.
+#
+# Takes about half a minute -- 23 s for nine recordings replayed twice each,
+# measured 2026-09-12, where eight of them took 2 m 50 s before LIVE_SMOKE_SLEEP=0
+# (the phases' sleeps are for a real compositor, not for a transcript) -- and needs
+# nothing but bash and python3.
+#   usage: vm/live-smoke.d/selftest-offline.sh [recording ...]
+#
+# With recordings named on the command line it runs pass 6 over those and nothing
+# else, which is how one fresh fixture is checked before it is committed (and how
+# tests/test_live_smoke.py checks the mode handling without a fixtures directory
+# of its own).  SELFTEST_STRICT=1 makes drift fatal.
 set -euo pipefail
 HERE=$(cd -- "$(dirname -- "$0")" && pwd)          # <repo>/vm/live-smoke.d
 REPO=$(dirname "$(dirname "$HERE")")
@@ -40,18 +63,81 @@ CAP=$REPO/tests/fixtures/live/noble-gnome-46.0-windows-wm-replay.txt
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 fails=0
+drift=0
+ONLY=$*          # recordings named on the command line: pass 6 over those, and no other pass
+VERSION=$(sed -n 's/^VERSION = "\(.*\)"$/\1/p' "$REPO/w11common/__init__.py" | head -1)
 say() { echo "$*"; }
 bad() { fails=$((fails + 1)); echo "SELFTEST FAIL: $*"; }
 
-run_pass() {   # run_pass <label> <override-file-or-empty> [phases] [transcript] [flavor] -> log on stdout
+# The three things a recording says about itself, all of them in comment lines that
+# fake-vmctl's parser drops (it keeps nothing before the first `### `): the mode the run
+# was made in and whether it removed the package, written by `vm/live-smoke.sh --record`,
+# and the tally scripts/rig-recordings.sh accepted when it kept the file.  A capture cut
+# before those lines existed answers empty, and the caller falls back to what it did then.
+mode_of()     { sed -n 's/^# live-smoke recording:.* mode=\([a-z]*\) .*/\1/p' "$1" | head -1; }
+remove_of()   { sed -n 's/^# live-smoke recording:.* remove=\([01]\) .*/\1/p' "$1" | head -1; }
+accepted_of() { sed -n 's/^# replay: \([0-9]*\) pass.*/\1/p' "$1" | head -1; }
+distro_of()   { sed -n 's/^#[[:space:]]*vmctl-distro:[[:space:]]*//p' "$REPO/vm/flavors/$1.yaml" | head -1; }
+
+# Is the package a --pkg recording installed on THIS host?  The same four arms
+# vm/live-smoke.sh's pkg_files has: release/w11_<version>_all.deb is committed, dist/*.rpm
+# and dist/*.pkg.tar.zst are build artifacts and are not, and on NixOS nothing is copied in
+# at all -- the module is the image (recon/recordings.md 1.6.3).  Without the package the
+# install half cannot be replayed, so it comes out of the phase list and is said out loud.
+have_package() {   # have_package <flavor>
+    case $(distro_of "$1") in
+        ubuntu) [ -f "$REPO/release/w11_${VERSION}_all.deb" ] ;;
+        fedora) ls "${LIVE_SMOKE_RPMS:-$REPO/dist}"/*-"$VERSION"-*.rpm >/dev/null 2>&1 ;;
+        arch)   [ -f "${LIVE_SMOKE_PKG:-$REPO/dist/w11-$VERSION-1-any.pkg.tar.zst}" ] ;;
+        nixos)  return 0 ;;
+        *)      return 1 ;;
+    esac
+}
+
+# fake-vmctl in front of a tee for its own stderr.  With FAKE_VMCTL_STRICT set it answers a
+# command nobody recorded with a line on stderr and exit 127 -- and the driver's guest() folds
+# stderr into the command's OUTPUT (live-smoke.sh's `2>&1`), so that line ends up as the
+# evidence clause of some check instead of anywhere a reader would look.  This copies it to a
+# file as well, which is what pass 6 greps to say WHICH command a recording cannot answer
+# (recon/recordings.md 1.6.1: "to a file the selftest greps").
+cat > "$WORK/strict-vmctl" <<'WRAP'
+#!/bin/sh
+err=$(mktemp) || exit 2
+"$FAKE_VMCTL_REAL" "$@" 2>"$err"; st=$?
+if [ -s "$err" ]; then cat "$err" >> "${FAKE_VMCTL_MISSES:-/dev/null}"; cat "$err" >&2; fi
+rm -f "$err"
+exit $st
+WRAP
+chmod +x "$WORK/strict-vmctl"
+
+# run_pass <label> <override-file-or-empty> [phases] [transcript] [flavor] [strict]
+#          [driver flags] -> log on stdout
+#
+# LIVE_SMOKE_SLEEP=0 on every pass: every `sleep` in a phase is there for a real compositor --
+# a modeset needs a frame, a hot-plugged head needs the next probe -- and a transcript has
+# neither.  Measured on this box 2026-09-12: the nine recordings replayed in 2 s each with it
+# and in 25-50 s each without (the eight-recording selftest took 2 m 50 s at load 52,
+# recon/recordings.md 1.6.5).  The driver defines `sleep` as a function for exactly this.
+run_pass() {
     local label=$1 override=$2 phases=${3:-windows,wm} cap=${4:-$CAP} flavor=${5:-noble-gnome}
+    local strict=${6:-0} extra=${7:-}
+    # `--reuse` goes away with the mode flags, and not because --pkg needs a fresh
+    # instance: phase_install returns early under --reuse, so a --pkg recording replayed
+    # with it loses the three checks the install phase is (recon/recordings.md 1.6.2).
+    local reuse=--reuse
+    if [ -n "$extra" ]; then reuse=""; fi
     rm -rf "$WORK/state-$label"; mkdir -p "$WORK/state-$label"
-    LIVE_SMOKE_VMCTL=$HERE/fake-vmctl \
+    : > "$WORK/$label.misses"
+    FAKE_VMCTL_REAL=$HERE/fake-vmctl \
+    FAKE_VMCTL_MISSES=$WORK/$label.misses \
+    LIVE_SMOKE_VMCTL=$WORK/strict-vmctl \
     FAKE_VMCTL_TRANSCRIPT=$cap \
     FAKE_VMCTL_OVERRIDE=$override \
+    FAKE_VMCTL_STRICT=$(if [ "$strict" = 1 ]; then echo 1; else echo ""; fi) \
     FAKE_VMCTL_STATE=$WORK/state-$label \
     LIVE_SMOKE_OUT=$WORK/out \
-        "$REPO/vm/live-smoke.sh" "$flavor" --name fake-$label --reuse --keep \
+    LIVE_SMOKE_SLEEP=0 \
+        "$REPO/vm/live-smoke.sh" "$flavor" --name fake-$label $reuse --keep $extra \
             --phases "$phases" > "$WORK/$label.log" 2>&1 || true
     cat "$WORK/$label.log"
 }
@@ -75,6 +161,118 @@ replay_spec() {   # replay_spec <path> -> "<flavor> <phases>" or nothing
     [ -n "$rest" ] || return 0
     printf '%s %s\n' "$best" "$(printf '%s' "$rest" | tr - ,)"
 }
+
+# replay_all <recording>... -- pass 6 over the recordings given, each in the mode the run
+# that made it was in.
+replay_all() {
+    local cap spec flavor phases lbl p f n mode remove extra reduced want
+    for cap in "$@"; do
+        [ -e "$cap" ] || continue
+        if [ -z "$ONLY" ] && [ "$cap" = "$CAP" ]; then continue; fi   # pass 1 and 2 are this one
+        spec=$(replay_spec "$cap") || true
+        if [ -z "$spec" ]; then
+            bad "$(basename "$cap") does not resolve to a flavor and a phase list"
+            continue
+        fi
+        flavor=${spec%% *}; phases=${spec#* }
+        lbl=$(basename "$cap" -replay.txt)
+        # The mode the capture's own header names.  A --pkg --remove run replayed with
+        # --reuse in tree mode silently loses 14 of its 59 checks -- 3 install, 9 remove
+        # and the 2 the proxy phase skips where MODE is tree -- and every one of the 38
+        # fixtures the rig harvests is a --pkg --remove run (measured on the resolute-sway
+        # artifact of 2026-09-12: 59 pass in the run's own mode, 45 in tree mode).
+        mode=$(mode_of "$cap"); remove=$(remove_of "$cap"); extra=""; reduced=""
+        if [ "$mode" = pkg ]; then
+            if have_package "$flavor"; then
+                extra="--pkg"
+                if [ "$remove" = 1 ]; then extra="$extra --remove"; fi
+            else
+                reduced="the $(distro_of "$flavor") package that run installed is not on this host"
+                phases=$(printf '%s' "$phases" | tr ',' '\n' | grep -vx install \
+                           | tr '\n' ',' | sed 's/,$//')
+            fi
+        fi
+        run_pass "$lbl" "" "$phases" "$cap" "$flavor" 0 "$extra" > "$WORK/$lbl.out"
+        p=$(grep -c '^PASS ' "$WORK/$lbl.out" || true)
+        f=$(grep -c '^FAIL ' "$WORK/$lbl.out" || true)
+        say "   $flavor [$phases]${extra:+ $extra}: $p pass, $f fail"
+        if [ -n "$reduced" ]; then
+            say "      reduced: $reduced, so the install phase was not replayed" \
+                "(LIVE_SMOKE_RPMS / LIVE_SMOKE_PKG are where it would look for one)"
+        fi
+        [ "$p" -ge 5 ] || bad "$(basename "$cap"): only $p checks ran against it"
+        # The tally scripts/rig-recordings.sh accepted when it kept the file, which is the
+        # run's own `done: N pass` -- there is no log beside a fixture, so this line is the
+        # only thing that can catch a replay losing checks rather than failing them.  A
+        # recording cut before the line existed has none, and then ">= 5 and none red" is
+        # all there is to go on, which is what this pass had for all of them until now.
+        want=$(accepted_of "$cap")
+        if [ -n "$want" ] && [ -z "$reduced" ] && [ "$p" != "$want" ]; then
+            bad "$(basename "$cap"): replayed $p checks where the rig accepted $want --" \
+                "the replay is not running what the run ran"
+        fi
+        if [ "$f" != 0 ]; then
+            grep '^FAIL ' "$WORK/$lbl.out" | sed 's/^/      /'
+            bad "$(basename "$cap"): $f check(s) failed against the desktop they were recorded from"
+        fi
+        # ...and the SAME replay again with FAKE_VMCTL_STRICT, for the one question the run
+        # above cannot answer: which commands the recording has nothing for.  fake-vmctl
+        # answers those with empty output and status 0, so a guard takes its has-an-X-server
+        # branch by luck and the checks behind it pass on nothing -- measured on the
+        # committed sway recording, which was cut one commit before common.sh's `xprop -root`
+        # guard landed and replays 27 checks lenient against 11 strict, 0 fail either way
+        # (recon/recordings.md 1.6.1).  It is a second run and not the first one made strict,
+        # because strict COSTS those 16 checks: the commands the recording does answer are
+        # real bytes and the drift is one guard.
+        #
+        # Only for a recording that can answer the driver itself: `vm/live-smoke.sh --record`
+        # wraps the whole run and its capture begins with wait_ssh's `true`, while an older
+        # guest-capture.sh list has no preamble and strict there stops at `cannot reach over
+        # ssh` with nothing replayed (measured 2026-09-12: 0 checks for noble-gnome-46.0 and
+        # resolute-i3-4.25.1, against 39/35/42/32/31/30/11 for the seven that carry it).
+        if grep -qx '### true' "$cap"; then
+            run_pass "$lbl-strict" "" "$phases" "$cap" "$flavor" 1 "$extra" > /dev/null
+            n=$(sort -u "$WORK/$lbl-strict.misses" | grep -c . || true)
+        else
+            say "      (a guest-capture.sh command list, with no ssh preamble: nothing to inventory)"
+            n=0
+        fi
+        # NOT a failure: a recording is behind its step file until the rig cuts a new one
+        # (scripts/rig-recordings.sh off a CI run), and this says how far behind, by command.
+        # SELFTEST_STRICT=1 is the switch for the day they are all fresh.
+        if [ "${n:-0}" != 0 ]; then
+            drift=$((drift + 1))
+            say "      behind its step file: $n command(s) the run asks and this recording does not answer"
+            sort -u "$WORK/$lbl-strict.misses" | sed 's/fake-vmctl: nothing recorded for /         /'
+            if [ "${SELFTEST_STRICT:-0}" = 1 ]; then
+                bad "$(basename "$cap"): $n unrecorded command(s) and SELFTEST_STRICT=1"
+            fi
+        fi
+    done
+}
+
+drift_summary() {
+    say
+    if [ "$drift" != 0 ]; then
+        say "$drift recording(s) are behind their step files -- each is named above with the commands"
+        say "it cannot answer.  scripts/rig-recordings.sh <run-id> cuts fresh ones from a CI run."
+    fi
+}
+
+# Recordings named on the command line: pass 6 over exactly those.  One fresh fixture is
+# checked this way before it is committed, and nothing else here has anything to say about
+# a file that is not in tests/fixtures/live/ yet.
+if [ -n "$ONLY" ]; then
+    say "== the recording(s) named on the command line, replayed the way pass 6 does"
+    replay_all "$@"
+    drift_summary
+    if [ "$fails" = 0 ]; then
+        say "selftest-offline: OK ($# recording(s) replayed in the mode each was made in)"
+        exit 0
+    fi
+    say "selftest-offline: $fails problem(s)"
+    exit 1
+fi
 
 say "== pass 1: the recording as it was captured"
 run_pass good "" > "$WORK/good.out"
@@ -211,28 +409,9 @@ done
 # checking any more.
 say
 say "== pass 6: every recording replays green against its own flavor's step file"
-for cap in "$REPO"/tests/fixtures/live/*-replay.txt; do
-    [ -e "$cap" ] || continue
-    [ "$cap" = "$CAP" ] && continue          # pass 1 and 2 are this one, in more detail
-    spec=$(replay_spec "$cap") || true
-    if [ -z "$spec" ]; then
-        bad "$(basename "$cap") does not resolve to a flavor and a phase list"
-        continue
-    fi
-    set -- $spec
-    lbl=$(basename "$cap" -replay.txt)
-    run_pass "$lbl" "" "$2" "$cap" "$1" > "$WORK/$lbl.out"
-    p=$(grep -c '^PASS ' "$WORK/$lbl.out" || true)
-    f=$(grep -c '^FAIL ' "$WORK/$lbl.out" || true)
-    say "   $1 [$2]: $p pass, $f fail"
-    [ "$p" -ge 5 ] || bad "$(basename "$cap"): only $p checks ran against it"
-    if [ "$f" != 0 ]; then
-        grep '^FAIL ' "$WORK/$lbl.out" | sed 's/^/      /'
-        bad "$(basename "$cap"): $f check(s) failed against the desktop they were recorded from"
-    fi
-done
+replay_all "$REPO"/tests/fixtures/live/*-replay.txt
 
-say
+drift_summary
 if [ "$fails" = 0 ]; then
     say "selftest-offline: OK ($n_pass checks pass on the recording, 1 fails on the regression,"
     say "                  phase busrec passes with a recorder and fails without one, and every"

@@ -32,9 +32,34 @@ def simplified(s: str) -> str:
     return " ".join((s or "").split())
 
 
+def tie_warning(blocked: int) -> str:
+    """The sentence a tie costs the user, in one place so that both printers of it print the same bytes.
+
+    `match_xids` prints it for the callers that have always printed it -- KWin, Hyprland, Wayfire, whose
+    join runs once per listing read -- and `backend_wlr.views()` prints it for the wlr floor, where the
+    join also runs under `list()` now and `list()` runs under every window command there is."""
+    return ("%d XWayland window(s) could not be told apart from each other in the X client list; "
+            "their X ids are left unset" % blocked)
+
+
 def match_xids(raw: "list[dict]", clients: "list[dict]",
                ratio: "float | None" = 1.0) -> "dict[str, int]":
-    """Greedy best-first matching of compositor windows to Xwayland's clients.
+    """`match_xids_quiet`'s pairing, with the ties it could not break said once on stderr.
+
+    This is the spelling every caller but `backend_wlr.XPlaneViews._x_join` uses, and the warning is the
+    reason it exists separately: a window whose id is silently left at 0 is a window `wwmctl -l` prints
+    without an X id and nobody can tell why."""
+    out, blocked = match_xids_quiet(raw, clients, ratio)
+    if blocked:
+        _warn(tie_warning(blocked))
+    return out
+
+
+def match_xids_quiet(raw: "list[dict]", clients: "list[dict]",
+                     ratio: "float | None" = 1.0) -> "tuple[dict[str, int], int]":
+    """Greedy best-first matching of compositor windows to Xwayland's clients, and the number of windows a
+    tie left unpaired -- with nothing printed, so that a caller which joins under every command (the wlr
+    floor's `list()`, since route-5 geometry) can pick the one place the sentence belongs.
 
     pid and WM_CLASS are filters (an X client never changes them behind
     KWin's back), the title and the geometry distance are the score -- two
@@ -157,9 +182,5 @@ def match_xids(raw: "list[dict]", clients: "list[dict]",
             out[u] = xid
             used.add(xid)
         i = j
-    if blocked:
-        _warn("%d XWayland window(s) could not be told apart from each "
-              "other in the X client list; their X ids are left unset"
-              % len(blocked))
-    return out
+    return out, len(blocked)
 

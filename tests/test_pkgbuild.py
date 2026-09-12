@@ -285,7 +285,7 @@ class TheRecipe(unittest.TestCase):
             os.path.join(ROOT, "gnome", "overlap-typelib", "gen-gir.py")))
         with open(GENERATIONS, encoding="utf-8") as fh:
             names = [g["namespace"] for g in json.load(fh)["generations"]]
-        self.assertEqual(len(names), 3, names)
+        self.assertEqual(len(names), 4, names)
         for ns in names:
             with self.subTest(ns):
                 self.assertTrue(os.path.exists(os.path.join(

@@ -1,5 +1,8 @@
 #cloud-config
-# vmctl flavor fedora44-cosmic: Fedora 44 Cloud + COSMIC (cosmic-comp 1.6.0-3.fc44, Smithay)
+# vmctl flavor fedora44-cosmic: Fedora 44 Cloud + COSMIC (cosmic-comp 1.8.0-1.fc44 as `rpm -q`
+# read it in the rebuilt golden on 2026-09-11; 1.6.0-3.fc44 on the first build of 2026-09-09, and
+# the version moves with Fedora's package -- the date is part of the fact.  Nothing in the backend
+# depends on it: the rate-limited refresh it waits for is the same code in 1.6.0 and 1.8.0), Smithay
 # with Xwayland, foot and cosmic-randr; greetd autologin ([initial_session], `start-cosmic`)
 # of user test (uid 1000, password test, NOPASSWD sudo) on vt 1.  Native display tool:
 # `cosmic-randr list --kdl`, which is what vm/live-smoke.d/oracle.py reads here.
@@ -50,8 +53,8 @@
 #     (`mode 1280 800 74994 current=#true preferred=#true`; every other line is bare).
 #     vm/live-smoke.d/oracle.py's cosmic branch reads that document correctly.
 #
-# WHAT STILL BLOCKS THIS FLAVOR, and it is not COSMIC.  `vmctl build fedora44-cosmic` fails in
-# vm/build-image.sh's dm_greetd, on its `systemctl enable greetd.service`, with
+# WHAT ONCE BLOCKED THIS FLAVOR, and it was not COSMIC.  `vmctl build fedora44-cosmic` used to fail
+# in vm/build-image.sh's dm_greetd, on its `systemctl enable greetd.service`, with
 #
 #   Failed to enable unit: File '/etc/systemd/system/display-manager.service' already exists
 #   and is a symlink to /usr/lib/systemd/system/cosmic-greeter.service
@@ -59,13 +62,12 @@
 # because `cosmic-desktop-environment` installs cosmic-greeter, whose unit self-enables as
 # display-manager.service during the group transaction -- and Fedora's greetd.service carries
 # `[Install] Alias=display-manager.service` and NO `WantedBy=`, so enabling it is exactly and
-# only that one symlink.  Measured fix, run by hand in the built guest and verified:
-# `systemctl disable cosmic-greeter.service` first, then `systemctl enable greetd.service`
-# creates the link and greetd comes up as the display manager (that is the boot the paint
-# numbers above were taken on).  The one-line change belongs in vm/build-image.sh's dm_greetd
-# (batch 2's file, requested there); it is the same class of bug as Debian's gdm3 having no
-# [Install] section, which dm_enable already handles.  That, and not the compositor, is why
-# this flavor stays `# vmctl-ci: on-demand` until the fix lands.
+# only that one symlink.  THAT IS FIXED and the flavor builds on every push: vm/build-image.sh's
+# dm_enable reads whatever already owns /etc/systemd/system/display-manager.service, disables
+# that unit by name and then enables ours -- the same class of bug as Debian's gdm3 having no
+# [Install] section, handled in the same function.  Both COSMIC goldens (this one and
+# arch-cosmic) have been built and cached with it since [goal2/recon/flavors.md 5, 2026-09-11],
+# which is the boot the paint numbers above were taken on.
 #
 # greetd is COSMIC's own shape, not a rig convenience: `dnf repoquery --requires cosmic-greeter`
 # names greetd, greetd-selinux and cosmic-comp >= 1.6.0, so greetd-selinux is installed beside

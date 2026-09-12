@@ -63,6 +63,10 @@ STEPS = os.path.join(VM, "live-smoke.d")
 DRIVER = os.path.join(VM, "live-smoke.sh")
 ORACLE = os.path.join(STEPS, "oracle.py")
 SELFTEST_OFFLINE = os.path.join(STEPS, "selftest-offline.sh")
+RIG_RECORDINGS = os.path.join(ROOT, "scripts", "rig-recordings.sh")
+COMMON_SH = os.path.join(STEPS, "common.sh")
+CAPTURE_FROM_RUN = os.path.join(STEPS, "capture-from-run")
+FAKE_VMCTL = os.path.join(STEPS, "fake-vmctl")
 FLAVORS = os.path.join(VM, "flavors")
 VMCTL = os.path.join(VM, "vmctl")
 LIVEFIX = os.path.join(ROOT, "tests", "fixtures", "live")
@@ -1132,6 +1136,506 @@ class TheOfflineSelfTest(unittest.TestCase):
             with self.subTest(token):
                 self.assertRegex(tail, r"(?m)^\s*%s: (recorded|not yet run)$" % re.escape(token))
 
+
+class TheRecordingsPipeline(unittest.TestCase):
+    """`vm/live-smoke.sh --record`, the version note common.sh asks the guest for, and
+    scripts/rig-recordings.sh -- the three pieces that turn what a rig run already
+    measures into a fixture instead of throwing it away.
+
+    CI runs every phase a recording would record, on 38 flavors, on every push, and
+    before this nothing set CAPLOG: of the 47 guest commands in the committed sway
+    fixture, 5 appear anywhere in an artifact log, none of them with its output bytes or
+    its status (recon/recordings.md 1.1-1.2, measured on run 34571549808)."""
+
+    #: The version line the driver asks for, as the transcript records it.  `sway
+    #: --version` printed exactly this through the capture wrapper on the resolute-sway
+    #: golden, 2026-09-11, and 1.11 is the token the committed fixture name carries.
+    VERSION_SECTION = ("### printf 'w11-desktop-version: '; sway --version\n"
+                       "w11-desktop-version: sway version 1.11\n"
+                       "### rc=0\n")
+    #: The guard `phase_proxy` asks before it measures anything (common.sh), which the
+    #: committed sway recording predates -- it was cut one commit before the guard landed.
+    XPROP_SECTION = "### xprop -root\n### rc=0\n"
+
+    SWAY_FIXTURE = os.path.join(LIVEFIX, "resolute-sway-1.11-windows-wm-proxy-replay.txt")
+
+    @property
+    def PLANTED_NYR(self):
+        return read(NOT_YET_RUN) + "sway\nproxy:resolute-sway\n"
+
+    def driver(self, args, env=None, cwd=ROOT, timeout=300):
+        e = dict(os.environ)
+        e.update(env or {})
+        return subprocess.run(["bash", DRIVER] + args, capture_output=True, text=True,
+                              timeout=timeout, cwd=cwd, env=e)
+
+    def record_a_run(self, work, override="", extra=(), name="rec"):
+        """A recorded run with no VM: `--record` puts capture-from-run in front of
+        whatever LIVE_SMOKE_VMCTL names, so pointing that at fake-vmctl replays the
+        committed sway recording and captures the run of it.  That round trip is what
+        recon/recordings.md 1.5(i) measured (27 pass, 0 fail, and a capture that names
+        itself back to the same file name).
+
+        `extra` are driver flags -- `--pkg` for a recording of the shape every CI run
+        makes, which is the one the mode header exists for."""
+        out = os.path.join(work, "out")
+        os.makedirs(os.path.join(work, "state"), exist_ok=True)
+        got = self.driver(
+            ["resolute-sway", "--name", name, "--reuse", "--keep", "--record",
+             "--phases", "windows,wm,proxy"] + list(extra),
+            env={"LIVE_SMOKE_VMCTL": FAKE_VMCTL,
+                 "FAKE_VMCTL_TRANSCRIPT": self.SWAY_FIXTURE,
+                 "FAKE_VMCTL_OVERRIDE": override,
+                 "FAKE_VMCTL_STATE": os.path.join(work, "state"),
+                 "LIVE_SMOKE_OUT": out,
+                 "LIVE_SMOKE_SLEEP": "0"})
+        caps = [n for n in os.listdir(out) if n.endswith("-capture.txt")]
+        logs = [n for n in os.listdir(out) if n.endswith(".log")]
+        return got, out, caps, logs
+
+    def test_record_puts_the_capture_wrapper_in_front_of_vmctl_and_pairs_it_with_the_log(self):
+        """The flag is wired where $OUTDIR and $STAMP are known and not at the option
+        loop, because the capture is paired with the log BY STAMP -- a capture whose log
+        is a different run would name the fixture after the wrong phase list."""
+        with tempfile.TemporaryDirectory() as work:
+            got, out, caps, logs = self.record_a_run(work)
+            self.assertEqual(got.returncode, 0, got.stdout[-3000:] + got.stderr[-2000:])
+            self.assertEqual(len(caps), 1, caps)
+            self.assertEqual(len(logs), 1, logs)
+            self.assertEqual(caps[0], logs[0][:-len(".log")] + "-capture.txt")
+            body = read(out, caps[0])
+            self.assertIn("### wwmctl -l\n", body)
+            self.assertIn("### rc=", body)
+            # the header the replay reads the run's own mode out of
+            self.assertRegex(body.splitlines()[0],
+                             r"^# live-smoke recording: flavor=resolute-sway desktop=sway "
+                             r"distro=ubuntu mode=tree remove=0 ")
+
+    def test_without_record_the_run_captures_nothing(self):
+        """The control: the same run without the flag leaves a log and no capture, which
+        is what every CI run did until the vm job passed --record."""
+        with tempfile.TemporaryDirectory() as work:
+            out = os.path.join(work, "out")
+            os.makedirs(os.path.join(work, "state"))
+            got = self.driver(
+                ["resolute-sway", "--name", "norec", "--reuse", "--keep",
+                 "--phases", "windows"],
+                env={"LIVE_SMOKE_VMCTL": FAKE_VMCTL,
+                     "FAKE_VMCTL_TRANSCRIPT": self.SWAY_FIXTURE,
+                     "FAKE_VMCTL_STATE": os.path.join(work, "state"),
+                     "LIVE_SMOKE_OUT": out, "LIVE_SMOKE_SLEEP": "0"})
+            self.assertEqual(got.returncode, 0, got.stderr[-2000:])
+            self.assertEqual([n for n in os.listdir(out) if n.endswith("-capture.txt")], [])
+
+    def test_the_sleep_knob_takes_the_phases_sleeps_out(self):
+        """Every `sleep` in a phase is there for a real compositor; a transcript has no
+        frames to wait for.  One full-phase replay cost 48.4 s, most of it literal sleep,
+        and 38 of those is 20-30 minutes (recon/recordings.md 1.6.5) -- so the knob is
+        what makes a replay job possible at all.  It is a shell FUNCTION in the driver
+        because the sleeps are spread over common.sh and every step file."""
+        block = support.sh_block(DRIVER, "sleep()   {", "command sleep \"$@\"; }")
+        script = block + "\nt0=$SECONDS\nsleep 3\necho \"elapsed=$((SECONDS - t0))\"\n"
+        fast = subprocess.run(["bash", "-c", "LIVE_SMOKE_SLEEP=0\n" + script],
+                              capture_output=True, text=True, timeout=60)
+        slow = subprocess.run(["bash", "-c", "LIVE_SMOKE_SLEEP=1\n" + script],
+                              capture_output=True, text=True, timeout=60)
+        self.assertIn("elapsed=0", fast.stdout, fast.stdout + fast.stderr)
+        self.assertNotIn("elapsed=0", slow.stdout, slow.stdout + slow.stderr)
+
+    def test_every_desktop_a_flavor_names_has_a_version_command_of_its_own(self):
+        """The token in a recording's name is a MEASUREMENT: `replay_spec` drops exactly
+        one token after the flavor, and until this hook those tokens were a human reading
+        vm/README.md (recon/recordings.md 1.3).  A desktop that falls through to `true`
+        prints no version, which makes rig-recordings.sh refuse to name its file -- so a
+        new desktop has to bring its version command with it."""
+        pre = ("set -u\n" + support.sh_function(COMMON_SH, "desktop_version_cmd")
+               + '\nfor d in %s; do DESKTOP=$d; echo "$d $(desktop_version_cmd)"; done\n'
+               % " ".join(sorted({d for d in flavor_desktops().values() if d})))
+        got = subprocess.run(["bash", "-c", pre], capture_output=True, text=True, timeout=60)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        fell_through = [ln for ln in got.stdout.splitlines() if ln.split(" ", 1)[1] == "true"]
+        self.assertEqual(fell_through, [], got.stdout)
+
+    def test_the_version_note_marks_the_line_the_naming_reads(self):
+        """The marker is in the recorded OUTPUT and not in the command, so the bytes the
+        compositor printed about itself are a recorded section like any other -- and the
+        reader that names the file takes the first version-shaped word of that line.  Both
+        halves here: the note the driver asks for, and `version_of` over the bytes four
+        real desktops answer with (the three shapes rig-recordings.sh's comment names, and
+        the shape a desktop whose binary is not installed answers with)."""
+        pre = ("set -u\nDESKTOP=sway\n"
+               'guest() { printf "%s\\n" "GUEST[$1]"; }\nnote() { echo "NOTE $*"; }\n'
+               + support.sh_function(COMMON_SH, "desktop_version_cmd")
+               + support.sh_function(COMMON_SH, "desktop_version_note")
+               + "\ndesktop_version_note\n")
+        got = subprocess.run(["bash", "-c", pre], capture_output=True, text=True, timeout=60)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertIn("NOTE GUEST[printf 'w11-desktop-version: '; sway --version]", got.stdout)
+        # ...and the bytes themselves, through the function that turns them into the token
+        # in the file name.  `sh: 1: cosmic-comp: not found` is what an arm whose binary is
+        # not on the guest prints, and an empty token is what makes the naming refuse.
+        reader = support.sh_function(RIG_RECORDINGS, "version_of")
+        with tempfile.TemporaryDirectory() as work:
+            for line, token in (("sway version 1.11", "1.11"),
+                                ("GNOME Shell 50.1", "50.1"),
+                                ("labwc 0.9.3 (wlroots 0.19.2)", "0.9.3"),
+                                ("sh: 1: cosmic-comp: not found", "")):
+                with self.subTest(line):
+                    cap = os.path.join(work, "cap.txt")
+                    with open(cap, "w", encoding="utf-8") as fh:
+                        fh.write("### printf 'w11-desktop-version: '; true\n"
+                                 "w11-desktop-version: %s\n### rc=0\n" % line)
+                    out = subprocess.run(
+                        ["bash", "-c", "set -u\n%s\nprintf '[%%s]' \"$(version_of %s)\"\n"
+                         % (reader, shlex.quote(cap))],
+                        capture_output=True, text=True, timeout=60)
+                    self.assertEqual(out.stdout, "[%s]" % token, out.stderr)
+
+    def test_the_driver_asks_for_the_version_once_beside_the_session_banner(self):
+        """Once per run and after the session is up: it is a guest command, and a guest
+        command before `vmctl session` has no session to ask."""
+        src = read(VM, "live-smoke.sh")
+        self.assertEqual(src.count("\ndesktop_version_note\n"), 1)
+        self.assertLess(src.index("wait_session ||"), src.index("\ndesktop_version_note\n"))
+
+    # -- scripts/rig-recordings.sh ------------------------------------------
+
+    def rig(self, work, artifacts, args=(), env=None):
+        """rig-recordings.sh against a directory of artifacts instead of `gh run
+        download`, writing into a copy of everything it edits.
+
+        The NOT-YET-RUN copy carries the two lines this flavor's recording retires,
+        planted: the committed sway fixture already retired them in the tree, and a test
+        that asserted their removal from a file that has not got them would pass on
+        nothing."""
+        out = os.path.join(work, "fixtures")
+        os.makedirs(out, exist_ok=True)
+        nyr = os.path.join(work, "NOT-YET-RUN")
+        with open(nyr, "w", encoding="utf-8") as fh:
+            fh.write(self.PLANTED_NYR)
+        e = dict(os.environ)
+        e.update({"RIG_REC_LOCAL": artifacts, "RIG_REC_OUT": out, "RIG_REC_NYR": nyr,
+                  "RIG_REC_WORK": os.path.join(work, "rigwork")})
+        e.update(env or {})
+        got = subprocess.run(["bash", RIG_RECORDINGS, "9999", "resolute-sway"] + list(args),
+                             capture_output=True, text=True, timeout=600, cwd=ROOT, env=e)
+        return got, out, nyr
+
+    def artifact_dir(self, work, version=True, tally=None):
+        """One `live-smoke-resolute-sway` artifact, made by recording a replay of the
+        committed sway recording -- the same round trip recon/recordings.md 1.5(i) took."""
+        override = os.path.join(work, "override.txt")
+        with open(override, "w", encoding="utf-8") as fh:
+            fh.write((self.VERSION_SECTION if version else "") + self.XPROP_SECTION)
+        got, out, caps, logs = self.record_a_run(work, override)
+        self.assertEqual(got.returncode, 0, got.stdout[-3000:])
+        art = os.path.join(work, "artifacts", "resolute-sway")
+        os.makedirs(art)
+        for name in caps + logs:
+            with open(os.path.join(out, name), encoding="utf-8") as fh:
+                body = fh.read()
+            if tally is not None and name.endswith(".log"):
+                body = re.sub(r"(?m)^(== \[\d+s\] done: )\d+( pass, )\d+( fail)$",
+                              r"\g<1>%d\g<2>%d\g<3>" % tally, body)
+            with open(os.path.join(art, name), "w", encoding="utf-8") as fh:
+                fh.write(body)
+        return os.path.join(work, "artifacts")
+
+    def test_a_recording_is_named_from_the_logs_phases_and_the_captures_version(self):
+        """The name IS the mapping selftest-offline.sh's `replay_spec` reads back, and
+        both halves of it come out of the run: the phase list out of the log's `phases:`
+        line, the version out of the `w11-desktop-version:` section of the capture.  The
+        name this produces for the sway round trip is byte-identical to the one the
+        committed fixture carries."""
+        with tempfile.TemporaryDirectory() as work:
+            art = self.artifact_dir(work)
+            got, out, nyr = self.rig(work, art)
+            self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+            self.assertEqual(os.listdir(out),
+                             ["resolute-sway-1.11-windows-wm-proxy-replay.txt"])
+            kept = read(out, "resolute-sway-1.11-windows-wm-proxy-replay.txt")
+            self.assertIn("w11-desktop-version: sway version 1.11", kept)
+            self.assertIn("recording written", got.stdout.replace("recording(s)", "recording"))
+
+    def test_the_recording_retires_its_two_not_yet_run_lines(self):
+        """The step-file token (`sway`) and `proxy:<flavor>`, the latter only because
+        this run really ran the proxy phase.  Nothing else in the file may move."""
+        with tempfile.TemporaryDirectory() as work:
+            art = self.artifact_dir(work)
+            got, out, nyr = self.rig(work, art)
+            self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+            before = self.PLANTED_NYR.splitlines()
+            after = read(nyr).splitlines()
+            self.assertEqual(sorted(set(before) - set(after)),
+                             ["proxy:resolute-sway", "sway"])
+            self.assertEqual(set(after) - set(before), set())
+            self.assertIn("NOT-YET-RUN: 2 line(s) retired", got.stdout)
+
+    def test_a_capture_with_no_version_note_is_refused_rather_than_named(self):
+        """An arm of `desktop_version_cmd` that prints nothing lands here as an empty
+        token, and a guessed version in a file name is a measurement nobody took.  This
+        is the case that makes the note self-checking on the eighteen desktops whose arm
+        has not been run yet."""
+        with tempfile.TemporaryDirectory() as work:
+            art = self.artifact_dir(work, version=False)
+            got, out, nyr = self.rig(work, art)
+            self.assertNotEqual(got.returncode, 0, got.stdout)
+            self.assertIn("nothing to name the file after", got.stdout)
+            self.assertEqual(os.listdir(out), [])
+            self.assertEqual(self.PLANTED_NYR, read(nyr))
+
+    def test_a_replay_that_does_not_reproduce_the_runs_own_tally_is_not_kept(self):
+        """The acceptance rule, and the reason the replay runs at all: a recording nobody
+        has replayed is a claim.  The log says `done: N pass, M fail`; the replay of the
+        recording has to say the same thing, which the live resolute-sway run of
+        2026-09-11 did check for check (56/0 live, 56/0 replayed in the run's own mode --
+        and 42 replayed the way pass 6 used to, with --reuse)."""
+        with tempfile.TemporaryDirectory() as work:
+            art = self.artifact_dir(work, tally=(999, 0))
+            got, out, nyr = self.rig(work, art)
+            self.assertNotEqual(got.returncode, 0, got.stdout)
+            self.assertIn("NOT kept", got.stdout)
+            self.assertEqual(os.listdir(out), [])
+            self.assertEqual(self.PLANTED_NYR, read(nyr))
+
+    def test_the_kept_recording_carries_the_tally_that_accepted_it(self):
+        """selftest-offline.sh's pass 6 has no log beside a fixture, so without this line
+        its whole acceptance rule is ">= 5 checks and none red" -- which a replay that
+        quietly loses half its checks satisfies.  The number the rig measured travels with
+        the recording instead, in a comment fake-vmctl's parser drops."""
+        with tempfile.TemporaryDirectory() as work:
+            art = self.artifact_dir(work)
+            got, out, nyr = self.rig(work, art)
+            self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+            kept = read(out, "resolute-sway-1.11-windows-wm-proxy-replay.txt").splitlines()
+            self.assertTrue(kept[0].startswith("# live-smoke recording: "), kept[0])
+            self.assertRegex(kept[1], r"^# replay: \d+ pass, 0 fail "
+                                      r"\(mode tree, remove 0, phases windows,wm,proxy, "
+                                      r"\d{4}-\d\d-\d\d\)$")
+            # and it is the tally the replay actually produced, not a constant
+            self.assertRegex(got.stdout, r"replay %s pass, 0 fail" % kept[1].split()[2])
+
+    def test_a_fresh_recording_retires_the_flavors_older_one(self):
+        """One recording per flavor.  An older `<flavor>-*-replay.txt` was cut from an
+        older step file and is drifted by construction, so left beside the new one pass 6
+        replays it forever, the drift inventory never empties and SELFTEST_STRICT=1 can
+        never be turned on.  The NOT-YET-RUN edit already assumes one per flavor."""
+        with tempfile.TemporaryDirectory() as work:
+            art = self.artifact_dir(work)
+            out = os.path.join(work, "fixtures")
+            os.makedirs(out, exist_ok=True)
+            stale = "resolute-sway-1.9-windows-replay.txt"
+            with open(os.path.join(out, stale), "w", encoding="utf-8") as fh:
+                fh.write("### true\n### rc=0\n")
+            got, out, nyr = self.rig(work, art)
+            self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+            self.assertEqual(os.listdir(out), ["resolute-sway-1.11-windows-wm-proxy-replay.txt"])
+            self.assertIn("superseded: " + stale, got.stdout)
+
+    #: The two checks phase_proxy runs only where MODE is not `tree` (common.sh:627): the
+    #: committed recording was cut from a tree run, so it has nothing recorded for them and
+    #: this answers them -- 4194305 is the shadow id its proxy section carries, 7 the id the
+    #: clone answers with in the same section.
+    WRAPPER_SECTIONS = ("### W11_PROXY=always wdotool search --class foot | head -1\n"
+                        "4194305\n### rc=0\n"
+                        "### W11_PROXY=never wdotool search --class foot | head -1\n"
+                        "7\n### rc=0\n")
+
+    def test_pass_six_replays_a_pkg_recording_in_the_mode_the_run_was_made_in(self):
+        """Every fixture the rig harvests is a `--pkg --remove` run, and one of those
+        replayed the way pass 6 replayed everything before -- `--reuse`, tree mode -- loses
+        14 of its 59 checks with no red line anywhere: 3 install, 9 remove and the 2 the
+        proxy phase skips where MODE is tree (measured on the resolute-sway artifact of
+        2026-09-12, 59 pass in the run's own mode against 45 in tree mode).  So the mode
+        comes out of the capture's own header, and the tree replay below is the control
+        that shows what that is worth."""
+        with tempfile.TemporaryDirectory() as work:
+            override = os.path.join(work, "override.txt")
+            with open(override, "w", encoding="utf-8") as fh:
+                fh.write(self.VERSION_SECTION + self.XPROP_SECTION + self.WRAPPER_SECTIONS)
+            got, out, caps, logs = self.record_a_run(work, override, extra=["--pkg"])
+            self.assertEqual(got.returncode, 0, got.stdout[-3000:])
+            full = len(re.findall(r"(?m)^PASS ", got.stdout))
+            cap = os.path.join(work, "resolute-sway-1.11-windows-wm-proxy-replay.txt")
+            with open(cap, "w", encoding="utf-8") as fh:
+                fh.write(read(out, caps[0]))
+            self.assertIn("mode=pkg", read(cap).splitlines()[0])
+            st = subprocess.run(["bash", SELFTEST_OFFLINE, cap], capture_output=True,
+                                text=True, timeout=600, cwd=ROOT)
+            self.assertEqual(st.returncode, 0, st.stdout[-3000:] + st.stderr[-1000:])
+            line = [ln for ln in st.stdout.splitlines() if "resolute-sway [" in ln]
+            self.assertEqual(len(line), 1, st.stdout)
+            self.assertIn("--pkg", line[0])
+            self.assertIn("%d pass, 0 fail" % full, line[0])
+            # the control: the same capture replayed the old way runs FEWER checks, and
+            # nothing in its output says so -- which is the whole hazard
+            os.makedirs(os.path.join(work, "ctl"))
+            tree = self.driver(
+                ["resolute-sway", "--name", "ctl", "--reuse", "--keep",
+                 "--phases", "windows,wm,proxy"],
+                env={"LIVE_SMOKE_VMCTL": FAKE_VMCTL, "FAKE_VMCTL_TRANSCRIPT": cap,
+                     "FAKE_VMCTL_STATE": os.path.join(work, "ctl"),
+                     "LIVE_SMOKE_OUT": os.path.join(work, "ctlout"),
+                     "LIVE_SMOKE_SLEEP": "0"})
+            self.assertLess(len(re.findall(r"(?m)^PASS ", tree.stdout)), full)
+            self.assertNotIn("FAIL ", tree.stdout)
+
+    def test_the_preflight_replay_is_strict_and_names_what_is_missing(self):
+        """Strict is what makes drift visible: fake-vmctl answers an unrecorded command
+        with empty output and status 0, so a guard takes its has-an-X-server branch by
+        luck and the checks behind it pass on nothing -- the committed sway recording
+        replays 27 checks lenient and 11 strict, 0 fail either way (1.6.1).  A capture
+        taken FROM a run answers everything that run asked, by construction, so the
+        section a later step file would ask for is cut out here to make the case."""
+        with tempfile.TemporaryDirectory() as work:
+            art = self.artifact_dir(work)
+            cap = [os.path.join(art, "resolute-sway", n)
+                   for n in os.listdir(os.path.join(art, "resolute-sway"))
+                   if n.endswith("-capture.txt")][0]
+            body = read(cap)
+            cut = body.replace("### xprop -root >/dev/null 2>&1\n### rc=0\n", "")
+            self.assertNotEqual(cut, body, "the capture has no xprop -root guard in it")
+            with open(cap, "w", encoding="utf-8") as fh:
+                fh.write(cut)
+            got, out, nyr = self.rig(work, art)
+            self.assertNotEqual(got.returncode, 0, got.stdout)
+            self.assertIn("nothing recorded for 'xprop -root'", got.stdout)
+            self.assertIn("NOT kept", got.stdout)
+            self.assertEqual(os.listdir(out), [])
+
+
+class ThePromotedChecks(unittest.TestCase):
+    """The xwants the first all-38 run answered, and the guard that made one of them
+    assert nonsense.  Each of these was an `xwant` at af59ab3 and is a plain check now."""
+
+    def setUp(self):
+        self.common = read(STEPS, "common.sh")
+
+    def labels(self, token):
+        """Every `want`/`xwant` label in one step file, as {label: the helper called}."""
+        out = {}
+        for line in read(STEPS, token + ".sh").splitlines():
+            m = re.match(r'\s*(xwant|want|same|xsame) "([^"]*)"', line)
+            if m:
+                out[m.group(2)] = m.group(1)
+        return out
+
+    def test_r9_typing_into_a_native_window_is_a_plain_check(self):
+        """XPASS on all nine GNOME/KDE flavors of run 34571549808, with the registry read
+        at 16-29 ms (recon/recordings.md 1.7)."""
+        labels = self.labels("common")
+        r9 = [k for k in labels if k.startswith("R9:")]
+        self.assertEqual(len(r9), 1, sorted(labels))
+        self.assertEqual(labels[r9[0]], "want")
+        self.assertNotIn("(until", r9[0])
+
+    def test_r2_primary_read_back_is_a_plain_check(self):
+        """XFAIL on all nine until batch 7: `xrandr --output Virtual-2 --primary` read
+        back Virtual-1 on Mutter and KWin, and reads back Virtual-2 now (measured on
+        resolute-kde, Plasma 6.5 / KWin 6.5, requests-batch-7.md)."""
+        labels = self.labels("common")
+        r2 = [k for k in labels if k.startswith("R2:")]
+        self.assertEqual(len(r2), 1, sorted(labels))
+        self.assertEqual(labels[r2[0]], "want")
+
+    def test_the_r2_anchor_has_to_look_like_an_output_name(self):
+        """On nixos-gnome `$anchor` came back as the literal `sh:` -- the first token of
+        a shell error out of the oracle -- and the regex became `^sh:$`, which asserts
+        nonsense (run 34628777544, job 103360601082).  `[ -n "$anchor" ]` cannot tell
+        those apart; the shape of the name can."""
+        guard = [ln.strip() for ln in self.common.splitlines()
+                 if "A-Za-z0-9-" in ln and "anchor" in ln]
+        self.assertEqual(len(guard), 1, guard)
+        for value, kept in (("Virtual-1", True), ("sh:", False), ("", False),
+                            ("HEADLESS-2", True), ("2Virtual", False)):
+            with self.subTest(value):
+                got = subprocess.run(
+                    ["bash", "-c", "set -u\nanchor=%s\n%s\nprintf '[%%s]' \"$anchor\"\n"
+                     % (shlex.quote(value), guard[0])],
+                    capture_output=True, text=True, timeout=60)
+                self.assertEqual(got.stdout, "[%s]" % (value if kept else ""), got.stderr)
+
+    def test_the_mate_replug_and_the_wayfire_key_source_are_plain_checks(self):
+        """Both were waiting on a key in the golden, and vm/build-image.sh carries both:
+        MATE's `turn-on-external-monitors-at-startup=true` gschema override and wayfire's
+        `xkb_layout = us,de`."""
+        mate = [k for k, v in self.labels("mate").items() if "plugged in again" in k]
+        self.assertEqual([self.labels("mate")[k] for k in mate], ["want"], mate)
+        wf = [k for k, v in self.labels("wayfire").items() if "group's source" in k]
+        self.assertEqual([self.labels("wayfire")[k] for k in wf], ["want"], wf)
+        self.assertIn("xkb_layout = us,de", read(VM, "build-image.sh"))
+        self.assertIn("turn-on-external-monitors-at-startup=true", read(VM, "build-image.sh"))
+
+    #: The wrapper's rule 5, verbatim from w11common/passthrough.py: a flavor with no
+    #: original wmctrl installed answers 127 and says which package would provide it.
+    NO_REAL = ("wmctrl: this is w11's clone and a handover to the real tool was asked for, "
+               "but no real wmctrl was found on PATH -- install it (apt install wmctrl) or "
+               "set W11_WMCTRL=/path/to/wmctrl")
+
+    def phase_root(self, mode, root_out=""):
+        """phase_root sliced out and run against stubbed guest()/root(), which echo the
+        command (with the W11_PROXY the wrapper arm pins) to stderr and answer `root_out`
+        on stdout.  The checks land on stdout as their labels."""
+        pre = ("set -u\nDESKTOP=sway\nWIN=1\nMODE=%s\nROOT_OUT=%s\n"
+               % (mode, shlex.quote(root_out))
+               + 'guest() { echo "GUEST[${SMOKE_PROXY:-never}] $1" >&2; }\n'
+               + 'root() { echo "ROOT[${SMOKE_PROXY:-never}] $1" >&2; printf "%s" "$ROOT_OUT"; }\n'
+               + 'same() { echo "SAME $1"; }\nok() { :; }\nnote() { echo "NOTE $*"; }\n'
+               + 'ev() { printf "%s" "$*"; }\n'
+               + support.sh_function(COMMON_SH, "phase_root") + "\nphase_root\n")
+        got = subprocess.run(["bash", "-c", pre], capture_output=True, text=True, timeout=60)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        checks = [ln[5:] for ln in got.stdout.splitlines() if ln.startswith("SAME ")]
+        notes = [ln[5:] for ln in got.stdout.splitlines() if ln.startswith("NOTE ")]
+        return got, checks, notes
+
+    #: The two labels the wrapper half of phase_root adds, and the one it asserts in
+    #: every mode.
+    WRAPPED = ["wwmctl -l as root through the proxy is the seated user's own list",
+               "wxrandr --query as root through the proxy is the seated user's own, byte for byte"]
+    NO_OWN_PROXY = "root started no proxy of its own: neither root runtime display file exists"
+
+    def test_phase_root_measures_the_wrapper_as_well_as_the_clones(self):
+        """Gap (d): as root the two lookups used to take the CALLING process's uid and
+        find /root/.Xauthority and /tmp/wdotool-0.  `root()` pins W11_PROXY from
+        $SMOKE_PROXY, so the phase runs its first half with the clones and its second
+        with the wrapper -- and asserts that root started no proxy of its own."""
+        got, checks, _ = self.phase_root("pkg")
+        self.assertIn("wwmctl -l as root sees the seated user's windows", checks)
+        for label in self.WRAPPED:
+            self.assertIn(label, checks)
+        self.assertIn(self.NO_OWN_PROXY, checks)
+        # the clone half runs with the wrapper off and the proxy half with it on; the
+        # commands themselves go to stderr, because the phase reads each one's OUTPUT
+        self.assertIn("ROOT[never] wwmctl -l | wc -l", got.stderr)
+        self.assertIn("ROOT[always] wwmctl -l", got.stderr)
+        self.assertIn("GUEST[always] wwmctl -l", got.stderr)
+        self.assertIn("ROOT[always] wxrandr --query", got.stderr)
+        self.assertIn("ROOT[always] ls /run/user/0/xw11/display", got.stderr)
+
+    def test_phase_root_does_not_claim_the_wrapper_in_tree_mode(self):
+        """The same claim phase_proxy makes at its own wrapper half (common.sh:627): the
+        four zipapps a tree run drops in /usr/local/bin carry no xw11, so W11_PROXY=always
+        hands over to nothing and both sides of the comparison would be the clone -- a
+        PASS under a label saying the wrapper was measured.  The `ls` check stays: a tree
+        run that SPAWNED a proxy under /run/user/0 is the same regression either way."""
+        got, checks, notes = self.phase_root("tree")
+        for label in self.WRAPPED:
+            self.assertNotIn(label, checks)
+        self.assertIn(self.NO_OWN_PROXY, checks)
+        self.assertTrue([n for n in notes if "tree mode" in n and "package's" in n], notes)
+        self.assertNotIn("GUEST[always] wwmctl -l", got.stderr)
+
+    def test_phase_root_reads_the_wrappers_rule_five_as_a_note_and_not_a_failure(self):
+        """A flavor with no original wmctrl installed: the wrapper exits 127 with the line
+        that names the package, which is rule 5 working and not a regression -- there is
+        nothing to hand over to, so the two comparisons have nothing to compare and the
+        phase says so instead of running them."""
+        got, checks, notes = self.phase_root("pkg", self.NO_REAL)
+        for label in self.WRAPPED:
+            self.assertNotIn(label, checks)
+        self.assertIn(self.NO_OWN_PROXY, checks)
+        self.assertTrue([n for n in notes if "no original wmctrl on this flavor" in n], notes)
 
 if __name__ == "__main__":
     unittest.main()

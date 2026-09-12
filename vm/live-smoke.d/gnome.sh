@@ -433,8 +433,16 @@ phase_enablebridge() {
     # -- is how this silently goes back to the mode it was just fixed out of;
     # this line makes that a red line instead.
     local dconf_out grep_out
+    # DCONF_PROFILE=gdm: read what the greeter reads.  gdm launches its
+    # greeter under that profile (/etc/dconf/profile/gdm: gdm's user-db, then
+    # its system-db), and without naming it dconf falls back to the `user`
+    # profile, whose system database on NixOS is where nix/module.nix enables
+    # the bridge for every seated user -- so the read answered
+    # ['w11-bridge@w11'] for a greeter that does not have it (CI run
+    # 34662004383, nixos-gnome).  On Ubuntu the gdm profile starts with the
+    # same user-db this check was written for, so what it catches is unchanged.
     dconf_out=$(root "t=\$(mktemp -d); chown gdm \"\$t\" 2>/dev/null;
-                      runuser -u gdm -- env HOME=$GDM_HOME XDG_RUNTIME_DIR=\$t \
+                      runuser -u gdm -- env HOME=$GDM_HOME XDG_RUNTIME_DIR=\$t DCONF_PROFILE=gdm \
                           dconf read /org/gnome/shell/enabled-extensions 2>&1 \
                               || echo dconf-read-failed;
                       rm -rf \"\$t\"" || true)

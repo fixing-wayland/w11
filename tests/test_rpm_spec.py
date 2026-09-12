@@ -412,7 +412,7 @@ class TheExtensions(unittest.TestCase):
         with open(GENERATIONS, encoding="utf-8") as fh:
             table = json.load(fh)
         names = [g["namespace"] for g in table["generations"]]
-        self.assertEqual(len(names), 3, names)
+        self.assertEqual(len(names), 4, names)
         src = os.path.join(ROOT, "gnome", OVERLAP_UUID, "typelib")
         for ns in names:
             with self.subTest(ns):

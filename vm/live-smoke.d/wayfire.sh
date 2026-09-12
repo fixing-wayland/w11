@@ -260,14 +260,14 @@ layout_phase() {
     same "--vkbd on types byte-exact with no uinput and no privilege" "vkbd: yz@" "$(editor_text)"
     local ex; ex=$(guest 'wdotool keys explain --chars z' || true)
     want "keys explain reads the keymap off the wire" "^layout: .* -- group [0-9]+ of [0-9]+" "$ex"
-    # WayfireLayouts is in the tree and cannot be reached on this image: the ini vm/build-image.sh writes has
-    # one xkb_layout, so the keymap has one group, choose_group is CERTAIN and fetch() never asks anybody.
-    # The route to a second group is the ini and only the ini -- `wayfire/set-config-options
-    # {"input/xkb_layout": "us,de"}` answered `{"result":"ok"}` and left get-keyboard-state reporting one
-    # layout (measured on this box 2026-09-08, wayfire 0.10.0), and `set-keyboard-state` corrupts the layout
-    # list [recon2/wayfire 2.7].  A second layout in the golden's ini turns this line green.
-    xwant "keys explain names wayfire as the group's source (until the ini carries a second xkb_layout)" \
-          "from wayland \+ wayfire" "$ex"
+    # A plain `want` since the golden's ini carries the second layout: vm/build-image.sh writes
+    # `xkb_layout = us,de` into wayfire.ini, so the keymap has two groups, choose_group is no
+    # longer CERTAIN and fetch() asks WayfireLayouts -- which is what puts wayfire's name in the
+    # clause.  The route was the ini and only the ini: `wayfire/set-config-options
+    # {"input/xkb_layout": "us,de"}` answered `{"result":"ok"}` and left get-keyboard-state
+    # reporting one layout (measured on this box 2026-09-08, wayfire 0.10.0), and
+    # `set-keyboard-state` corrupts the layout list [recon2/wayfire 2.7].
+    want "keys explain names wayfire as the group's source" "from wayland \+ wayfire" "$ex"
     note "get-keyboard-state: $(ev "$(wfipc wayfire/get-keyboard-state || true)")"
 }
 

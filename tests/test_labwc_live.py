@@ -38,12 +38,39 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from support import HeadlessLabwc
+from wdotool.cli import XDO_VERSION
 
 XTERM_TITLE = "lbxterm"
 FOOT_TITLE = "lbfoot"
 
 #: the three labwc is configured with here [M recon2/labwc.md §6a]
 DESKTOPS = ["one", "two", "three"]
+
+
+def oracle_xdotool():
+    """The pinned xdotool 4.20260303.1, or whatever `xdotool` PATH has, or None.
+
+    The same search `scripts/parity-oracle.sh` and `tests/test_xw11_parity.py` do, in the same order, so
+    that a box with the flake's oracle built compares against the version this clone is written to and not
+    against Ubuntu 26.04's 3.20160805.1, which is a different program with the same name. PATH is the
+    fallback rather than a skip: `getwindowgeometry --shell` has printed the same four keys since
+    2.20110530.1, and an oracle that disagrees about the numbers is a real failure either way."""
+    got = os.environ.get("W11_ORACLE_PATH")
+    names = [os.environ.get("W11_ORACLE_PATH_FILE"), os.path.join(ROOT, "scripts", "nixpath")]
+    for name in [] if got else names:
+        if name and os.path.isfile(name):
+            with open(name, encoding="utf-8") as f:
+                got = f.read().strip()
+            break
+    if not got:
+        import glob
+        got = ":".join(sorted(glob.glob("/nix/store/*-xdotool-%s/bin" % XDO_VERSION)))
+    hit = shutil.which("xdotool", path=got + ":" + os.environ.get("PATH", "")) if got else None
+    return hit or shutil.which("xdotool")
+
+
+#: The oracle this file measured against, and the version it was: see `oracle_xdotool`.
+ORACLE_XDOTOOL = oracle_xdotool()
 
 
 def tool(rig, *args, timeout=60):
@@ -149,6 +176,65 @@ class LabwcWindowsTest(unittest.TestCase):
                  if ln.endswith(FOOT_TITLE)]
         _id, _desk, pid, x, y, w, h = line.split()[:7]
         self.assertEqual((pid, x, y, w, h), ("0", "0", "0", "1280", "720"))
+
+    @unittest.skipUnless(ORACLE_XDOTOOL, "the original xdotool is not on PATH")
+    def test_getwindowgeometry_on_the_xwayland_window_is_what_the_original_xdotool_reads(self):
+        """Route 5 through the xdotool clone, which is a different path from the `wwmctl -lGp` row above:
+        `cmd_getwindowgeometry` reads `find()`/`list()` and never `views()`, so a rectangle folded into
+        views() alone left this printing the floor. Measured on the resolute-labwc golden 2026-09-12:
+        `wdotool getwindowgeometry 1000000` said `0,0 1920x1080` for an xterm `xdotool getwindowgeometry
+        0x40000c` put at `718,395 484x316`.
+
+        The oracle is the real xdotool on the real X id, over its own connection to the same server -- a
+        different program reading a different socket, so agreement is agreement and not this backend
+        agreeing with itself. It is the pinned 4.20260303.1 where the flake's oracle is built (the run this
+        was written from, and what CI uses); on a box that has only the distribution's it is that one, which
+        prints the same four `--shell` keys."""
+        ours = self.shell_geometry("wdotool", self.our_id(XTERM_TITLE))
+        theirs = self.x_geometry(x_client_list(self.rig)[0])
+        self.assertEqual(ours, theirs)
+        self.assertNotEqual(ours, self.output_rect(),
+                            "the whole head is the floor's answer, not a window's rectangle")
+
+    def test_getwindowgeometry_on_the_native_window_is_still_the_floor(self):
+        """The half route 5 does not reach: no X server has heard of the foot window, and
+        zwlr_foreign_toplevel_management_v1 carries no rectangle, so the output box is the whole truth
+        here. NOT YET, and the lowest rung is 1 -- a foreign-toplevel protocol that carries a rectangle,
+        which costs wlroots writing and shipping one; rung 6, a patched compositor with one geometry event
+        per window, is the fallback. Pinned so that the day either lands, this line is what says so."""
+        self.assertEqual(self.shell_geometry("wdotool", self.our_id(FOOT_TITLE)), self.output_rect())
+
+    def our_id(self, title) -> str:
+        """OUR id for the window with this title -- `search` reads `list()`, so it is the floor's
+        arrival-order id and not the X id `wwmctl -l` prints for the same window."""
+        rc, out, err = tool(self.rig, "wdotool", "search", "--name", title)
+        self.assertEqual((rc, err), (0, ""), out)
+        ids = out.split()
+        self.assertEqual(len(ids), 1, out)
+        return ids[0]
+
+    def shell_geometry(self, clone, wid) -> tuple:
+        """(x, y, w, h) out of `<clone> getwindowgeometry --shell <id>`, which is the parseable form
+        xdotool has had since 2.20110530.1 and the one a script reads."""
+        rc, out, err = tool(self.rig, clone, "getwindowgeometry", "--shell", str(wid))
+        self.assertEqual((rc, err), (0, ""), out)
+        kv = dict(ln.split("=", 1) for ln in out.splitlines() if "=" in ln)
+        return tuple(int(kv[k]) for k in ("X", "Y", "WIDTH", "HEIGHT"))
+
+    def x_geometry(self, xid) -> tuple:
+        """The same four numbers from the ORIGINAL xdotool (`ORACLE_XDOTOOL`), on the real X id."""
+        p = subprocess.run([ORACLE_XDOTOOL, "getwindowgeometry", "--shell", "0x%x" % xid],
+                           env=self.rig.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        kv = dict(ln.split("=", 1) for ln in p.stdout.splitlines() if "=" in ln)
+        return tuple(int(kv[k]) for k in ("X", "Y", "WIDTH", "HEIGHT"))
+
+    def output_rect(self) -> tuple:
+        """0,0 plus the head's mode: what every row of this listing read before route 5."""
+        rc, out, err = tool(self.rig, "wdotool", "getdisplaygeometry")
+        self.assertEqual((rc, err), (0, ""), out)
+        w, h = out.split()
+        return (0, 0, int(w), int(h))
 
     def test_wxprop_id_is_byte_identical_to_xprop(self):
         """The X plane was never the broken half: this is the control that says so."""

@@ -96,6 +96,52 @@ head_dark() {
 # object differently, and 5.27 reads kxkbrc at login only.
 plasma_major() { guest 'plasmashell --version 2>/dev/null' | grep -o '[0-9]\+' | head -1; }
 
+# The compositor's own version command, one arm per desktop token.  It exists because a
+# recording is NAMED after the version (`resolute-sway-1.11-windows-wm-proxy-replay.txt`,
+# and `replay_spec` drops exactly one token after the flavor), and until this hook those
+# tokens were a human's reading of vm/README.md: of the nineteen desktops, only gnome,
+# gnome-x11, cinnamon, mate and kde printed a version anywhere in a run, and sway, labwc,
+# hypr, river, wayfire, cosmic, xfce-wayland, lxqt-wayland and budgie printed none
+# (`grep -n -- --version vm/live-smoke.d/*.sh`, recon/recordings.md 1.3, measured).
+# Now it is a recorded guest command like every other and the name comes out of the
+# capture.  A step file overrides this by redefining it.
+#
+# budgie, xfce-wayland and lxqt-wayland answer `labwc --version` on purpose: all three ARE
+# labwc under a panel (their step files source labwc.sh whole, and the recon diffed the
+# three registries against a bare labwc and found no difference), so the version that
+# decides what the checks see is the compositor's and not the panel's.
+#
+# Measured through the capture wrapper on the resolute-sway golden, 2026-09-11:
+# `sway --version` -> `sway version 1.11`, which reproduces the committed file name
+# exactly.  The other arms are the binary each flavor's session runs and become measured
+# on that flavor's first recorded run -- an arm that prints nothing makes
+# scripts/rig-recordings.sh REFUSE to name the file rather than guess a token.
+desktop_version_cmd() {
+    case $DESKTOP in
+        sway)                                   echo 'sway --version' ;;
+        labwc|xfce-wayland|budgie|lxqt-wayland) echo 'labwc --version' ;;
+        hypr)                                   echo 'hyprctl version | head -1' ;;
+        river)                                  echo 'riverctl -version' ;;
+        wayfire)                                echo 'wayfire --version' ;;
+        cosmic)                                 echo 'cosmic-comp --version' ;;
+        gnome|gnome-x11)                        echo 'gnome-shell --version' ;;
+        kde|kde-x11)                            echo 'plasmashell --version' ;;
+        cinnamon|cinnamon-wayland)              echo 'muffin --version' ;;
+        mate)                                   echo 'marco --version' ;;
+        xfce)                                   echo 'xfwm4 --version | head -1' ;;
+        i3)                                     echo 'i3 --version' ;;
+        lxqt)                                   echo 'lxqt-session --version | head -1' ;;
+        *)                                      echo 'true' ;;
+    esac
+}
+
+# One line beside the session banner, asked once per run: the marker is in the OUTPUT and
+# not in the command, so the bytes the compositor printed about itself are a recorded
+# section like any other and scripts/rig-recordings.sh reads the token out of the capture.
+desktop_version_note() {
+    note "$(guest "printf 'w11-desktop-version: '; $(desktop_version_cmd)" | tr -d '\r' | head -1)"
+}
+
 # vmctl scp logs in as root, so the oracle lands in /tmp first and the seated
 # user's own shell copies it home.  Both halves run again after every reboot,
 # because /tmp does not survive one on 24.04.
@@ -462,11 +508,14 @@ phase_proxy() {
     # prints its `:N`; a second call must answer the SAME one, because a session
     # has one proxy and the display file under $XDG_RUNTIME_DIR is what the
     # loser of that race finds instead of starting a second.
-    # ...and it needs an X server to forward to.  A session whose Xwayland is down
-    # (cinnamon-wayland on this rig, until it has a render node: its own xwant in
-    # cinnamon-wayland.sh) has nothing behind the proxy, and the refusal is the
-    # proxy's own, measured on run 34567497131: "no proxy is running and none could
-    # be started".  That is the xwant, not a red.
+    # ...and it needs an X server to forward to.  A session whose Xwayland is down has
+    # nothing behind the proxy, and the refusal is the proxy's own, measured on run
+    # 34567497131: "no proxy is running and none could be started".  That is the xwant,
+    # not a red.  The session this used to name -- cinnamon-wayland, whose muffin died at
+    # login with Xwayland present on a rig with no render node -- runs the full body of
+    # this phase since batch 13 pinned Debian's xwayland 24.1.13 into that golden (76
+    # pass, 1 fail on a live run of 2026-09-12), so the arm is kept for the next session
+    # that loses its Xwayland and not for that one.
     if ! guest 'xprop -root >/dev/null 2>&1' >/dev/null 2>&1; then
         xwant "xw11 --print-display starts a proxy and prints its display (until this session has an Xwayland to forward to)" \
               '^:[0-9]+$' "$(guest 'xw11 --print-display' | tr -d ' \r\n' || true)"
@@ -500,6 +549,17 @@ phase_proxy() {
         same "...and its title is the one the clone read" \
              "$(guest "wdotool getwindowname $WIN" || true)" \
              "$(guest "DISPLAY=$disp xdotool getwindowname $id" || true)"
+        # Both sides of this one read the SAME window through the same backend, so it
+        # holds on the floor backends too: the clone answers a native window's rect out
+        # of a foreign-toplevel protocol that carries none (the output rect, gaps.md 1b
+        # #18) and the shadow carries that same rect.  Measured green on resolute-labwc,
+        # resolute-budgie, resolute-lxqt-wayland and resolute-xfce-wayland in run
+        # 34571549808 (18 proxy PASS, 0 FAIL each, recon/recordings.md 1.7) and on
+        # fedora44-cosmic with batch 5's backend, which is why neither this check nor the
+        # `wmctrl -l` one below is softened for them.  What IS still the floor is the
+        # answer itself -- an output rect where X had the window's -- and that row is
+        # docs/XW11.md's, route 1 (a toplevel protocol with a rect, upstream's) with
+        # route 5 (the X plane, batch 12) reaching XWayland windows only.
         same "...and its geometry is the one the clone read" "$(win_geom "$WIN")" \
              "$(guest "DISPLAY=$disp xdotool getwindowgeometry $id" | awk '
                  /Position:/ { pos = $2 } /Geometry:/ { geo = $2 }
@@ -530,6 +590,11 @@ phase_proxy() {
     # list, title for title, once the id column is tokenised -- the two number
     # the same windows differently on purpose (the clone answers the
     # compositor's own id, the proxy a shadow), and nothing else may differ.
+    # The desktop column of that row is the one place the two have disagreed: batch 13
+    # measured `-1` from the clone against `0` from the original on muffin's sticky X
+    # windows (resolute-cinnamon-wayland, 76 pass / 1 fail), and that red is waiting on
+    # one `wmctrl -l` against Cinnamon X11 to say which number X prints.  It stays a
+    # plain `same` here: a tolerance would hide the very disagreement being settled.
     same "the original wmctrl -l lists what the clone lists, ids tokenised" \
          "$(guest 'wwmctl -l' | awk '{ $1 = "#"; print }' || true)" \
          "$(guest "DISPLAY=$disp wmctrl -l" | awk '{ $1 = "#"; print }' || true)"
@@ -615,28 +680,35 @@ phase_proxy() {
     # 5.  R2 and R9, the two risks nobody has measured on a compositor that is
     # not wlroots: KWin loads a JS engine per scripting operation and Mutter's
     # apply waits for MonitorsChanged, and neither has ever been measured under
-    # the proxy's 20 ms registry TTL.  These are xwants and not wants: they are
-    # measurements nobody has taken, and the first green run here is the
-    # measurement.
+    # the proxy's 20 ms registry TTL.  Both were xwants until the first all-38 run
+    # answered them, and both are plain checks now: R9 XPASSed on all nine GNOME/KDE
+    # flavors of run 34571549808 (registry read 16-29 ms, recon/recordings.md 1.7), and
+    # R2 XFAILed on all nine until batch 7 made the primary request move the compositor's
+    # own order -- measured on KWin 6.5 / Plasma 6.5 (resolute-kde, two virtual heads):
+    # `xrandr --output Virtual-2 --primary` then `wxrandr --query` read back Virtual-1
+    # before and Virtual-2 after, with `xrandr -q`'s own copy agreeing, exit 0 throughout
+    # (requests-batch-7.md).  A run against a package built before that fix is the one
+    # place R2 can go red here, and every push builds the package out of this branch.
     case $DESKTOP in
     gnome|kde)
         guest "DISPLAY=$disp xdotool windowactivate --sync $id" >/dev/null 2>&1 || true
         editor_clear
         guest "DISPLAY=$disp xdotool type --delay 30 -- 'proxy: yz@'" >/dev/null 2>&1 || true
         sleep 0.6; editor_save; sleep 1
-        xwant "R9: the original xdotool types into a NATIVE window (until a GNOME/KDE run)" \
-              "proxy: yz@" "$(editor_text)"
-        # `$anchor` and not an unset variable: xwant is <what> <regex> <text>,
-        # and an empty regex matches anything -- an XPASS whatever the
-        # compositor did, which is the opposite of a measurement.  The head is
-        # the anchor display_pair named above, the name is anchored, and the
-        # read-back is the compositor's own tool.
+        want "R9: the original xdotool types into a NATIVE window" \
+             "proxy: yz@" "$(editor_text)"
+        # The guard is "looks like an output name" and not `[ -n ]`: on nixos-gnome the
+        # oracle printed a shell error and `$anchor` came back as the literal `sh:`
+        # (run 34628777544, job 103360601082), which turned the regex into `^sh:$` and
+        # made the check assert nonsense.  A `want` on that would be a red job instead of
+        # a nonsense XPASS, so the shape of the name is what decides whether it runs.
+        printf '%s' "${anchor:-}" | grep -Eq '^[A-Za-z][A-Za-z0-9-]*$' || anchor=""
         if [ -n "$anchor" ]; then
-            xwant "R2: xrandr --primary is read back as $anchor (until a GNOME/KDE run)" \
-                  "^$anchor\$" "$(guest "DISPLAY=$disp xrandr --output $anchor --primary \
-                      >/dev/null 2>&1; wxrandr --query" | awk '/ primary /{ print $1 }' || true)"
+            want "R2: xrandr --primary is read back as $anchor" \
+                 "^$anchor\$" "$(guest "DISPLAY=$disp xrandr --output $anchor --primary \
+                     >/dev/null 2>&1; wxrandr --query" | awk '/ primary /{ print $1 }' || true)"
         else
-            note "(the oracle named no output: R2's xwant has no head to name and did not run)"
+            note "(the oracle named no output that looks like one: R2 has no head to name and did not run)"
         fi
         # dash is /bin/sh on every golden and has neither the `time` keyword nor
         # TIMEFORMAT (both are bash's), so the milliseconds come from date(1) on
@@ -744,6 +816,55 @@ phase_root() {
     note "wmirror --list (root): $(ev "$out")"
     out=$(root 'wxrandr --persistent --query' ) || st=$?
     note "wxrandr --persistent --query (root): $(ev "$out")"
+
+    # The other half of the same axis, and the proxy's gap (d): the SAME two commands as
+    # the wrapper's, i.e. handed to the distribution's own wmctrl and xrandr through the
+    # proxy.  Two lookups used to take the CALLING process's uid, so as root they found
+    # /root/.Xauthority and /tmp/wdotool-0 and never the seated user's (gaps.md 3d);
+    # since batch 3 both take the seated uid from logind (and not from $SUDO_UID, which
+    # an ssh root session does not have).  Measured on a headless sway 2026-09-11: seated
+    # `xw11 --print-display` = :20, the root-shaped process = :20, nothing spawned, where
+    # the old lookup found nothing and spawned a proxy of root's own.
+    #
+    # `root()` already reads $SMOKE_PROXY, so the arm is the variable and the same calls.
+    # `local SMOKE_PROXY` and not an assignment plus a reset: bash's scoping makes the
+    # value visible to guest()/root() for the rest of the phase and restores whatever the
+    # caller had on return, so a phase cannot leak the wrapper into the one after it.
+    local uw rw own
+    local SMOKE_PROXY=always
+    if [ "$MODE" = tree ]; then
+        # phase_proxy's wrapper half says the same thing at :627 and for the same reason:
+        # the four zipapps a tree run drops in /usr/local/bin carry no xw11, so
+        # W11_PROXY=always hands over to nothing there and BOTH sides of the comparison
+        # would be the clone -- a PASS under a label claiming the wrapper was measured.
+        # The route this half is about is the installed package's, and --pkg measures it.
+        note "(tree mode: the zipapps carry no xw11, so the wrapper route is the package's and is not measured here)"
+    else
+        uw=$(guest 'wwmctl -l' || true)
+        rw=$(root 'wwmctl -l' || true)
+        if printf '%s\n' "$rw" | grep -q "no real"; then
+            # Rule 5 of the wrapper, not a regression: a flavor with no original installed
+            # answers 127 and says which package would provide it.  The clones' own answer
+            # is the `same` above; there is nothing to hand over to here.
+            note "(no original wmctrl on this flavor: W11_PROXY=always is exit 127 and its install line)"
+        else
+            same "wwmctl -l as root through the proxy is the seated user's own list" "$uw" "$rw"
+            # Byte for byte, and not just the connected names the clone half above
+            # compares: batch 3 asked for "same :N, same window list, same modes", and the
+            # two sides read the SAME proxy on the same session one command apart -- so the
+            # mode lines, the `*` current marker and the `+` preferred one have to agree as
+            # well.  A root proxy of its own would answer out of its own Xwayland, whose
+            # mode list is where that first shows.  Measured on the resolute-sway golden
+            # 2026-09-12 with 2 heads (`--pkg --phases install,root`, log
+            # resolute-sway-20260912-021413): PASS, both sides byte-identical.
+            same "wxrandr --query as root through the proxy is the seated user's own, byte for byte" \
+                 "$(guest 'wxrandr --query' || true)" "$(root 'wxrandr --query' || true)"
+        fi
+    fi
+    # ...and root started no proxy of its own.  Either path existing is the old behaviour
+    # coming back: a second Xwayland, root's cookie, and a display nobody else can reach.
+    own=$(root 'ls /run/user/0/xw11/display /tmp/wdotool-0/xw11/display 2>/dev/null' | tr -d ' \r\n' || true)
+    same "root started no proxy of its own: neither root runtime display file exists" "" "$own"
 }
 
 # T65.  The claim in the measurement README and Technical.md is a NEGATIVE one,

@@ -386,7 +386,7 @@ class DebPayloadIsCovered(unittest.TestCase):
     def test_every_installed_path_is_named_by_some_nix_output(self):
         """A source path is covered when nix/package.nix names it or names a
         directory above it -- the extension packages copy a directory whole,
-        which is how the three typelibs and rules.js get in.  The FIRST
+        which is how the four typelibs and rules.js get in.  The FIRST
         component is not a directory that may cover anything: `gnome/` is
         every row's parent and naming it would cover the lot."""
         for src in self.rows:

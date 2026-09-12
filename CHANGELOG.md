@@ -156,7 +156,7 @@ and the bytes are named wherever a number is.
   is not worth a process that outlives the command by fifteen minutes. The package now
   **Recommends** `xdotool`, `wmctrl`, `x11-utils` and `x11-xserver-utils` rather than
   suggesting them, on all three packagings.
-- **5311 tests**, up from 4146, the new ones being the four new window and display
+- **5356 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and

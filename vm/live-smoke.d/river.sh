@@ -85,15 +85,17 @@ river with no window-manager client reports zero toplevels [$(ev "$out")]"
     fi
     pass "wdotool search --class $EDITOR_CLASS -> $WIN"
     want "getwindowname is not empty" "." "$(guest "wdotool getwindowname $WIN" || true)"
-    # The floor's geometry fiction, as on labwc: 0,0 plus the output rectangle.  Recorded and
-    # then checked the way labwc.sh checks it -- as an xwant on a position that is NOT the
-    # floor's, so the day a real rectangle arrives the run says XPASS instead of going red.
-    # NOT YET; the lowest route on the AGENTS.md ladder is 5, the X plane, XWayland only.
+    # The NATIVE half of the geometry gap, as on labwc: $WIN is foot, no X server has heard of
+    # it, and zwlr_foreign_toplevel_management_v1 carries no rectangle, so 0,0 plus the output
+    # rectangle is everything this session knows.  Recorded and not asserted, for the reason
+    # labwc.sh gives at the same check: pinning `Position: 0,0` would go red the day a real
+    # rectangle arrives.  NOT YET, rung 1 -- a foreign-toplevel protocol that carries a
+    # rectangle, which costs wlroots writing and shipping one -- with rung 6, a patched
+    # compositor, as the fallback.  The XWayland half is route 5 and is checked in
+    # river_xwayland below, against the real X server.
     local wgeom; wgeom=$(guest "wdotool getwindowgeometry $WIN" || true)
-    note "getwindowgeometry: $(printf '%s' "$wgeom" | tr '\n' '|')"
-    xwant "getwindowgeometry answers the window's own position, not the floor's 0,0 (until \
-AGENTS.md route 5, the X plane, gives XWayland windows a real rectangle)" \
-          "Position: ([1-9][0-9]*,[0-9]+|[0-9]+,[1-9][0-9]*)" "$wgeom"
+    note "getwindowgeometry, native window (the floor: no protocol carries a rectangle yet, \
+AGENTS.md route 1): $(printf '%s' "$wgeom" | tr '\n' '|')"
     # getdisplaygeometry is the zxdg_output LAYOUT BOX and not one head's mode -- measured
     # 2560 720 across two heads where WlrBackend.display_size() would have said 1280 720
     # [recon2/river 3].
@@ -248,6 +250,35 @@ river_xwayland() {
     fi
     want "and with a real pid from the X server, where the floor printed 0" \
          "^0x[0-9a-f]+ +[0-9-]+ +[1-9][0-9]* " "$row"
+    # The RECTANGLE, AGENTS.md route 5, exactly as labwc.sh checks it: our own id for this
+    # xterm against the same window's rectangle read by the ORIGINAL xdotool over its own
+    # connection.  river is the flavor where this check earns its keep twice over, because the
+    # xterm it starts really does sit at 0,0 here -- the CI run of 2026-09-11 measured
+    # `0x0040000c ... 0 0 484 316` on arch-river [goal2/ci/rig-arch-river.log:559] -- so a
+    # check on "a position that is not 0,0" would have been red on a correct rectangle, and
+    # what says the fold happened is agreement with the oracle on all four numbers.
+    local wid ours theirs
+    # By TITLE and not by class: the app id an xwm hands the toplevel is not the same string on
+    # every compositor -- labwc's xterm arrives as `xterm` and river's recon read `XTerm.XTerm`
+    # [recon2/river 3] -- while `-T smokex` above is ours on both.
+    wid=$(guest 'wdotool search --name smokex | head -1' | tr -d ' \r\n' || true)
+    if [ -z "$wid" ] || [ -z "$xid" ] || ! guest 'command -v xdotool' >/dev/null 2>&1; then
+        # Not a second FAIL, for the reason the $xid branch above gives: a listing with no row
+        # for this xterm is what the id check has just gone red about.  It is also what the
+        # REPLAY rig looks like -- the recordings under tests/fixtures/live/ were captured
+        # before this command existed and fake-vmctl answers an unrecorded command with
+        # nothing -- so re-recording them is what makes this check run there too.
+        note "(no wdotool id for the xterm, or no xdotool to be the oracle: the rectangle check \
+needs both -- id '$(ev "$wid")', X id '$(ev "$xid")')"
+    else
+        ours=$(win_geom "$wid")
+        theirs=$(guest "xdotool getwindowgeometry $xid" | awk '
+            /Position:/ { pos = $2 } /Geometry:/ { geo = $2 }
+            END { printf "%s %s\n", pos, geo }')
+        note "getwindowgeometry, XWayland window: ours '$ours', the oracle xdotool '$theirs'"
+        same "getwindowgeometry on the XWayland window is the X server's own rectangle \
+(route 5), not the floor's 0,0 + a head's mode" "$theirs" "$ours"
+    fi
     note "ours:   $row"
     note "theirs: $(guest 'wmctrl -lGpx' | grep -i xterm || true)"
     guest "pkill -x xterm; true" >/dev/null 2>&1 || true

@@ -1424,18 +1424,27 @@ with `wl-mirror` installed. And across the whole smoke, 958 lines of session bus
 with zero portal calls and zero PolicyKit calls: Cinnamon's Eval route asks nobody for
 permission.
 
-**The X plane of `resolute-cinnamon-wayland` is not yet.** Cinnamon starts fully (`Cinnamon took
-2888 ms to start`, both 1920x1080 heads seen, `wayland-0` listening); Xwayland 24.1.10 then dies
-with `Fatal server error: Caught signal 11` after `Xwayland glamor: GBM Wayland interfaces not
-available`, muffin calls that fatal (`Connection to xwayland lost`) and cinnamon-session gives up
-(`respawning too quickly`). Forcing software GL does not help and muffin 6.4 has no glamor
-switch; with `/usr/bin/Xwayland` moved aside the session is stable. The lowest-numbered route is
-the rig's own — a GL-capable `virtio-vga-gl`/virgl in `vm/vmctl` — and after it AGENTS.md route
-5, patching Xwayland. **That rig route is measured and closed on this host**: `-device
-virtio-vga-gl` with the dbus display is refused by QEMU 10.2 (`The display backend does not have
-OpenGL support enabled`), and with `-display dbus,...,gl=on` it dies `egl: no drm render node
-available` / `egl: render node init failed`, because this dsb guest has no `/dev/dri` at all. It
-is the first thing to try on a host with a render node.
+**The X plane of `resolute-cinnamon-wayland` works, and it took a pinned Xwayland to get there.**
+Cinnamon starts fully (`Cinnamon took 2888 ms to start`, both 1920x1080 heads seen, `wayland-0`
+listening); Xwayland **24.1.10** then died with `Fatal server error: Caught signal 11`, muffin
+called that fatal (`Connection to xwayland lost`) and cinnamon-session gave up (`respawning too
+quickly`). It was never this rig's GPU: `/dev/dri/renderD128` is inside every VM, the identical
+`2:24.1.10-1` is fine under mutter and under kwin here, and forcing `-glamor off -shm` — or giving
+the guest a real virgl render node — crashes at the same instruction. The fault is
+`damage_report()`'s NULL dereference (guest `objdump`, offset `0x5be4a`), fixed upstream in
+**Xwayland 24.1.11**, which Ubuntu 26.04 has not shipped. So the golden takes AGENTS.md route 5 at
+its cheapest end: `vm/flavors/resolute-cinnamon-wayland.yaml` writes a
+`/usr/local/sbin/vmctl-build-hook` that installs Debian's `xwayland_24.1.13-1_amd64.deb` (992 KB,
+pinned by sha256, `deb.debian.org` with a `snapshot.debian.org` fallback) over it, and
+`vm/build-image.sh`'s `build_hook` runs it after the desktop install — so a failed download stops
+the build instead of caching a golden whose session cannot hold a compositor. With it, under a
+minute after `systemctl restart lightdm` (44 s and 55 s, the two boots measured on 2026-09-12 --
+the shipped hook's own install and the hand-install it was written from), cinnamon and Xwayland
+are both alive with zero `Caught signal`, `wmctrl -l` lists the X clients, `xprop -root
+_NET_CLIENT_LIST` names them and `xw11 --print-display` hands the originals a working display.
+**It is a hold**: the day Ubuntu ships xwayland >= 24.1.11 in resolute, the hook and this
+paragraph go. It is per-flavor because a Debian .deb belongs on no Arch, Fedora or NixOS image —
+and because only this golden's cache key moves with it.
 
 **MATE, i3, LXQt/Openbox and GNOME on Xorg** (`resolute-mate`, `resolute-i3`, `resolute-lxqt`,
 `noble-gnome-x11`) — four more X11 flavors, all handover. **There is no 26.04 GNOME-on-Xorg flavor, and

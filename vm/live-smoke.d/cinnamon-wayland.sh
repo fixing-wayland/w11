@@ -8,34 +8,34 @@
 # [recon2/cinnamon 2.1, 2.2, 4].
 #
 # THE FLAVOR'S FIRST RUN, 2026-09-09 on this rig (golden resolute-cinnamon-wayland, 1783 packages, two
-# 1920x1080 heads), and the one thing it found before any check ran: **Xwayland takes the session down**.
-# Cinnamon starts completely -- `Cinnamon took 2888 ms to start`, both monitors seen, applets loaded,
-# /run/user/1000/wayland-0 listening -- and then Xwayland 24.1.10 dies with `Fatal server error: Caught
-# signal 11 (Segmentation fault)` after `Xwayland glamor: GBM Wayland interfaces not available` /
-# `Failed to initialize glamor, falling back to sw`; muffin treats that as fatal (`mutter-WARNING:
-# Connection to xwayland lost`), exits, and cinnamon-session gives up with `App 'cinnamon-wayland.desktop'
-# respawning too quickly`.  The whole smoke then reports "no Wayland session found" -- 11 pass, 10 fail.
-# Not a nesting artefact: the recon saw the same crash under `muffin --wayland --nested` and this is a
-# real KMS guest.  Forcing software GL (LIBGL_ALWAYS_SOFTWARE=1, GALLIUM_DRIVER=llvmpipe in
-# /etc/environment) changes nothing, measured; muffin 6.4 has no glamor switch to turn off (`strings
-# libmuffin.so.0` lists MUTTER_DEBUG_*, XWAYLAND_STFU and _XWAYLAND_ALLOW_COMMITS and no
-# XWAYLAND_NO_GLAMOR).  With /usr/bin/Xwayland moved aside the session comes up and STAYS up, and every
-# measurement below was taken on that session -- so the route out is a rig one first: a GL-capable
-# virtio-vga (virtio-vga-gl/virgl) in vm/vmctl, and failing that AGENTS.md route 5, an Xwayland patched
-# not to die on the sw path.  Until then the X plane is missing here: `wwmctl -l` lists native windows
-# only, cinnamon-settings-daemon's X-dependent components do not register, and the mixed list stays
-# unmeasured.
+# 1920x1080 heads), and the one thing it found before any check ran: **Xwayland took the session down**.
+# Cinnamon started completely -- `Cinnamon took 2888 ms to start`, both monitors seen, applets loaded,
+# /run/user/1000/wayland-0 listening -- and then Xwayland 24.1.10 died with `Fatal server error: Caught
+# signal 11 (Segmentation fault)`; muffin treats that as fatal (`mutter-WARNING: Connection to xwayland
+# lost`), exits, and cinnamon-session gives up with `App 'cinnamon-wayland.desktop' respawning too
+# quickly`.  The whole smoke then reported "no Wayland session found" -- 11 pass, 10 fail.
 #
-# Measured on that session with the tree's zipapps and the 0.4.0 deb installed (this is what the checks
-# below assert, byte for byte):
+# THAT IS FIXED IN THE GOLDEN, and it was never the GPU [goal2/recon/gl.md 1-5, 2026-09-11]: the crash is
+# Xwayland 24.1.10's `damage_report()` NULL dereference (guest objdump, offset 0x5be4a, %rbx NULL one
+# instruction after pixman_region_union), fixed upstream in 24.1.11, which Ubuntu 26.04 has not shipped
+# -- the same 2:24.1.10-1 is fine under mutter and under kwin on this identical rig, `-glamor off -shm`
+# crashes identically, and so does a real virgl render node.  AGENTS.md route 5 at its cheapest end
+# answers it: vm/flavors/resolute-cinnamon-wayland.yaml's build hook installs Debian's pinned
+# `xwayland_24.1.13-1_amd64.deb` into the golden, and with it the session comes up and STAYS up with a
+# LIVING X plane -- `wmctrl -l` and `xprop -root _NET_CLIENT_LIST` answer, and this is the one flavor in
+# the rig that lists an XWayland xterm and a native gnome-terminal in one list.  It is a hold: the day
+# resolute ships xwayland >= 24.1.11 the hook goes and nothing here changes.
+#
+# Measured on THAT session (2026-09-09, the one with Xwayland moved aside by hand) with the tree's
+# zipapps and the 0.4.0 deb installed -- every native-plane byte below still stands, and the block
+# after it is the same run repeated on the fixed golden:
 #
 #     wxrandr --print-backend                 cinnamon
 #     wxrandr --print-backend --verbose       compositor: Muffin / protocol: org.cinnamon.Muffin.
 #                                             DisplayConfig (D-Bus) / available: yes
 #     warandr --print-backend                 cinnamon
-#     wxrandr --listmonitors                  REFUSED: `xrandr: the cinnamon backend is named by
-#                                             --backend and is not built into this install` (wxrandr/
-#                                             cli.py still raises for the flavour mutter.py has)
+#     wxrandr --listmonitors                  Monitors: 2 / 0: +*Virtual-1 ... (U25 landed 2026-09-09:
+#                                             cli.py's cinnamon arm builds MutterOutputs(flavor=MUFFIN))
 #     oracle.py cinnamon-wayland              Virtual-1 0,0 / Virtual-2 1920,0
 #     wwmctl -m                               Name: Mutter (Muffin)
 #     wwmctl -l -x                            0x00000001  0 org.gnome.Terminal.org.gnome.Terminal ...
@@ -46,12 +46,41 @@
 #                                             is the one that answers [recon2/cinnamon 2.3]
 #     the maximize pair                       100,100 798x591 -> 0,0 1920x1040 -> 100,100 798x591 (b7a60f0)
 #     wxprop -id 1 _NET_WM_STATE              _NET_WM_STATE_MAXIMIZED_HORZ, ..._VERT, ..._FOCUSED
-#     -b add,shaded                           is_shaded() true, then false again -- and wxprop says
-#                                             nothing about it (see the xwant in phase_wm)
+#     -b add,shaded                           is_shaded() true, then false again; wxprop said nothing
+#                                             about it that day and prints _NET_WM_STATE_SHADED now
 #     wdotool type / key Return               byte-exact through /dev/uinput with the package's udev rule
 #     mousemove 300 300 / getmouselocation    x:300 y:300 screen:0 window:1, and Cinnamon's own
 #                                             global.get_pointer() answered "300,300"
 #     wmirror --check                         the two-protocol refusal, rc 1
+#
+# MEASURED AGAIN 2026-09-12, on a golden carrying Xwayland 24.1.13, `vm/live-smoke.sh
+# resolute-cinnamon-wayland --heads 3` over the working tree: **76 pass, 1 fail** (this flavor's first
+# run was 11 pass / 10 fail, and CI's two were 19/9 and 19/10).  What the X plane answers now, and what
+# the checks below assert:
+#
+#     wwmctl -l -x        0x0120000c  0 xterm.XTerm           <host> smokex
+#                         0x00000008  0 org.gnome.Terminal.org.gnome.Terminal  <host> Terminal
+#                         -- the mixed list this flavor was built for [recon2/cinnamon 8]
+#     wxprop -root _NET_CLIENT_LIST   window id # 0x10000df, 0x10000db, 0x10000d7, 0x800004, 0x800008,
+#                                     0x80000c, 0xf, 0x120000c, 0x8
+#     the shaded window   _NET_WM_STATE_SHADED, _NET_WM_STATE_HIDDEN, _NET_WM_STATE_FOCUSED -- and the
+#                         ORACLE agrees byte for byte: with an xterm shaded, real
+#                         `DISPLAY=:0 xprop -id 0x120000c _NET_WM_STATE` on this session's own X server
+#                         prints `_NET_WM_STATE_SHADED, _NET_WM_STATE_HIDDEN`, same atoms, same order
+#     wdotool --vkbd on   ...names Muffin on both sides of the semicolon
+#
+# THE ONE FAIL is common.sh's `phase_proxy` "the original wmctrl -l lists what the clone lists, ids
+# tokenised", and it is a real disagreement about ONE column.  The six desktop/background X windows
+# (3 csd-background, 2 nemo-desktop, Desktop) are listed `-1` by the clone and `0` by the original
+# through the proxy.  Measured here, 2026-09-12: muffin marks all six `_NET_WM_STATE_STICKY` and
+# `is_on_all_workspaces()` is true for each -- and muffin publishes NO `_NET_WM_DESKTOP` and no
+# `_WIN_WORKSPACE` on their X windows at all (`DISPLAY=:0 xprop -id 0x800004 _NET_WM_DESKTOP` ->
+# `not found.`), while /usr/bin/wmctrl 1.07 prints `0` for a window carrying neither.  So each side is
+# reporting what it can see, and which one has to move is the oracle's call: what real `wmctrl -l`
+# prints for nemo-desktop on a Cinnamon **X11** session, where muffin's own X11 path does set the
+# property.  `resolute-cinnamon` is that session and the run is one `wmctrl -l`; NOT YET only because
+# every golden key in the rig moved this wave and that image is a 53-minute build today.  Nothing in
+# wwmctl or xw11 should be changed before it is taken.
 #
 # The recon's own numbers still stand behind the shape of all this: muffin's DisplayConfig is Mutter's
 # interface byte for byte, a native window's resize is ASYNCHRONOUS (the same call chain read the old
@@ -85,69 +114,46 @@ cmx_sum() { guest "md5sum $CMX 2>/dev/null | cut -d' ' -f1" | tr -d ' \r\n'; }
 #: The X client the mixed-list check needs; started by phase_wm and killed there.
 XTERM_TITLE=smokex
 
-# Is Cinnamon's own shell answering on the session bus?  `(true, '"2"')` when it is; the bus itself is
-# systemd's and is up either way, so a dead compositor answers ServiceUnknown and never the word `true`.
-# This is the same question wdotool's detection asks (`org.Cinnamon` in ListNames) and the reason it is
-# the gate below: with muffin gone the socket at /run/user/1000/wayland-0 is still THERE and refuses
-# connections, so every tool in the run reports something true about a corpse.
-cin_alive() { guest "gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon \
-                     --method org.Cinnamon.Eval 'String(1+1)' 2>&1"; }
-
 # The rig gate, and the first phase for that reason: without it nothing below this line is a measurement
 # of ours.  Twice in CI (runs 34308982263 and 34319854037, `--deb --remove --heads 3`) this flavor ended
-# 19/9 and 19/10 with ONE cause -- Xwayland 24.1.10 segfaults as muffin brings it up, muffin treats that
-# as fatal and exits, and cinnamon-session gives up; `vmctl session` still logs an active logind session
-# (cinnamon-session keeps respawning) and every check downstream then reads a compositor that is not
-# there: `wdotool` said `no Wayland session found`, `wxrandr --print-backend` fell through to `wlr` with
-# `cannot connect to the compositor`, and `wmirror --check` said `[Errno 111] Connection refused` against
-# the socket file muffin left behind.  The header records the same crash from this flavor's first run.
+# 19/9 and 19/10 with ONE cause -- Xwayland 24.1.10 segfaulted as muffin brought it up, muffin treats
+# that as fatal and exits, and cinnamon-session gives up; `vmctl session` still logs an active logind
+# session (cinnamon-session keeps respawning) and every check downstream then read a compositor that was
+# not there: `wdotool` said `no Wayland session found`, `wxrandr --print-backend` fell through to `wlr`
+# with `cannot connect to the compositor`, and `wmirror --check` said `[Errno 111] Connection refused`
+# against the socket file muffin had left behind.
 #
-# So the phase asks the question first and says which world the rest of the run is in.  With Xwayland
-# moved aside the session comes up and stays up -- that is where every byte in the header's table was
-# measured -- and the X plane is missing, which the checks that need it already carry as xwants naming
-# their route.  Moving the binary is the rig's own lowest rung and not a route on AGENTS.md's ladder at
-# all: nothing of ours is being worked around here, and the day the rig has a render node the xwant below
-# goes XPASS and the move stops happening.
+# The question the phase asks is Cinnamon's own shell on the session bus (`(true, '"2"')` when it is,
+# ServiceUnknown when it is not) -- the same question wdotool's detection asks (`org.Cinnamon` in
+# ListNames), and the right one because the bus is systemd's and is up either way: with muffin gone the
+# socket at /run/user/1000/wayland-0 is still THERE and refuses connections, so every tool in the run
+# would otherwise report something true about a corpse.
 #
-# What the recording under tests/fixtures/live/ carries is the --reuse branch only -- `test -x
-# /usr/bin/Xwayland` -> no, then the `want` on the bus -- because capture-from-run ran against the
-# instance this phase had already fixed.  The crash branch (the survival xwant, the mv, the reboot)
-# is the live run's alone and cannot be replayed at all, for the reason no recording carries
-# `install`: a reboot is not a guest command with an answer.  It was measured on 2026-09-09 and the
-# run log of that measurement is what the report cites.
+# The golden carries Xwayland 24.1.13 now (the flavor yaml's build hook, AGENTS.md route 5), so this is
+# a plain `want` and no longer a branch: the session either survives with Xwayland INSTALLED AND RUNNING
+# -- which is what every X-plane check below depends on -- or the run says so here, in the first phase,
+# with muffin's own last words beside it.  The move-aside-and-reboot arm this phase used to carry is
+# gone with the crash it worked around: nothing in the rig moves a binary out of the way any more, and
+# `/usr/bin/Xwayland` is where the package put it [goal2/recon/gl.md 3, 5, 8].
 phase_xwayland() {
-    local alive present
+    local alive
     alive=$(await 30 'true' "gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon \
                              --method org.Cinnamon.Eval 'String(1+1)' 2>&1" || true)
-    # Whether the binary is still there decides which claim this phase can make.  On a --reuse run of an
-    # instance this phase has already moved it aside, "the session is up" says nothing about Xwayland and
-    # the xwant below would XPASS on the wrong evidence; so that case is a plain `want` on the session and
-    # a note saying why the other line is not being asked.
-    present=$(root 'test -x /usr/bin/Xwayland && echo yes || echo no' | tr -d ' \r\n' || true)
-    if [ "$present" = no ]; then
-        note "/usr/bin/Xwayland is already aside in this instance (an earlier run of this phase moved it)"
-        want "Cinnamon answers on the session bus with Xwayland moved aside" "true" "$alive"
-        return 0
-    fi
-    xwant "the session survives with Xwayland installed (until this rig has a render node: virtio-vga-gl \
-with -display dbus,gl=on, which this host refuses with 'egl: no drm render node available' and no /dev/dri; \
-else AGENTS.md route 5, an Xwayland that does not die on the software path)" \
-          "true" "$alive"
+    want "the session survives with Xwayland installed (24.1.13, the flavor yaml's build hook)" \
+         "true" "$alive"
     if printf '%s\n' "$alive" | grep -q true; then
-        note "org.Cinnamon answers: $(ev "$alive") -- nothing was moved aside"
+        note "org.Cinnamon answers: $(ev "$alive")"
         return 0
     fi
     note "muffin's last words: $(ev "$(root "journalctl -b --no-pager | grep -iE \
          'Fatal server error|Caught signal|Connection to xwayland lost|respawning too quickly'" \
          | tail -3 || true)")"
-    root "test -x /usr/bin/Xwayland && mv /usr/bin/Xwayland /usr/bin/Xwayland.moved-aside; true" >/dev/null
-    step "Xwayland moved aside; rebooting into a session that can hold a compositor"
-    root "( sleep 1; reboot ) >/dev/null 2>&1 &" >/dev/null 2>&1 || true
-    sleep 8
-    wait_session >/dev/null || { fail "no session after the Xwayland reboot"; return 1; }
-    after_reboot
-    want "with /usr/bin/Xwayland moved aside Cinnamon answers on the session bus" "true" "$(cin_alive)"
-    note "cinnamon's own processes now: $(ev "$(root 'ps -o comm= -u test | sort -u' | tr '\n' ' ' || true)")"
+    # `-f='${Version}'`, quoted for the guest's own `sh -c`, the way the build hook writes it: the
+    # payload reaches the guest through ssh's word-join and is parsed twice, so a bare ${Version}
+    # arrives as an empty format and dpkg-query answers `error in show format: may not be empty
+    # string` (rc 2) -- measured through the same chain on this box, 2026-09-12.  This is the line
+    # that says whether the hold fell out of the golden, so it has to say the version.
+    note "xwayland in this image: $(ev "$(root "dpkg-query -W -f='\${Version}' xwayland 2>&1" || true)")"
 }
 
 # No text editor on this golden: the "editor" is gnome-terminal running `cat >>`, which is sway.sh's
@@ -275,12 +281,11 @@ phase_wm() {
     # app's WM_CLASS is its desktop-file id in both columns, so the pattern is the word they share.
     want "wwmctl -l -x lists the native terminal" "[Tt]erminal" "$rows"
     # xid comes straight from get_xwindow() -- no _NET_CLIENT_LIST matching, unlike KWin 6 -- and is 0
-    # for a native toplevel.  The recon read 16777228 (0x0100000c) off an X client on this compositor.
-    # No session on this rig has had a living Xwayland yet (the header), so nobody has seen an X window and
-    # a native one in one list here: this is the check that measurement will fill in, not a claim.
-    xwant "the XWayland xterm is listed under its real X id with the WM_CLASS instance (until Xwayland \
-survives on this rig: virtio-vga-gl in vm/vmctl, else AGENTS.md route 5)" \
-          "^0x0[0-9a-f]{6,7} +[0-9]+ +xterm\.XTerm" "$rows"
+    # for a native toplevel.  The recon read 16777228 (0x0100000c) off an X client on this compositor,
+    # and with Xwayland 24.1.13 in the golden (route 5, the flavor yaml's hook) this is the one list in
+    # the rig with an X window and a native one in it -- a claim now, not a wait.
+    want "the XWayland xterm is listed under its real X id with the WM_CLASS instance" \
+         "^0x0[0-9a-f]{6,7} +[0-9]+ +xterm\.XTerm" "$rows"
     want "wwmctl -l -p carries the pid column" "^0x[0-9a-f]+ +[0-9]+ +[0-9]{2,} " "$(guest 'wwmctl -l -p' || true)"
     want "wwmctl -m names the window manager muffin's check window names" "^Name: Mutter \(Muffin\)$" \
          "$(guest 'wwmctl -m' || true)"
@@ -304,23 +309,28 @@ survives on this rig: virtio-vga-gl in vm/vmctl, else AGENTS.md route 5)" \
     sleep 1
     same "add,shaded really shades the window (muffin kept the state mutter dropped)" "true" \
          "$(cin_shaded "$WIN" || true)"
-    # ...and the half of it that does not work.  Measured 2026-09-09 on this flavor: with is_shaded()
-    # answering true, `wxprop -id 1 _NET_WM_STATE` printed `_NET_WM_STATE_FOCUSED` and nothing else.
-    # Real xprop on a Cinnamon X11 session prints _NET_WM_STATE_SHADED there, and X is the oracle:
-    # wxprop/core.py's _props() has no `shaded` arm at all and its atom table (core.py:328-338) has no
-    # _NET_WM_STATE_SHADED to name.  Requested of the Cinnamon batch in requests-batch-7.md.
-    xwant "wxprop says the window is shaded, as xprop does under X (fix wxprop/core.py's shaded arm, \
-unowned this wave: requests-batch-7.md)" \
-          "_NET_WM_STATE_SHADED" "$(guest "wxprop -id $WIN _NET_WM_STATE" || true)"
+    # ...and the half that used to be missing.  Measured 2026-09-09 on this flavor: with is_shaded()
+    # answering true, `wxprop -id 1 _NET_WM_STATE` printed `_NET_WM_STATE_FOCUSED` and nothing else,
+    # while real xprop on a Cinnamon X11 session prints _NET_WM_STATE_SHADED there -- and X is the
+    # oracle.  The arm landed (wxprop/core.py's `shaded` key, the atom table and _NET_SUPPORTED;
+    # wdotool/backend_cinnamon.py reads the `shaded` field cinnamon_js.py:57 had been sending all
+    # along), and muffin's own set_net_wm_state puts SHADED FIRST, before SKIP_PAGER, which is where
+    # this reads it.  The oracle has been read since, on this very flavor now that it has an X plane
+    # (2026-09-12): an `xterm` shaded through `wwmctl` answers real `DISPLAY=:0 xprop -id 0x120000c
+    # _NET_WM_STATE` with `_NET_WM_STATE_SHADED, _NET_WM_STATE_HIDDEN`, and the clone prints those two
+    # atoms in that order for the same window at the same moment.  The native terminal below adds
+    # _NET_WM_STATE_FOCUSED to the pair.
+    want "wxprop says the window is shaded, as xprop does under X" \
+         "_NET_WM_STATE_SHADED" "$(guest "wxprop -id $WIN _NET_WM_STATE" || true)"
     guest "wwmctl -r :ACTIVE: -b remove,shaded" >/dev/null || true
     sleep 1
     same "remove,shaded unshades it again" "false" "$(cin_shaded "$WIN" || true)"
     want "wwmctl -d lists the workspaces" "^0 " "$(guest 'wwmctl -d' || true)"
-    # Same event: _NET_CLIENT_LIST is a property of the X root window, and there is no X plane to hold one
-    # until Xwayland lives through a login here.
-    xwant "wxprop -root _NET_CLIENT_LIST names the X client under its real id (until Xwayland survives on \
-this rig: virtio-vga-gl in vm/vmctl, else AGENTS.md route 5)" "window id # 0x[0-9a-f]{6}" \
-          "$(guest 'wxprop -root _NET_CLIENT_LIST' || true)"
+    # Same event from the root window's side: _NET_CLIENT_LIST is an X root property, so it holds the
+    # X client's own id and nothing native.  It needs an Xwayland that lives through a login, which is
+    # what the 24.1.13 hold in the flavor yaml bought.
+    want "wxprop -root _NET_CLIENT_LIST names the X client under its real id" \
+         "window id # 0x[0-9a-f]{6}" "$(guest 'wxprop -root _NET_CLIENT_LIST' || true)"
     guest "pkill -x xterm; true" >/dev/null 2>&1 || true
 }
 
@@ -341,20 +351,36 @@ layout_phase() {
     want "keys explain reads the keymap off the wire and names the group" \
          "^layout: .* -- group [0-9]+ of [0-9]+" "$ex"
     # Measured 2026-09-09 on the Xwayland-less session: `layout: English (US) -- group 1 of 1, from
-    # wayland`.  `current` really was uint32 1 and `sources` really had two entries -- but the keymap on
-    # the wire still had ONE group, because it is cinnamon-settings-daemon-keyboard that applies the
-    # sources to the compositor, and on a session whose Xwayland died it never registers ("Application
-    # 'cinnamon-settings-daemon-keyboard.desktop' failed to register before timeout").  With one group
-    # choose_group is CERTAIN and the reader is never asked, exactly as on wayfire.sh's single-layout ini.
-    xwant "the group came from Cinnamon's input-sources (until csd-keyboard applies the second source)" \
+    # wayland`, and the reason offered then was that csd-keyboard never registered ("Application
+    # 'cinnamon-settings-daemon-keyboard.desktop' failed to register before timeout") on a session whose
+    # Xwayland had died.  RE-MEASURED 2026-09-12 with Xwayland 24.1.13 in the golden: csd-keyboard IS
+    # running (it is in `ps -u test` beside the other fifteen csd-*), and the wire STILL has one group
+    # -- `sources` two entries, `current` uint32 1, and `DISPLAY=:0 setxkbmap -query` on the session's
+    # own Xwayland answering `layout: us`.  Neither csd-keyboard nor muffin 6.4 puts the second source
+    # on the wire at all, so the deb bought the registration and not the layout.
+    #
+    # The route is AGENTS.md 2 and it is MEASURED, not guessed: one `org.Cinnamon.Eval` of
+    # `Meta.get_backend().set_keymap("us,de", "", "")` turns the wire into two groups, after which
+    # wdotool reads exactly what these two lines want -- `layout: German -- group 2 of 2, from wayland
+    # + cinnamon input-sources` (measured on this session, 2026-09-12).  What stops the phase from
+    # doing that today is the check three lines below: with that German group live, `wdotool type --
+    # 'de: yz@'` arrives as `de> zy^[q` -- the uinput path presses the US positions and does not
+    # compensate for the compositor's active group.  So the cost of promoting these two is fixing
+    # wdotool's typing against a non-US group first; the rig arranging a keymap it cannot then type
+    # into would be a green phase measuring nothing.
+    xwant "the group came from Cinnamon's input-sources (until the phase sets the keymap itself: route 2, \
+one Eval of Meta.get_backend().set_keymap, which needs wdotool type to compensate for the live group)" \
           "from wayland \+ cinnamon input-sources" "$ex"
-    xwant "the second source is the live group (until csd-keyboard runs: it needs a session Xwayland)" \
+    xwant "the second source is the live group (until the same route 2: csd-keyboard runs now and still \
+does not apply it)" \
           "group 2 of [0-9]+" "$ex"
     editor_clear
     guest "wdotool type --delay 30 -- $(sq 'de: yz@')" >/dev/null || true
     sleep 0.6; editor_save; sleep 1
-    # Byte-exact either way; with one group on the wire this is the uinput path and not yet the
-    # compensation the second layout would ask for (measured: `de: yz@` arrived exactly, group 1 of 1).
+    # Byte-exact because there is ONE group on the wire: this is the plain uinput path and not the
+    # compensation a live second layout would ask for (measured 2026-09-09 and again 2026-09-12:
+    # `de: yz@` arrives exactly, group 1 of 1).  With the second group really live -- the route-2 Eval
+    # above -- the same call arrives as `de> zy^[q`, which is the gap the xwants name.
     same "wdotool type is byte-exact with the second source selected" "de: yz@" "$(editor_text)"
     guest "gsettings set org.cinnamon.desktop.input-sources current 0" >/dev/null 2>&1 || true
     # `guest` merges stderr, so the recorded value is only trusted when it looks like the GVariant list
@@ -373,8 +399,10 @@ layout_phase() {
     local vk; vk=$(guest 'wdotool --vkbd on type -- x 2>&1' || true)
     want "--vkbd on says which protocol this compositor does not implement" \
          "does not implement zwp_virtual_keyboard_manager_v1" "$vk"
-    xwant "...and names Muffin in the clause that lists who does (until wdotool/vkbd.py's parenthesis names it)" \
-          "Muffin|Cinnamon" "$vk"
+    # wdotool/vkbd.py's parenthesis names Muffin on both sides now -- "(Mutter, KWin and Cinnamon's
+    # Muffin 6.4 do not; sway, Hyprland, the wlroots family, COSMIC and Muffin 6.6+ do)" -- which is the
+    # sentence a Cinnamon user needs: 6.4 has no zwp_virtual_keyboard_manager_v1 and 6.6 does.
+    want "...and names Muffin in the clause that lists who does" "Muffin|Cinnamon" "$vk"
 }
 
 # common.sh's body, plus what only Muffin's own bus can say.  The oracle is oracle.py's `muffin` branch:
@@ -456,11 +484,14 @@ phase_display() {
 # (AGENTS.md route 2) -- has never been run against a live dialog, so it is an xwant and not a claim.
 phase_persistent() {
     local pair first second before after now out pos0 st=0
-    # The same gate phase_display carries, and for the same reason: with cli.py's cinnamon arm refusing,
-    # `--persistent` never reaches an apply and every check below is red for that one reason (fix U25).
+    # The gate phase_display's own --listmonitors check answers first: if the backend cannot even list
+    # the monitors, `--persistent` never reaches an apply and every check below would be red for that
+    # one reason rather than for its own.  It has not fired since U25 landed (2026-09-09) and did not
+    # fire on the 2026-09-12 run either; it stays because a backend that stops answering should report
+    # itself in one line and not in eight.
     if ! guest 'wxrandr --listmonitors 2>&1' | grep -q '^Monitors:'; then
-        note "--persistent skipped: wxrandr/cli.py's cinnamon arm refuses before any apply (fix U25);"
-        note "  phase_display's xwant is the line that says when this comes back"
+        note "--persistent skipped: wxrandr --listmonitors answered no monitor list on this session;"
+        note "  phase_display's own --listmonitors check is the line that says what happened"
         return 0
     fi
     pair=$(display_pair); first=${pair%% *}; second=${pair#* }

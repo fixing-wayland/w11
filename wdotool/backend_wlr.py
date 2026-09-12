@@ -6,7 +6,7 @@ The protocol carries a title, an app id and four state bits and nothing else -- 
 stacking -- so the refusals here name that protocol and, for each gap, the rung of AGENTS.md's ladder that
 would close it, rather than a compositor's layout policy.
 
-Three things this backend does on top of the bare protocol, each for a measured defect:
+Four things this backend does on top of the bare protocol, each for a measured defect:
 
 * **Verify after act.** river 0.4 registers no listener for any handle request: `windowclose`,
   `windowactivate`, `windowminimize` and `windowstate --add FULLSCREEN` all returned 0 and changed nothing,
@@ -21,6 +21,12 @@ Three things this backend does on top of the bare protocol, each for a measured 
   synthesized `xterm.xterm` for `xterm.XTerm`, on labwc, Budgie, Xfce-Wayland, Wayfire and Hyprland alike; a
   same-compositor control (one sway, native backend vs `WDOTOOL_BACKEND=wlr`) proved it is this backend and
   not the compositor [M labwc.md §4]. `views()` joins the toplevels to `_NET_CLIENT_LIST`.
+* **X rectangles for those same windows.** The same join, in `list()`, so that `getwindowgeometry` answers
+  the X server for a window the X server knows: on the resolute-labwc golden 2026-09-12 an xterm at
+  `718,395 484x316` read `0,0 1920x1080` out of `wdotool getwindowgeometry` and `718,395 484x316` out of the
+  oracle `xdotool getwindowgeometry 0x40000c`, one session, one second apart. That is AGENTS.md route 5 and
+  it reaches XWayland windows only; a native toplevel keeps the floor rectangle and sets
+  `geometry_is_floor` (see `list()`).
 
 Window ids are 1000000 + arrival order and are only stable within one wdotool process; unlike COSMIC's
 `identifier` and Hyprland's `address` there is no handle to mint from [backend.mint_id]."""
@@ -156,7 +162,16 @@ class XPlaneViews:
     What a backend supplies: `self.uid` (the session's uid, for the X socket), `list()` and `_view_flags()`,
     a list of `View` keyword dicts parallel to the listing. The two calls are adjacent on purpose: both are
     built from the same records in arrival order, and no event can land between them because `wayland_mini`
-    reads the socket only inside a roundtrip."""
+    reads the socket only inside a roundtrip.
+
+    `_x_join` is the pairing itself, split out of `views()` so that `WlrBackend.list()` can fold the X
+    server's rectangle into the rows the toplevel protocol gives no rectangle for -- AGENTS.md route 5,
+    the X plane, which is the lowest rung in reach for `getwindowgeometry` on this floor."""
+
+    #: (the listing object, the join computed from it), so the two readers of one listing pay for one join.
+    #: A class attribute, not an `__init__` line: `CosmicBackend` has its own constructor and this mixin has
+    #: none.
+    _join = None
 
     def views(self) -> "list[View] | None":
         """The listing with the X plane folded in, or None when there is no X plane to fold.
@@ -168,17 +183,17 @@ class XPlaneViews:
         nobody can break keeps xid 0 [M labwc.md §4, cosmic.md §5.4, xid_match.match_xids]."""
         wins = self.list()
         flags = self._view_flags()
-        x = self._x11()
-        if x is None:
+        join = self._x_join(wins)
+        if join is None:
             return None
-        try:
-            clients = self._x_clients(x)
-        except Exception:   # any X failure: the floor listing, no crash
-            self._drop_x(x)
-            return None
-        raw = [{"u": str(w.id), "c": w.class_, "n": "", "t": w.title} for w in wins]
-        xids = xid_match.match_xids(raw, clients, None)
-        by_xid = {c["xid"]: c for c in clients}
+        xids, by_xid, blocked = join
+        if blocked:
+            # The tie is said here and nowhere else. `list()` runs the same join under every window
+            # command there is (`search`, `getwindowgeometry`, a `--sync` poll), and the original xdotool
+            # prints nothing at all on any of them: a warning from down there is a stderr parity
+            # regression, once per poll. `wwmctl -l` is the reader the sentence was written for -- it
+            # prints the X id column, and a 0 in it is what wants explaining.
+            warn(xid_match.tie_warning(blocked))
         out = []
         for w, fl in zip(wins, flags):
             xid = xids.get(str(w.id), 0)
@@ -195,6 +210,39 @@ class XPlaneViews:
             out.append(View(window=w, xid=xid, instance=c["inst"], cls=c["cls"],
                             client_type="x11", **fl))
         return out
+
+    def _x_join(self, wins) -> "tuple[dict, dict, int] | None":
+        """Pair `wins` against `_NET_CLIENT_LIST`: `({str(window id): xid}, {xid: client record}, ties)`,
+        or None when there is no X plane to pair against or the read failed halfway through.
+
+        The join is SILENT: `match_xids_quiet` hands back the number of windows a tie left unpaired
+        instead of printing it, and `views()` above is the one place that says it. `list()` calls this too
+        now, and `list()` is under every window command, so a warning in here is a line the original
+        xdotool never printed on `search` or `getwindowgeometry` -- and once per poll under `--sync`.
+
+        Memoised on the listing OBJECT, because both readers of one listing want the same pairing:
+        `WlrBackend.list()` folds the rectangle in and the `views()` above reads the ids out of the very
+        listing that just did it. Without the memo one `wwmctl -l` asks the X server for
+        `_NET_CLIENT_LIST` plus five properties per client twice over. Measured
+        in-process against a headless labwc on this guest, 2026-09-12: `list()` is 0.02 ms with no X plane,
+        0.10 ms with one X client joined and 0.53 ms with eight -- about 0.06 ms per client, which is what
+        the second reader stops paying. The key is the list object and the cache keeps a reference to it,
+        so its identity cannot be recycled under a later listing the way an `id()` could be."""
+        if self._join is not None and self._join[0] is wins:
+            return self._join[1]
+        x = self._x11()
+        if x is None:
+            return None
+        try:
+            clients = self._x_clients(x)
+        except Exception:   # any X failure: the floor listing, no crash
+            self._drop_x(x)
+            return None
+        raw = [{"u": str(w.id), "c": w.class_, "n": "", "t": w.title} for w in wins]
+        xids, blocked = xid_match.match_xids_quiet(raw, clients, None)
+        join = (xids, {c["xid"]: c for c in clients}, blocked)
+        self._join = (wins, join)
+        return join
 
     def _x11(self):
         """The X connection, opened once, or None. Never starts an Xwayland: labwc Depends on xwayland and
@@ -295,7 +343,9 @@ class WlrBackend(XPlaneViews, WindowBackend):
         # what keeps sway 1.11's and Wayfire 0.10's desktop refusals exactly as they were.
         self.ws = ext_workspace.WorkspaceClient.bind(self.c)
 
-        self._x = "unset"   # lazy X11Conn for views(); None once it is known there is none
+        self._x = "unset"   # lazy X11Conn for the X-plane join; None once it is known there is none
+        #: set once a listing had to report an output rectangle for a window the X plane did not answer for
+        self.geometry_is_floor = False
         self._pump()  # toplevel announcements
         self._pump()  # each handle's initial title/app_id/state/done
 
@@ -400,6 +450,28 @@ class WlrBackend(XPlaneViews, WindowBackend):
     # -- WindowBackend ------------------------------------------------------
 
     def list(self) -> list[Window]:
+        """The toplevels, with the X server's rectangle folded into the rows it has one for.
+
+        AGENTS.md route 5. `zwlr_foreign_toplevel_management_v1` carries no rectangle, so before this every
+        row read `0,0` plus the widest output's mode -- measured on the resolute-labwc golden 2026-09-12,
+        where `wdotool getwindowgeometry 1000000` printed `Position: 0,0 (screen: 0)` / `Geometry:
+        1920x1080` for an xterm the X server put at `718,395 484x316` (the pinned oracle
+        `xdotool getwindowgeometry 0x40000c`, same session, same second). The X plane is the one route in
+        reach and it reaches XWayland windows only, so that is exactly how far this goes: a row joined to an
+        X client answers the X server, a native toplevel keeps the floor and sets `geometry_is_floor`.
+        Getting a rectangle for the native half is NOT YET, and the route is rung 1 -- a foreign-toplevel
+        protocol that carries one -- at the cost of the protocol being written and shipped by wlroots first;
+        the fallback rung is 6, a patched compositor, one event per window.
+
+        Folding it here and not only in `views()` is what puts it where the xdotool clones read it: the two
+        readers of a rectangle are `getwindowgeometry` (through `find()`) and `hit_test`, which is
+        `getmouselocation`'s `window:` field, and both go through `list()` and never through `views()`.
+        (`search --onlyvisible` reads `w.visible` alone -- no rectangle is involved there.)
+
+        Two XWayland windows the join cannot tell apart -- two xterms under the default title, which is a
+        common shape on this floor -- both keep the floor, because `match_xids` hands out no id on a tie
+        and an unknown rectangle beats a wrong one. The tie-break route 5 lacks is a rectangle on the
+        Wayland side, which is the rung-1 gap above, from the other end."""
         self._pump()
         wins = []
         for i, oid in enumerate(self.order):
@@ -411,11 +483,24 @@ class WlrBackend(XPlaneViews, WindowBackend):
                 title=t.title,
                 class_=t.app_id,
                 pid=0,
-                x=0, y=0, w=self.out_w, h=self.out_h,  # geometry unknown
+                x=0, y=0, w=self.out_w, h=self.out_h,  # the floor, until the X plane says otherwise below
                 focused=_ST_ACTIVATED in t.states,
                 visible=_ST_MINIMIZED not in t.states,
                 desktop=-1,
             ))
+        join = self._x_join(wins)
+        # The tie count is `views()`'s to print (see `_x_join`): every window command runs this listing.
+        xids, by_xid = join[:2] if join is not None else ({}, {})
+        for w in wins:
+            c = by_xid.get(xids.get(str(w.id), 0))
+            if c is None:
+                # A native toplevel, or an X plane that is not there (sway and Wayfire spawn Xwayland on
+                # demand and `_x11` will not be the one to start it). Latched and never cleared, the way
+                # backend_cosmic's `_rect` latches it: one window without a rectangle is a listing that
+                # reported one it was not told.
+                self.geometry_is_floor = True
+                continue
+            w.x, w.y, w.w, w.h = c["geo"]
         return wins
 
     def activate(self, wid: int):

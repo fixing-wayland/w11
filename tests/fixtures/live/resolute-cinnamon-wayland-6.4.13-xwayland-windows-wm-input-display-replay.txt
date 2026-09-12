@@ -5,42 +5,39 @@
 ### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon                              --method org.Cinnamon.Eval 'String(1+1)' 2>&1
 (true, '"2"')
 ### rc=0
-### test -x /usr/bin/Xwayland && echo yes || echo no
-no
-### rc=0
 ### rm -f $HOME/w11-smoke.txt; touch $HOME/w11-smoke.txt
 ### rc=0
 ### rm -f $HOME/w11-smoke.txt; setsid nohup gnome-terminal -- sh -c 'cat >> $HOME/w11-smoke.txt'            >/dev/null 2>&1 </dev/null & sleep 4; true
 ### rc=0
 ### wdotool search --class 'gnome[-.]terminal' | head -1
-1
+8
 ### rc=0
-### wdotool getwindowname 1
+### wdotool getwindowname 8
 Terminal
 ### rc=0
-### wdotool windowmove 1 100 100; wdotool windowsize 1 800 600
+### wdotool windowmove 8 100 100; wdotool windowsize 8 800 600
 ### rc=0
-### wdotool getwindowgeometry 1
-Window 1
+### wdotool getwindowgeometry 8
+Window 8
   Position: 100,100 (screen: 0)
   Geometry: 798x591
 ### rc=0
-### wdotool getwindowpid 1
-6236
+### wdotool getwindowpid 8
+2788
 ### rc=0
-### test -d /proc/6236
+### test -d /proc/2788
 ### rc=0
-### wdotool windowactivate --sync 1
+### wdotool windowactivate --sync 8
 ### rc=0
 ### wdotool getactivewindow
-1
+8
 ### rc=0
-### wdotool windowminimize 1
+### wdotool windowminimize 8
 ### rc=0
 ### wdotool getactivewindow 2>&1
-xdo_get_active_window reported an error
-### rc=1
-### wdotool windowmap 1; wdotool windowactivate --sync 1
+4
+### rc=0
+### wdotool windowmap 8; wdotool windowactivate --sync 8
 ### rc=0
 ### wwmctl -d
 0  * DG: 3840x2160  VP: 0,0  WA: 0,0 1920x1040  Workspace 1
@@ -61,12 +58,12 @@ xdo_get_active_window reported an error
 ### wdotool get_desktop
 0
 ### rc=0
-### wdotool windowactivate --sync 1
+### wdotool windowactivate --sync 8
 ### rc=0
 ### wdotool mousemove 300 300
 ### rc=0
 ### wdotool getmouselocation
-x:300 y:300 screen:0 window:1
+x:300 y:300 screen:0 window:8
 ### rc=0
 ### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'global.get_pointer().slice(0, 2).join(",")'
 (true, '"300,300"')
@@ -76,52 +73,66 @@ x:300 y:300 screen:0 window:1
 ### setsid nohup xterm -T smokex -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 3; true
 ### rc=0
 ### wwmctl -l -x
-0x00000001  0 org.gnome.Terminal.org.gnome.Terminal  resolute-cinnamon-wayland-smoke Terminal
+0x01000034 -1 nemo-desktop.Nemo-desktop  resolute-cinnamon-wayland-smoke nemo-desktop
+0x01000030 -1 nemo-desktop.Nemo-desktop  resolute-cinnamon-wayland-smoke nemo-desktop
+0x01000028 -1 nemo-desktop.Nemo-desktop  resolute-cinnamon-wayland-smoke Desktop
+0x00e00004 -1 csd-background.Csd-background  resolute-cinnamon-wayland-smoke csd-background
+0x00e00008 -1 csd-background.Csd-background  resolute-cinnamon-wayland-smoke csd-background
+0x00e0000c -1 csd-background.Csd-background  resolute-cinnamon-wayland-smoke csd-background
+0x00000008  0 org.gnome.Terminal.org.gnome.Terminal  resolute-cinnamon-wayland-smoke Terminal
+0x0120000c  0 xterm.XTerm           resolute-cinnamon-wayland-smoke smokex
 ### rc=0
 ### wwmctl -l -p
-0x00000001  0 6236   resolute-cinnamon-wayland-smoke Terminal
+0x01000034 -1 1967   resolute-cinnamon-wayland-smoke nemo-desktop
+0x01000030 -1 1967   resolute-cinnamon-wayland-smoke nemo-desktop
+0x01000028 -1 1967   resolute-cinnamon-wayland-smoke Desktop
+0x00e00004 -1 1695   resolute-cinnamon-wayland-smoke csd-background
+0x00e00008 -1 1695   resolute-cinnamon-wayland-smoke csd-background
+0x00e0000c -1 1695   resolute-cinnamon-wayland-smoke csd-background
+0x00000008  0 2788   resolute-cinnamon-wayland-smoke Terminal
+0x0120000c  0 4380   resolute-cinnamon-wayland-smoke smokex
 ### rc=0
 ### wwmctl -m
 Name: Mutter (Muffin)
 Class: N/A
 PID: N/A
-Window manager's "showing the desktop" mode: N/A
+Window manager's "showing the desktop" mode: OFF
 ### rc=0
-### wdotool windowactivate --sync 1
+### wdotool windowactivate --sync 8
 ### rc=0
-### wdotool getwindowgeometry 1
-Window 1
+### wdotool getwindowgeometry 8
+Window 8
   Position: 100,100 (screen: 0)
   Geometry: 798x591
 ### rc=0
 ### wwmctl -r :ACTIVE: -b add,maximized_vert,maximized_horz
 ### rc=0
-### wdotool getwindowgeometry 1
-Window 1
+### wdotool getwindowgeometry 8
+Window 8
   Position: 0,0 (screen: 0)
   Geometry: 1920x1040
 ### rc=0
-### wxprop -id 1 _NET_WM_STATE
+### wxprop -id 8 _NET_WM_STATE
 _NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_FOCUSED
 ### rc=0
 ### wwmctl -r :ACTIVE: -b remove,maximized_vert,maximized_horz
 ### rc=0
-### wdotool getwindowgeometry 1
-Window 1
+### wdotool getwindowgeometry 8
+Window 8
   Position: 100,100 (screen: 0)
   Geometry: 798x591
 ### rc=0
 ### wwmctl -r :ACTIVE: -b add,shaded
 ### rc=0
-### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'String(global.display.list_windows(0).filter(w => w.get_stable_sequence() == 1)[0].is_shaded())'
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'String(global.display.list_windows(0).filter(w => w.get_stable_sequence() == 8)[0].is_shaded())'
 (true, '"true"')
 ### rc=0
-### wxprop -id 1 _NET_WM_STATE
-_NET_WM_STATE(ATOM) = _NET_WM_STATE_FOCUSED
+### wxprop -id 8 _NET_WM_STATE
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_SHADED, _NET_WM_STATE_HIDDEN, _NET_WM_STATE_FOCUSED
 ### rc=0
 ### wwmctl -r :ACTIVE: -b remove,shaded
 ### rc=0
-### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'String(global.display.list_windows(0).filter(w => w.get_stable_sequence() == 1)[0].is_shaded())'
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'String(global.display.list_windows(0).filter(w => w.get_stable_sequence() == 8)[0].is_shaded())'
 (true, '"false"')
 ### rc=0
 ### wwmctl -d
@@ -131,11 +142,11 @@ _NET_WM_STATE(ATOM) = _NET_WM_STATE_FOCUSED
 3  - DG: 3840x2160  VP: N/A  WA: 0,0 1920x1040  Workspace 4
 ### rc=0
 ### wxprop -root _NET_CLIENT_LIST
-_NET_CLIENT_LIST(WINDOW): window id # 0x1
+_NET_CLIENT_LIST(WINDOW): window id # 0x1000034, 0x1000030, 0x1000028, 0xe00004, 0xe00008, 0xe0000c, 0x120000c, 0x8
 ### rc=0
 ### pkill -x xterm; true
 ### rc=0
-### wdotool windowactivate --sync 1
+### wdotool windowactivate --sync 8
 ### rc=0
 ### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
 ### rc=0
@@ -186,7 +197,7 @@ de: yz@
 ### gsettings reset org.cinnamon.desktop.input-sources sources
 ### rc=0
 ### wdotool --vkbd on type -- x 2>&1
---vkbd on: cannot use zwp_virtual_keyboard_v1: this compositor does not implement zwp_virtual_keyboard_manager_v1 (Mutter and KWin do not; sway, Hyprland, the wlroots family and COSMIC do)
+--vkbd on: cannot use zwp_virtual_keyboard_v1: this compositor does not implement zwp_virtual_keyboard_manager_v1 (Mutter, KWin and Cinnamon's Muffin 6.4 do not; sway, Hyprland, the wlroots family, COSMIC and Muffin 6.6+ do)
 ### rc=1
 ### python3 $HOME/w11-oracle.py cinnamon-wayland
 Virtual-1 0,0
@@ -274,8 +285,9 @@ helper:   /usr/bin/wl-mirror (wl-mirror v0.18.5)
 wayland:  /run/user/1000/wayland-0
 capture:  this compositor advertises neither zwlr_screencopy_manager_v1 nor ext_image_copy_capture_manager_v1, so wl-mirror cannot capture here
           wl-mirror needs a compositor with zwlr_screencopy_manager_v1 (sway, Hyprland, labwc, Wayfire, ...) or ext_image_copy_capture_manager_v1 (COSMIC, labwc, sway 1.12)
-          on GNOME and KDE the only capture route is the desktop portal, which asks the user for permission once per session
+          on GNOME and KDE the route is the desktop portal's ScreenCast (AGENTS.md route 4), which asks the user for permission once per session and is not wired up here yet
 outputs:  this compositor does not advertise zwlr_output_manager_v1, so wmirror cannot read the output layout
+          not yet here: the route is the compositor's own display bus or IPC, which wxrandr already speaks on Mutter, KWin, Hyprland and sway (AGENTS.md route 2), at the cost of one layout reader per compositor
 mirrors:  none
 ### rc=1
 ### wxrandr --output Virtual-3 --pos 4000x0 2>&1

@@ -365,16 +365,19 @@ ATOMS = (
     "_NET_WM_STATE_MAXIMIZED_HORZ", "_NET_WM_STATE_MAXIMIZED_VERT",
     "_NET_WM_STATE_ABOVE", "_NET_WM_STATE_BELOW",
     "_NET_WM_STATE_SKIP_TASKBAR", "_NET_WM_STATE_SKIP_PAGER",
-    "_NET_WM_STATE_DEMANDS_ATTENTION", "_NET_WM_WINDOW_TYPE_DESKTOP",
+    "_NET_WM_STATE_DEMANDS_ATTENTION",
+    # muffin's shaded state, which wxprop's native synthesis names since the
+    # clone sweep of 2026-09-11 (X is the oracle: xprop prints it on Cinnamon)
+    "_NET_WM_STATE_SHADED", "_NET_WM_WINDOW_TYPE_DESKTOP",
     "_NET_WM_WINDOW_TYPE_DOCK", "_NET_WM_WINDOW_TYPE_DIALOG",
     "_NET_WM_WINDOW_TYPE_TOOLBAR", "_NET_WM_WINDOW_TYPE_MENU",
     "_NET_WM_WINDOW_TYPE_UTILITY", "_NET_WM_WINDOW_TYPE_SPLASH",
     "_NET_WM_WINDOW_TYPE_DROPDOWN_MENU", "_NET_WM_WINDOW_TYPE_POPUP_MENU",
     "_NET_WM_WINDOW_TYPE_TOOLTIP", "_NET_WM_WINDOW_TYPE_NOTIFICATION",
     "_NET_WM_WINDOW_TYPE_COMBO", "_NET_WM_WINDOW_TYPE_DND",
-    # the two states wmctrl -b names that the native synthesis has no source
-    # for and the proxy still has to be able to read back from an overlay
-    "_NET_WM_STATE_MODAL", "_NET_WM_STATE_SHADED",
+    # the state wmctrl -b names that the native synthesis has no source for
+    # and the proxy still has to be able to read back from an overlay
+    "_NET_WM_STATE_MODAL",
     # the EWMH client messages design section 3.4 routes, and WM_CHANGE_STATE,
     # which is how wmctrl and xdotool ask for iconify
     "_NET_CLOSE_WINDOW", "_NET_MOVERESIZE_WINDOW", "_NET_WM_MOVERESIZE",

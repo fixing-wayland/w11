@@ -593,9 +593,15 @@ class Cli(Base):
         `[helper:   not installed]` is the evidence the rig captured on all
         nine X11 flavors of run 34628777544 [goal2/recon/gaps.md 1b #9]."""
         o = io.StringIO()
+        # The refusal is built with session_kind already patched: an argument to
+        # mock.patch.object is evaluated before any of the `with` contexts is
+        # entered, and the real session_kind answers from the environment --
+        # "x11" on a box with a DISPLAY, the no-socket sentence in CI's
+        # container without one (run 34662004383, all three releases).
+        with mock.patch.object(passthrough, "session_kind", return_value="x11"):
+            refusal = core.Refusal(core.no_session_lines())
         with mock.patch.object(core, "find_helper", return_value=None), \
-                mock.patch.object(core, "open_conn",
-                                  side_effect=core.Refusal(core.no_session_lines())), \
+                mock.patch.object(core, "open_conn", side_effect=refusal), \
                 mock.patch.object(session, "find_wayland_socket", return_value=None), \
                 mock.patch.object(passthrough, "session_kind", return_value="x11"), \
                 contextlib.redirect_stdout(o):
@@ -613,9 +619,15 @@ class Cli(Base):
         printed above the problem, so the stronger claim is pinned separately:
         line 1, no `apt` anywhere above it."""
         o = io.StringIO()
+        # The refusal is built with session_kind already patched: an argument to
+        # mock.patch.object is evaluated before any of the `with` contexts is
+        # entered, and the real session_kind answers from the environment --
+        # "x11" on a box with a DISPLAY, the no-socket sentence in CI's
+        # container without one (run 34662004383, all three releases).
+        with mock.patch.object(passthrough, "session_kind", return_value="x11"):
+            refusal = core.Refusal(core.no_session_lines())
         with mock.patch.object(core, "find_helper", return_value=None), \
-                mock.patch.object(core, "open_conn",
-                                  side_effect=core.Refusal(core.no_session_lines())), \
+                mock.patch.object(core, "open_conn", side_effect=refusal), \
                 mock.patch.object(session, "find_wayland_socket", return_value=None), \
                 mock.patch.object(passthrough, "session_kind", return_value="x11"), \
                 contextlib.redirect_stdout(o):

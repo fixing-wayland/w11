@@ -22,25 +22,46 @@
 # BUILT AND RUN ONCE, 2026-09-09 (53.1 min, 1783 packages, two 1920x1080 heads), and what that first run
 # found is the flavor's headline: LightDM autologs in, logind says Type=wayland Service=lightdm-autologin,
 # Cinnamon starts completely (`Cinnamon took 2888 ms to start`, both monitors seen, wayland-0 listening)
-# -- and then Xwayland 24.1.10 dies with `Fatal server error: Caught signal 11 (Segmentation fault)`
-# after `Xwayland glamor: GBM Wayland interfaces not available` / `Failed to initialize glamor, falling
-# back to sw`, muffin calls that fatal (`Connection to xwayland lost`) and exits, and cinnamon-session
-# gives up with `App 'cinnamon-wayland.desktop' respawning too quickly`.  The recon saw the identical
-# crash under `muffin --wayland --nested`, so it is not a nesting artefact; forcing software GL
-# (LIBGL_ALWAYS_SOFTWARE=1, GALLIUM_DRIVER=llvmpipe) changed nothing, and muffin 6.4 has no glamor switch
-# (`strings libmuffin.so.0`: MUTTER_DEBUG_*, XWAYLAND_STFU, _XWAYLAND_ALLOW_COMMITS, and no
-# XWAYLAND_NO_GLAMOR).  With /usr/bin/Xwayland moved aside the session comes up and stays up, and every
-# tool measurement in vm/live-smoke.d/cinnamon-wayland.sh's header was taken there.
+# -- and then Xwayland 24.1.10 dies with `Fatal server error: Caught signal 11 (Segmentation fault)`,
+# muffin calls that fatal (`Connection to xwayland lost`) and exits, and cinnamon-session gives up with
+# `App 'cinnamon-wayland.desktop' respawning too quickly`.
 #
-# So the X plane of this flavor is NOT YET, and the route is the rig's own before it is anybody's code: a
-# GL-capable virtio-vga (`virtio-vga-gl`/virgl in vm/vmctl's device line) so that Xwayland's glamor path
-# has a GBM device to bind, and failing that AGENTS.md route 5 -- an Xwayland that does not die on its
-# software fallback.  `xwayland` stays in DESKTOP_PKG below because that is what a Cinnamon user has, and
-# the day the crash is gone this flavor is the one image in the rig that can list an XWayland xterm and a
-# native gnome-terminal side by side, the xterm under the X id get_xwindow() hands over [recon2/cinnamon 8].
-# Multi-head applies, hotplug, --persistent and Mutter's adjacency refusals are still unmeasured: the
-# display backend refuses before it reaches them (wxrandr/cli.py's `cinnamon` arm is not wired to
-# mutter.py's MUFFIN flavour yet), which the smoke's display phase carries as an xwant.
+# THAT CRASH IS A KNOWN UPSTREAM BUG AND IT IS NOT THIS RIG'S GPU [goal2/recon/gl.md 1-4, 2026-09-11].
+# /dev/dri/renderD128 is inside every VM here, muffin runs on llvmpipe, and the identical `2:24.1.10-1`
+# package is fine under mutter (resolute-gnome) and under kwin (resolute-kde) on the identical rig.  The
+# faulting instruction, read off the guest's own `objdump -d /usr/bin/Xwayland` at offset 0x5be4a
+# (`mov 0x40(%rbx),%rdi`, %rbx NULL, one instruction after a pixman_region_union call), is Olivier
+# Fourdan's `damage_report()` NULL dereference -- fixed upstream in Xwayland 24.1.11, which resolute
+# does not have: `apt-cache policy xwayland` says Installed AND Candidate 2:24.1.10-1 with resolute,
+# -updates, -backports and -security all enabled.  Glamor is a red herring, measured twice: a wrapper
+# forcing `-glamor off -shm` crashes at the same offset, and so does a real virgl render node.
+#
+# So the route is AGENTS.md route 5 at its cheapest end -- a released, packaged fix, with no patch to
+# write.  /usr/local/sbin/vmctl-build-hook below installs Debian's `xwayland_24.1.13-1_amd64.deb`
+# (992 KB, pinned by sha256, deb.debian.org with a snapshot.debian.org fallback; both URLs served those
+# exact bytes on 2026-09-12) over 2:24.1.10-1 at golden-build time, and vm/build-image.sh's build_hook
+# runs it after the desktop install and before the golden markers.  Measured 2026-09-11: `dpkg -i`
+# unpacks it over the Ubuntu package with every dependency already satisfied, and 55 s after
+# `systemctl restart lightdm` cinnamon and Xwayland are both alive with ZERO `Caught signal` and zero
+# `Connection to xwayland lost` in .xsession-errors, `wmctrl -l` lists three X clients, `xprop -root
+# _NET_CLIENT_LIST` names them, and `xw11 --print-display` hands the originals a working :20
+# [goal2/recon/gl.md 5].  Re-measured 2026-09-12 with THIS hook run as root in the guest:
+# `Unpacking xwayland (2:24.1.13-1) over (2:24.1.10-1)`, and 44 s after the lightdm restart `ps -u test`
+# has cinnamon and Xwayland alive with `grep -c 'Caught signal|Connection to xwayland lost'` at 0.  The
+# flavor's own smoke on that golden, `--heads 3`: 76 pass, 1 fail, where its first run was 11 pass /
+# 10 fail and CI's two were 19/9 and 19/10.
+#
+# THIS IS A HOLD, not a fixture: the day Ubuntu ships xwayland >= 24.1.11 in resolute, the hook and this
+# paragraph go and nothing else changes.  It is per-flavor on purpose -- a Debian .deb belongs on no
+# Arch, Fedora or NixOS image, and a hook in this yaml moves only this golden's cache key
+# (scripts/ci-golden.sh hashes the yaml).  resolute-cinnamon-wayland is the rig's only muffin-on-Wayland
+# flavor, so the fix is needed exactly once.
+#
+# With a living Xwayland this flavor is the one image in the rig that lists an XWayland xterm and a
+# native gnome-terminal side by side, the xterm under the X id get_xwindow() hands over
+# [recon2/cinnamon 8].  Multi-head applies, hotplug, --persistent and Mutter's adjacency refusals were
+# unmeasured while the display backend refused before reaching them; U25 landed on 2026-09-09 and
+# vm/live-smoke.d/cinnamon-wayland.sh has measured all four on a live muffin since.
 #
 # `xwayland` is named in DESKTOP_PKG because NOTHING in the Cinnamon stack depends on it: `apt-cache show
 # muffin cinnamon` on 26.04 carries no xwayland in either Depends, and `apt-cache rdepends xwayland`
@@ -100,6 +121,43 @@ write_files:
       DESKTOP=cinnamon-wayland
       DESKTOP_PKG="ubuntucinnamon-desktop xwayland wl-mirror"
       EXTRA_PKGS="xdotool wmctrl x11-utils x11-xserver-utils xterm"
+  # The Xwayland hold, run by vm/build-image.sh's build_hook after the desktop install.  Pinned by
+  # sha256, so the fallback URL is a mirror of the same bytes and not a second version: sid moves past
+  # 24.1.13-1 in its own time and snapshot.debian.org keeps 20260901T000000Z serving it (both URLs
+  # measured answering these 992244 bytes on 2026-09-12).  A bad download or a moved package stops the
+  # build here rather than caching a golden whose session cannot hold a compositor.
+  - path: /usr/local/sbin/vmctl-build-hook
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -eu
+      deb=xwayland_24.1.13-1_amd64.deb
+      want=a0633569cf2b65d5d4902a2b6213d59c7db7973faef0233df9ace48f334ba6c2
+      say() { echo "vmctl-build: xwayland-hold: $*"; }
+      tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+      for url in "http://deb.debian.org/debian/pool/main/x/xwayland/$deb" \
+                 "https://snapshot.debian.org/archive/debian/20260901T000000Z/pool/main/x/xwayland/$deb"; do
+          say "downloading $url"
+          # An `if` and not `curl ... && break`: both survive `set -e` here (a command before the
+          # final `&&` is exempt from it -- measured in bash on this box, 2026-09-12), but the `if`
+          # says which branch is the fallback without the reader having to know that rule.
+          # --max-time is 300 s for 992244 bytes (deb.debian.org served them to this box in
+          # 5.0 s, 192 KB/s, on 2026-09-12): snapshot.debian.org rate-limits, and a stalled
+          # connection with no cap would hold the golden build until vmctl's own build timeout
+          # killed it minutes later instead of falling through to the next URL.
+          if curl -fL --retry 3 --connect-timeout 20 --max-time 300 -o "$tmp/$deb" "$url"; then
+              break
+          fi
+          rm -f "$tmp/$deb"
+      done
+      [ -s "$tmp/$deb" ] || { say "no URL answered with $deb"; exit 1; }
+      got=$(sha256sum "$tmp/$deb" | cut -d' ' -f1)
+      [ "$got" = "$want" ] || { say "sha256 mismatch on $deb: got $got, want $want"; exit 1; }
+      say "installing $deb over $(dpkg-query -W -f='${Version}' xwayland 2>/dev/null || echo nothing)"
+      dpkg -i "$tmp/$deb"
+      v=$(dpkg-query -W -f='${Version}' xwayland)
+      [ "$v" = "2:24.1.13-1" ] || { say "xwayland is $v after the install, not 2:24.1.13-1"; exit 1; }
+      say "xwayland $v (the damage_report() fix of 24.1.11 is in; hold until Ubuntu ships >= 24.1.11)"
   - path: /usr/local/sbin/vmctl-build
     permissions: '0755'
     content: |

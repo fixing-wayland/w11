@@ -1,3 +1,13 @@
+# Cut on instance `labwc-b12` (resolute-labwc golden, labwc 0.9.3, one 1920x1080 head), 2026-09-12,
+# `CAPLOG=... LIVE_SMOKE_VMCTL=vm/live-smoke.d/capture-from-run vm/live-smoke.sh resolute-labwc
+# --reuse --keep --phases windows,wm,input`: 32 pass, 0 fail live, 32 pass / 0 fail on the replay.
+# It replaces a recording cut on `resolute-labwc-smoke`, and three differences in the diff are that
+# session's rather than the tree's: the hostname column of every `wwmctl` row is this instance's,
+# the listing has one foot where the old one had three, and `wdotool getactivewindow` after
+# `windowminimize` answers `xdo_get_active_window reported an error` (rc 1) where the old recording
+# had an id -- both satisfy the check, which is that the minimized window is not the active one.
+# The tree's own difference is the four commands of the route-5 geometry check in `labwc_xwayland`.
+# (`fake-vmctl` reads `### ` sections only, so these lines are not a command and answer nothing.)
 ### true
 ### rc=0
 ### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
@@ -34,14 +44,14 @@ xdo_set_window_size on window:1000000 reported an error
 ### wdotool windowminimize 1000000
 ### rc=0
 ### wdotool getactivewindow 2>&1
-1000001
-### rc=0
+xdo_get_active_window reported an error
+### rc=1
 ### wdotool windowmap 1000000; wdotool windowactivate --sync 1000000
 ### rc=0
 ### wwmctl -d
 0  * DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  1
-1  - DG: 1920x1080  VP: N/A  WA: 0,0 0x0  2
-2  - DG: 1920x1080  VP: N/A  WA: 0,0 0x0  3
+1  - DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  2
+2  - DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  3
 ### rc=0
 ### wdotool set_desktop 1
 ### rc=0
@@ -70,9 +80,7 @@ x:300 y:300 screen:0 window:1000000
 ### wdotool windowactivate --sync 1000000
 ### rc=0
 ### wwmctl -l
-0x000f4240 -1 resolute-labwc-smoke foot
-0x000f4241 -1 resolute-labwc-smoke foot
-0x000f4242 -1 resolute-labwc-smoke foot
+0x000f4240 -1 labwc-b12 foot
 ### rc=0
 ### wwmctl -m
 Name: wlroots wm
@@ -82,8 +90,8 @@ Window manager's "showing the desktop" mode: N/A
 ### rc=0
 ### wwmctl -d
 0  * DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  1
-1  - DG: 1920x1080  VP: N/A  WA: 0,0 0x0  2
-2  - DG: 1920x1080  VP: N/A  WA: 0,0 0x0  3
+1  - DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  2
+2  - DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  3
 ### rc=0
 ### wdotool get_desktop
 0
@@ -107,7 +115,7 @@ _NET_WM_STATE(ATOM) = _NET_WM_STATE_FOCUSED
 ### setsid nohup xterm -T smokex -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 3; true
 ### rc=0
 ### wxprop -root _NET_CLIENT_LIST
-_NET_CLIENT_LIST(WINDOW): window id # 0x40000c, 0xf4241, 0xf4242, 0xf4243
+_NET_CLIENT_LIST(WINDOW): window id # 0x40000c, 0xf4241
 ### rc=0
 ### xprop -root _NET_CLIENT_LIST
 _NET_CLIENT_LIST(WINDOW): window id # 0x40000c
@@ -116,13 +124,27 @@ _NET_CLIENT_LIST(WINDOW): window id # 0x40000c
 WM_CLASS(STRING) = "xterm", "XTerm"
 ### rc=0
 ### wwmctl -lGpx
-0x0040000c -1 14593  718  395  484  316  xterm.XTerm           resolute-labwc-smoke smokex
-0x000f4241 -1 0      0    0    1920 1080 foot.foot             resolute-labwc-smoke foot
-0x000f4242 -1 0      0    0    1920 1080 foot.foot             resolute-labwc-smoke foot
-0x000f4243 -1 0      0    0    1920 1080 foot.foot             resolute-labwc-smoke foot
+0x0040000c -1 4151   718  395  484  316  xterm.XTerm           labwc-b12 smokex
+0x000f4241 -1 0      0    0    1920 1080 foot.foot             labwc-b12 foot
+### rc=0
+### wdotool search --name smokex | head -1
+1000000
+### rc=0
+### command -v xdotool
+/usr/bin/xdotool
+### rc=0
+### wdotool getwindowgeometry 1000000
+Window 1000000
+  Position: 718,395 (screen: 0)
+  Geometry: 484x316
+### rc=0
+### xdotool getwindowgeometry 0x40000c
+Window 4194316
+  Position: 718,395 (screen: 0)
+  Geometry: 484x316
 ### rc=0
 ### wmctrl -lGpx
-0x0040000c  0 14593  1436 790  484  316  xterm.XTerm           resolute-labwc-smoke smokex
+0x0040000c  0 4151   1436 790  484  316  xterm.XTerm           labwc-b12 smokex
 ### rc=0
 ### pkill -x xterm; true
 ### rc=0

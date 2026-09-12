@@ -233,7 +233,7 @@ class ThePackagesInDist(RpmCase):
         with open(os.path.join(ROOT, "gnome", OVERLAP_UUID, "generations.json"),
                   encoding="utf-8") as f:
             names = [g["namespace"] for g in json.load(f)["generations"]]
-        self.assertEqual(len(names), 3, names)
+        self.assertEqual(len(names), 4, names)
         for ns in names:
             with self.subTest(ns):
                 self.assertTrue(os.path.exists(os.path.join(
