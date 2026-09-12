@@ -1834,5 +1834,62 @@ class TheOffHeadHook(unittest.TestCase):
         self.assertIn('if [ -n "${OFF_HEAD_STAYS_OFF:-}" ]; then', phase)
         self.assertIn("off_head_route6_xwants", phase)
 
+    def test_the_off_dark_check_reads_the_guest_wl_output_count_not_the_native_tool(self):
+        """Plasma 5.27's --off head: kscreen-doctor keeps counting it enabled, so the check's
+        PASS/FAIL is a GUEST-side `wl_output`-global count (wayland-info), never the native
+        oracle and never the host screendump.  Measured on noble-kde 5.27.12 (KWin 5.27) on this
+        box 2026-09-12: 2 wl_output globals before `wxrandr --output Virtual-2 --off`, 1 after,
+        while `oracle.py kde` (kscreen-doctor -o) counted 2 both times.  So with the native oracle
+        pinned at 2 (the 5.27 lie), a wl_output count of 1 PASSes ('wl_output is gone') and a count
+        of 2 FAILs ('still driven') -- the count-of-2 case is what makes this NOT a tautology of the
+        native tool it distrusts, and NOT a tautology of the recorded double either (the double
+        answers whatever wl_output count the case feeds it).  The third case proves the verdict is the
+        wl_output count and NEVER the host screendump: with a shot that SUCCEEDS and reads a painted
+        0.5 (which the pre-fix `elif head_dark` branch would have called `still painted` -> FAIL), a
+        count of 1 still PASSes.  Goes red on the pre-fix `head_dark` branch, whose host $VM shot
+        fake-vmctl cannot reproduce."""
+        def verdict(wl_after, shot=False):
+            pre = "set -u\n"
+            pre += 'STEPS=%s\nDESKTOP=kde\nDISTRO=ubuntu\nMODE=pkg\nREUSE=0\n' % STEPS
+            pre += 'VM=/nonexistent/vmctl\nNAME=t\nFLAVOR=t\nREPO=%s\nHEADS=2\nSCALE=0\n' % ROOT
+            for name in ("pass fail note step want wantnot same ok xwant ev guest guestq root shot "
+                         "await win_geom oracle_outputs opos display_pair beside sq editor_text "
+                         "plasma_major").split():
+                pre += '%s() { :; }\n' % name
+            pre += '. "$STEPS/common.sh"\n'
+            tail = (
+                'sleep() { :; }\n'
+                'display_pair() { echo "Virtual-1 Virtual-2"; }\n'
+                # The 5.27 lie: the native oracle counts BOTH outputs before AND after --off, so `left`
+                # never drops and the `if [ "$left" = ... ]` branch is skipped -- the else is the only
+                # path here, and its verdict must come from the wl_output count and nothing else.
+                'oracle_outputs() { printf "Virtual-1 0,0\\nVirtual-2 1920,0\\n"; }\n'
+                'pass() { echo "PASS $1"; }\nfail() { echo "FAIL $1"; }\n'
+                'note() { :; }\nsame() { :; }\nbeside() { :; }\nwant() { :; }\nstep() { :; }\n'
+                'WL_AFTER="%s"\n'
+                'guest() { case "$1" in *wayland-info*) echo "$WL_AFTER" ;; *) echo "" ;; esac; }\n'
+                % wl_after)
+            if shot:
+                # A host shot that SUCCEEDS (VM writes the png) and reads a painted 0.5: the old
+                # head_dark path (sd >= 0.02 -> "not dark") would FAIL this; the count must win instead.
+                tail += (
+                    'VMSH=$(mktemp)\n'
+                    'printf \'#!/bin/sh\\ntouch "$4"\\n\' > "$VMSH"\nchmod +x "$VMSH"\nVM="$VMSH"\n'
+                    'identify() { echo 0.5; }\n')
+            tail += 'common_display_phase\n'
+            return subprocess.run(["bash", "-c", pre + tail], capture_output=True, text=True, timeout=60)
+        gone = verdict("1")
+        self.assertIn("PASS --output Virtual-2 --off:", gone.stdout, gone.stderr)
+        self.assertIn("wl_output", gone.stdout)
+        self.assertIn("is gone", gone.stdout)
+        self.assertNotIn("FAIL --output Virtual-2 --off", gone.stdout)
+        driven = verdict("2")
+        self.assertIn("FAIL --output Virtual-2 --off", driven.stdout, driven.stderr)
+        self.assertIn("still driven", driven.stdout)
+        self.assertNotIn("PASS --output Virtual-2 --off:", driven.stdout)
+        with_shot = verdict("1", shot=True)
+        self.assertIn("PASS --output Virtual-2 --off:", with_shot.stdout, with_shot.stderr)
+        self.assertNotIn("FAIL --output Virtual-2 --off", with_shot.stdout)
+
 if __name__ == "__main__":
     unittest.main()

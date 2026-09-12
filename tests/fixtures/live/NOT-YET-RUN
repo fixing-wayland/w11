@@ -8,9 +8,6 @@
 # vm/live-smoke.d/guest-capture.sh in it; on this host that is one VM at a time,
 # which is why the list is not empty.  The batch that first runs a flavor
 # deletes its own line here in the same commit that adds the recording.
-lxqt
-river
-wayfire
 
 # A second class of line arrived with the X11 proxy: `proxy:<flavor>`, one per
 # FLAVOR rather than per step file, for the `proxy` phase vm/live-smoke.d/
@@ -22,8 +19,4 @@ wayfire
 # phase has been run; the run that records one deletes its own line in the same
 # commit that adds the recording.  resolute-sway was the first, on 2026-09-11:
 # 27 pass, 0 fail, recorded as resolute-sway-1.11-windows-wm-proxy-replay.txt.
-proxy:arch-river
 proxy:noble-kde
-proxy:resolute-kde
-proxy:resolute-wayfire
-proxy:stonking-kde

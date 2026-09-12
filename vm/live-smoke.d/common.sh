@@ -76,21 +76,12 @@ editor_text() { guest "cat $SMOKE_FILE 2>/dev/null" ; }
 # A step file overrides this only when its desktop needs something else.
 oracle_outputs() { guest "python3 $ORACLE $DESKTOP" | grep -E '^[A-Za-z]' || true; }
 
-# head_dark <connector>: the host-side screendump of that head is one flat colour
-# (the same test vm/selftest.sh uses for "painted": sampled standard deviation of
-# the pixels, 0.02 the line).  Virtual-N is QEMU head N-1.
-head_sd() {   # head_sd <name> -> the standard deviation of a shot of that head, or nothing
-    local n=${1##*-} f; f=$(mktemp -t smoke-head-XXXXXX.png)
-    "$VM" shot "$NAME" "$((n - 1))" "$f" >/dev/null 2>&1 || { rm -f "$f"; return 1; }
-    identify -format '%[fx:standard_deviation]' "$f" 2>/dev/null; rm -f "$f"
-}
-head_dark() {
-    local n=${1##*-} f; f=$(mktemp -t smoke-head-XXXXXX.png)
-    "$VM" shot "$NAME" "$((n - 1))" "$f" >/dev/null 2>&1 || { rm -f "$f"; return 1; }
-    local sd; sd=$(identify -format '%[fx:standard_deviation]' "$f" 2>/dev/null || echo 1); rm -f "$f"
-    note "head $((n - 1)) ($1) standard deviation $sd"
-    awk -v s="$sd" 'BEGIN { exit !(s + 0 < 0.02) }'
-}
+# The host-side QMP screendump of a head (Virtual-N is QEMU head N-1) once measured "painted vs dark"
+# by the sampled pixel standard deviation, the way vm/selftest.sh does.  It is no longer a pass/fail
+# oracle anywhere: batch 20 demoted wayfire's mirror shot to a guest grim read, and this batch demoted
+# the Plasma-5.27 --off shot to the guest wl_output count (common_display_phase), because fake-vmctl
+# cannot reproduce a host shot and the recording would not replay.  The remaining shots are inlined
+# live-only notes at their call sites; head_sd/head_dark were deleted here 2026-09-12 as dead code.
 
 # The Plasma major, 5 or 6: the two spell their config tool and their layout
 # object differently, and 5.27 reads kxkbrc at login only.
@@ -806,16 +797,62 @@ common_display_phase() {
     local left; left=$(oracle_outputs | grep -c .)
     if [ "$left" = "$((n0 - 1))" ]; then
         pass "--output $second --off leaves $((n0 - 1)) enabled outputs ($DESKTOP's own tool)"
-    elif head_dark "$second"; then
-        # Plasma 5.27, measured 2026-09-08 on noble-kde: KWin stops painting the
-        # output (its screendump goes flat, standard deviation 0.012 against
-        # 0.06-0.10 on the live heads) but never releases the DRM connector, and
-        # kscreen-doctor 5.27 keeps reporting it enabled for as long as we cared
-        # to poll (and segfaults every other call).  wxrandr's own --query says
-        # `connected` with no mode.  The pixels are the honest oracle there.
-        pass "--output $second --off: $DESKTOP's tool still counts $left, but $second's head went dark (the native tool does not see a disable here; Plasma 5.27 does this)"
     else
-        fail "--output $second --off leaves $left enabled outputs, wanted $((n0 - 1)), and $second is still painted"
+        # Plasma 5.27, measured 2026-09-08 on noble-kde: KWin stops painting the output but never
+        # releases the DRM connector, and kscreen-doctor 5.27 keeps reporting it enabled for as long as
+        # we cared to poll (and segfaults every other call) -- so `$left` above is still $n0 and the
+        # native oracle cannot see the disable.  The honest oracle is a GUEST-side one the replay
+        # reproduces: KWin drops the disabled head's `wl_output` global from the Wayland registry even
+        # while kscreen keeps counting it.  Measured on noble-kde 5.27.12 (KWin 5.27) 2026-09-12 on this
+        # box, two heads: `wayland-info` listed 2 `wl_output` globals before `wxrandr --output Virtual-2
+        # --off` and 1 after, while `oracle.py kde` (kscreen-doctor -o) counted 2 both times -- so the
+        # wl_output count catches the disable the native tool lies about, and it is a recorded guest
+        # command that replays byte-identically.  That `2 before` is a HAND measurement on the golden,
+        # NOT a fixture byte: the pass/fail baseline is the native oracle's $n0 above, because a recorded
+        # wl_output read taken BEFORE --off would enter every flavor's recording and re-cut all 38 -- so
+        # we compare the one AFTER count against $((n0-1)).  The two pixel routes do NOT work here and so
+        # cannot be the oracle: grim gets `compositor doesn't support wlr-screencopy-unstable-v1` (KWin
+        # 5.27 has no wlr-screencopy, measured same box), and org.kde.KWin.ScreenShot2.CaptureScreen
+        # answers `NoAuthorized` to the unprivileged smoke session (measured).  Only Plasma 5.27 reaches
+        # this branch -- any flavor whose native tool fails to report the disable, which today is 5.27
+        # alone; the Plasma-6 flavors' tool reports it and takes the `if` above, so this guest command
+        # never enters their recordings.  noble-kde.yaml pins wayland-utils so a kinfocenter that stopped
+        # pulling it in does not silently take the oracle away; a flavor that reaches this branch without
+        # wayland-info gets `missing`, not a bogus 0 that would blame the compositor for a dropped global
+        # (batch 20 wrote the same guard for grim's absence in wayfire's mirror check).
+        local wl_probe="if command -v wayland-info >/dev/null 2>&1; then"
+        wl_probe="$wl_probe wayland-info 2>/dev/null | grep -c \"interface: 'wl_output'\";"
+        wl_probe="$wl_probe else echo missing; fi"
+        local wl_now
+        wl_now=$(guest "$wl_probe" | tr -d ' \r\n' || true)
+        note "wl_output globals after --off: ${wl_now:-none}" \
+             "(wanted $((n0 - 1)); $DESKTOP's own tool still counts $left)"
+        # The host-side QMP screendump of the same head as a LIVE-ONLY note, never the pass/fail: it reads
+        # the actual scanout (a second opinion -- the flat 0.012 the 2026-09-08 run measured against
+        # 0.06-0.10 on a live head), but fake-vmctl writes a text placeholder where the png goes, so
+        # `identify` fails on replay and the note simply does not appear -- it stays out of the tally that
+        # must match on replay (batch 20 demoted wayfire's mirror shot the same way).
+        local probe sd; probe=$(mktemp -t smoke-off-XXXXXX.png)
+        if "$VM" shot "$NAME" "$((${second##*-} - 1))" "$probe" >/dev/null 2>&1 \
+           && sd=$(identify -format '%[fx:standard_deviation]' "$probe" 2>/dev/null); then
+            note "host-side QMP screendump of $second: standard deviation $sd (live-only)"
+        fi
+        rm -f "$probe"
+        local m
+        if [ "${wl_now:-}" = missing ]; then
+            m="--output $second --off: wayland-info is not installed in the guest, so the wl_output"
+            m="$m oracle could not run (noble-kde.yaml pins wayland-utils; a flavor that reaches this"
+            m="$m branch must add the package)"
+            fail "$m"
+        elif [ "${wl_now:-}" = "$((n0 - 1))" ]; then
+            m="--output $second --off: $DESKTOP's tool still counts $left, but $second's wl_output"
+            m="$m global is gone (the native tool does not see a disable here; Plasma 5.27 does this)"
+            pass "$m"
+        else
+            m="--output $second --off leaves $left enabled outputs and ${wl_now:-no} wl_output"
+            m="$m global(s), wanted $((n0 - 1)) of each: $second is still driven"
+            fail "$m"
+        fi
     fi
     guest "wxrandr --output $second --auto" >/dev/null || true
     sleep 2

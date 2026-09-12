@@ -2,7 +2,13 @@
 # vmctl flavor noble-kde: Ubuntu 24.04 LTS (noble) + kubuntu-desktop, KDE Plasma 5.27 on Wayland
 # (plasma-workspace-wayland is not pulled in by kubuntu-desktop on noble, so it is listed here),
 # SDDM autologin of user test (uid 1000, password test, NOPASSWD sudo) into plasmawayland.desktop.
-# Native display tool: kscreen-doctor.
+# Native display tool: kscreen-doctor.  wayland-utils (wayland-info) is pinned in EXTRA_PKGS so the
+# smoke's --off check has a guest-side oracle: KWin 5.27 drops a disabled head's wl_output global from
+# the registry, which wayland-info counts, while kscreen-doctor 5.27 keeps reporting it enabled (the
+# native tool lies -- see vm/live-smoke.d/common.sh common_display_phase).  It is a Recommends of
+# kinfocenter on noble (packages.ubuntu.com/noble/kinfocenter, checked 2026-09-12), NOT a Depends, so
+# a --no-install-recommends build or a kubuntu-desktop that drops kinfocenter would lose the oracle:
+# pin it here so that cannot happen silently.
 # vmctl fills in the two @@...@@ placeholders at build time (root ssh public
 # key; the contents of vm/build-image.sh). The base image lives in $VMIMAGES:
 # vmctl-base: noble-server-cloudimg-amd64.img
@@ -34,7 +40,7 @@ write_files:
       FLAVOR=noble-kde
       DESKTOP=kde
       DESKTOP_PKG="kubuntu-desktop plasma-workspace-wayland libkf5config-bin"
-      EXTRA_PKGS="xdotool wmctrl x11-utils x11-xserver-utils"
+      EXTRA_PKGS="xdotool wmctrl x11-utils x11-xserver-utils wayland-utils"
   - path: /usr/local/sbin/vmctl-build
     permissions: '0755'
     content: |
