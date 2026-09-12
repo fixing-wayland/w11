@@ -1,5 +1,5 @@
-# live-smoke recording: flavor=fedora44-cosmic desktop=cosmic distro=fedora mode=pkg remove=1 heads=3 stamp=20260912-104444
-# replay: 86 pass, 0 fail (mode pkg, remove 1, phases busrec,install,windows,wm,proxy,input,display,mirror,root,nodialog,selinux,pkgverify, 2026-09-12)
+# live-smoke recording: flavor=fedora44-cosmic desktop=cosmic distro=fedora mode=pkg remove=1 heads=2 stamp=20260912-195739
+# replay: 70 pass, 0 fail (mode pkg, remove 1, phases busrec,install,windows,wm,proxy,input,display,mirror,root,nodialog,selinux,pkgverify, 2026-09-12)
 ### true
 ### rc=0
 ### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
@@ -12,27 +12,27 @@ w11-desktop-version: cosmic-comp 1.0.0 (git commit a55785993e8ef6aad38862cb1a9e1
 ### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
 ### rc=0
 ### pgrep -x dbus-monitor | head -1
-3925
+3626
 ### rc=0
 ### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
-3904
+3499
 ### rc=0
 ### dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus            org.freedesktop.DBus.ListNames >/dev/null 2>&1; sleep 1; true
 ### rc=0
 ### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
-4116
+3688
 ### rc=0
 ### cd /tmp && dnf install -y ./w11-*.rpm ./gnome-shell-extension-w11-bridge-*.rpm ./gnome-shell-extension-w11-overlap-*.rpm 2>&1
 Updating and loading repositories:
- Fedora 44 openh264 (From Cisco) - x86_ 100% |   3.2 KiB/s |   5.3 KiB |  00m02s
- Fedora 44 - x86_64 - Updates           100% |   4.5 MiB/s |  12.1 MiB |  00m03s
- Fedora 44 - x86_64                     100% |   9.6 MiB/s |  36.5 MiB |  00m04s
+ Fedora 44 openh264 (From Cisco) - x86_ 100% |   2.4 KiB/s |   5.3 KiB |  00m02s
+ Fedora 44 - x86_64                     100% |  20.8 MiB/s |  71.3 MiB |  00m03s
+ Fedora 44 - x86_64 - Updates           100% |   1.1 MiB/s |  12.0 MiB |  00m11s
 Repositories loaded.
 Package                            Arch   Version                         Repository        Size
 Installing:
  gnome-shell-extension-w11-bridge  noarch 0:0.4.0-1.fc44                  @commandline  89.9 KiB
  gnome-shell-extension-w11-overlap noarch 0:0.4.0-1.fc44                  @commandline  88.8 KiB
- w11                               noarch 0:0.4.0-1.fc44                  @commandline   6.2 MiB
+ w11                               noarch 0:0.4.0-1.fc44                  @commandline   6.3 MiB
 Installing dependencies:
  bluez-obexd                       x86_64 0:5.87+1.git8750129efca8-1.fc44 updates      362.6 KiB
  colord-gtk4                       x86_64 0:0.3.1-6.fc44                  fedora        31.4 KiB
@@ -114,90 +114,91 @@ Transaction Summary:
 
 Total size of inbound packages is 118 MiB. Need to download 116 MiB.
 After this operation, 430 MiB extra will be used (install 430 MiB, remove 0 B).
-[ 1/73] gcr-0:4.4.0.1-7.fc44.x86_64     100% | 192.3 KiB/s |  56.9 KiB |  00m00s
-[ 2/73] gnome-shell-common-0:50.4-1.fc4 100% |  48.4 KiB/s |  14.8 KiB |  00m00s
-[ 3/73] gnome-autoar-0:0.4.5-4.fc44.x86 100% | 657.5 KiB/s |  57.2 KiB |  00m00s
-[ 4/73] libgweather-0:4.6.0-1.fc44.x86_ 100% |   1.7 MiB/s | 352.6 KiB |  00m00s
-[ 5/73] libical-glib-0:3.0.20-7.fc44.x8 100% |   1.7 MiB/s | 120.6 KiB |  00m00s
-[ 6/73] gnome-desktop4-0:44.5-1.fc44.x8 100% | 418.7 KiB/s | 153.3 KiB |  00m00s
-[ 7/73] libnma-gtk4-0:1.10.6-11.fc44.x8 100% |   1.5 MiB/s | 110.4 KiB |  00m00s
-[ 8/73] gnome-shell-0:50.4-1.fc44.x86_6 100% |   2.5 MiB/s |   1.9 MiB |  00m01s
-[ 9/73] xdg-user-dirs-gtk-0:0.16-2.fc44 100% |   1.3 MiB/s |  90.5 KiB |  00m00s
-[10/73] xdg-desktop-portal-gnome-0:50.0 100% |   1.5 MiB/s | 277.7 KiB |  00m00s
-[11/73] geocode-glib-0:3.26.4-15.fc44.x 100% |   1.1 MiB/s |  71.3 KiB |  00m00s
-[12/73] libical-0:3.0.20-7.fc44.x86_64  100% |   2.2 MiB/s | 262.3 KiB |  00m00s
-[13/73] gweather-locations-common-0:202 100% |   2.6 MiB/s | 187.5 KiB |  00m00s
-[14/73] gweather-locations-0:2026.2-1.f 100% |   8.8 MiB/s |   2.8 MiB |  00m00s
-[15/73] gnome-desktop3-0:44.5-1.fc44.x8 100% |   1.2 MiB/s | 663.3 KiB |  00m01s
-[16/73] evolution-data-server-langpacks 100% |   7.1 MiB/s |   1.4 MiB |  00m00s
-[17/73] libphonenumber-0:8.13.55-9.fc44 100% |  14.1 MiB/s |   1.1 MiB |  00m00s
-[18/73] protobuf-0:3.19.6-20.fc44.x86_6 100% |   6.0 MiB/s |   1.0 MiB |  00m00s
-[19/73] gdm-1:50.3-1.fc44.x86_64        100% |   5.5 MiB/s | 988.2 KiB |  00m00s
-[20/73] python3-pam-0:2.0.2-18.fc44.noa 100% | 453.8 KiB/s |  27.2 KiB |  00m00s
-[21/73] evolution-data-server-0:3.60.2- 100% |   4.2 MiB/s |   2.6 MiB |  00m01s
-[22/73] geoclue2-libs-0:2.8.2-1.fc44.x8 100% | 457.8 KiB/s |  57.2 KiB |  00m00s
-[23/73] gjs-0:1.88.1-2.fc44.x86_64      100% |   5.0 MiB/s | 674.6 KiB |  00m00s
-[24/73] mozjs140-0:140.13.0-3.fc44.x86_ 100% |  22.8 MiB/s |   7.3 MiB |  00m00s
-[25/73] gnome-control-center-filesystem 100% |  42.1 KiB/s |  10.3 KiB |  00m00s
-[26/73] gnome-control-center-0:50.4-1.f 100% |  18.6 MiB/s |   6.0 MiB |  00m00s
-[27/73] colord-gtk4-0:0.3.1-6.fc44.x86_ 100% | 313.2 KiB/s |  18.5 KiB |  00m00s
-[28/73] gsound-0:1.0.3-12.fc44.x86_64   100% | 605.1 KiB/s |  35.7 KiB |  00m00s
-[29/73] malcontent-0:0.14.0-1.fc44.x86_ 100% |   4.7 MiB/s | 300.2 KiB |  00m00s
-[30/73] gnome-settings-daemon-0:50.1-1. 100% |   6.7 MiB/s |   1.1 MiB |  00m00s
-[31/73] mutter-0:50.4-1.fc44.x86_64     100% |  12.3 MiB/s |   2.4 MiB |  00m00s
-[32/73] mutter-common-0:50.4-1.fc44.noa 100% | 125.6 KiB/s |  19.3 KiB |  00m00s
-[33/73] libmanette-0:0.2.13-2.fc44.x86_ 100% |   1.1 MiB/s |  67.8 KiB |  00m00s
-[34/73] hidapi-0:0.15.0-3.fc44.x86_64   100% | 857.1 KiB/s |  48.0 KiB |  00m00s
-[35/73] tecla-0:50.0-1.fc44.x86_64      100% |   1.1 MiB/s |  69.3 KiB |  00m00s
-[36/73] iio-sensor-proxy-0:3.8-2.fc44.x 100% |   1.1 MiB/s |  66.2 KiB |  00m00s
-[37/73] javascriptcoregtk6.0-0:2.52.5-1 100% |  20.0 MiB/s |   8.7 MiB |  00m00s
-[38/73] webkitgtk6.0-0:2.52.5-1.fc44.x8 100% |  43.1 MiB/s |  28.1 MiB |  00m01s
-[39/73] gnome-bluetooth-libs-1:47.2-1.f 100% | 759.6 KiB/s | 282.6 KiB |  00m00s
-[40/73] gnome-online-accounts-0:3.58.1- 100% |   1.8 MiB/s | 358.4 KiB |  00m00s
-[41/73] gnome-online-accounts-libs-0:3. 100% |   1.4 MiB/s | 219.0 KiB |  00m00s
-[42/73] gnome-session-0:50.1-1.fc44.x86 100% |   2.4 MiB/s | 384.4 KiB |  00m00s
-[43/73] gnome-session-wayland-session-0 100% |  75.3 KiB/s |  13.9 KiB |  00m00s
-[44/73] libatomic-0:16.2.1-2.fc44.x86_6 100% | 439.0 KiB/s |  55.3 KiB |  00m00s
-[45/73] javascriptcoregtk4.1-0:2.52.5-1 100% |  27.2 MiB/s |   8.7 MiB |  00m00s
-[46/73] libeis-0:1.6.0-2.fc44.x86_64    100% | 359.5 KiB/s |  58.6 KiB |  00m00s
-[47/73] rest-0:0.10.2-9.fc44.x86_64     100% | 621.4 KiB/s |  71.5 KiB |  00m00s
-[48/73] gvfs-goa-0:1.60.2-1.fc44.x86_64 100% | 424.0 KiB/s |  59.4 KiB |  00m00s
-[49/73] webkit2gtk4.1-0:2.52.5-1.fc44.x 100% |  48.5 MiB/s |  27.8 MiB |  00m01s
-[50/73] qt6-qtwayland-adwaita-decoratio 100% | 369.9 KiB/s |  59.2 KiB |  00m00s
-[51/73] msgraph-0:0.3.5-1.fc44.x86_64   100% | 299.9 KiB/s |  58.5 KiB |  00m00s
-[52/73] qadwaitadecorations-qt5-0:0.1.7 100% |   1.0 MiB/s |  62.5 KiB |  00m00s
-[53/73] gnome-tour-0:50.0-2.fc44.x86_64 100% |   5.4 MiB/s | 821.8 KiB |  00m00s
-[54/73] bolt-0:0.9.11-1.fc44.x86_64     100% |   1.4 MiB/s | 191.3 KiB |  00m00s
-[55/73] qt6-qtwayland-0:6.11.2-1.fc44.x 100% |   2.6 MiB/s | 801.8 KiB |  00m00s
-[56/73] gnome-bluetooth-1:47.2-1.fc44.x 100% | 365.4 KiB/s |  43.8 KiB |  00m00s
-[57/73] bluez-obexd-0:5.87+1.git8750129 100% |   1.4 MiB/s | 155.0 KiB |  00m00s
-[58/73] gupnp-dlna-0:0.12.0-12.fc44.x86 100% |   1.5 MiB/s |  96.8 KiB |  00m00s
-[59/73] libmediaart-0:1.9.7-4.fc44.x86_ 100% | 652.6 KiB/s |  37.9 KiB |  00m00s
-[60/73] rygel-0:45.2-1.fc44.x86_64      100% |   7.3 MiB/s |   1.1 MiB |  00m00s
-[61/73] libvncserver-0:0.9.15-6.fc44.x8 100% |   5.1 MiB/s | 333.2 KiB |  00m00s
-[62/73] gnome-remote-desktop-0:50.2-1.f 100% |   4.0 MiB/s | 556.8 KiB |  00m00s
-[63/73] malcontent-control-0:0.14.0-1.f 100% |   1.6 MiB/s |  94.2 KiB |  00m00s
-[64/73] gnome-color-manager-0:3.36.2-3. 100% |   9.0 MiB/s |   1.1 MiB |  00m00s
-[65/73] evolution-ews-langpacks-0:3.60. 100% |   2.3 MiB/s | 292.9 KiB |  00m00s
-[66/73] evolution-ews-core-0:3.60.2-1.f 100% |   3.4 MiB/s | 561.0 KiB |  00m00s
-[67/73] malcontent-ui-libs-0:0.14.0-1.f 100% | 158.1 KiB/s |  41.9 KiB |  00m00s
-[68/73] gupnp-av-0:0.14.5-1.fc44.x86_64 100% | 853.1 KiB/s | 101.5 KiB |  00m00s
-[69/73] gst-editing-services-0:1.28.7-1 100% |   3.4 MiB/s | 465.0 KiB |  00m00s
-[70/73] sso-mib-libs-0:0.8.0-1.fc44.x86 100% | 594.8 KiB/s |  35.7 KiB |  00m00s
-[71/73] freerdp-libs-2:3.31.1-1.fc44.x8 100% |   9.2 MiB/s |   1.4 MiB |  00m00s
-[72/73] libwinpr-2:3.31.1-1.fc44.x86_64 100% |   3.2 MiB/s | 428.8 KiB |  00m00s
-[73/73] uriparser-0:1.0.2-1.fc44.x86_64 100% | 571.8 KiB/s |  74.9 KiB |  00m00s
+[ 1/73] gnome-autoar-0:0.4.5-4.fc44.x86 100% | 572.0 KiB/s |  57.2 KiB |  00m00s
+[ 2/73] gcr-0:4.4.0.1-7.fc44.x86_64     100% | 547.3 KiB/s |  56.9 KiB |  00m00s
+[ 3/73] gnome-desktop4-0:44.5-1.fc44.x8 100% |   3.4 MiB/s | 153.3 KiB |  00m00s
+[ 4/73] libgweather-0:4.6.0-1.fc44.x86_ 100% |   4.9 MiB/s | 352.6 KiB |  00m00s
+[ 5/73] libical-glib-0:3.0.20-7.fc44.x8 100% |   3.7 MiB/s | 120.6 KiB |  00m00s
+[ 6/73] libnma-gtk4-0:1.10.6-11.fc44.x8 100% |   6.0 MiB/s | 110.4 KiB |  00m00s
+[ 7/73] xdg-desktop-portal-gnome-0:50.0 100% |  10.0 MiB/s | 277.7 KiB |  00m00s
+[ 8/73] xdg-user-dirs-gtk-0:0.16-2.fc44 100% |   5.2 MiB/s |  90.5 KiB |  00m00s
+[ 9/73] gnome-desktop3-0:44.5-1.fc44.x8 100% |  19.1 MiB/s | 663.3 KiB |  00m00s
+[10/73] geocode-glib-0:3.26.4-15.fc44.x 100% |   2.8 MiB/s |  71.3 KiB |  00m00s
+[11/73] libical-0:3.0.20-7.fc44.x86_64  100% |  13.5 MiB/s | 262.3 KiB |  00m00s
+[12/73] gnome-shell-common-0:50.4-1.fc4 100% |  37.9 KiB/s |  14.8 KiB |  00m00s
+[13/73] libphonenumber-0:8.13.55-9.fc44 100% |  31.4 MiB/s |   1.1 MiB |  00m00s
+[14/73] evolution-data-server-langpacks 100% | 881.2 KiB/s |   1.4 MiB |  00m02s
+[15/73] protobuf-0:3.19.6-20.fc44.x86_6 100% |   9.1 MiB/s |   1.0 MiB |  00m00s
+[16/73] gnome-shell-0:50.4-1.fc44.x86_6 100% | 775.4 KiB/s |   1.9 MiB |  00m03s
+[17/73] python3-pam-0:2.0.2-18.fc44.noa 100% |   1.7 MiB/s |  27.2 KiB |  00m00s
+[18/73] geoclue2-libs-0:2.8.2-1.fc44.x8 100% | 348.9 KiB/s |  57.2 KiB |  00m00s
+[19/73] evolution-data-server-0:3.60.2- 100% | 869.2 KiB/s |   2.6 MiB |  00m03s
+[20/73] gdm-1:50.3-1.fc44.x86_64        100% | 910.0 KiB/s | 988.2 KiB |  00m01s
+[21/73] gjs-0:1.88.1-2.fc44.x86_64      100% | 917.8 KiB/s | 674.6 KiB |  00m01s
+[22/73] colord-gtk4-0:0.3.1-6.fc44.x86_ 100% | 198.7 KiB/s |  18.5 KiB |  00m00s
+[23/73] gsound-0:1.0.3-12.fc44.x86_64   100% |   1.9 MiB/s |  35.7 KiB |  00m00s
+[24/73] malcontent-0:0.14.0-1.fc44.x86_ 100% |   2.1 MiB/s | 300.2 KiB |  00m00s
+[25/73] gnome-control-center-filesystem 100% | 110.4 KiB/s |  10.3 KiB |  00m00s
+[26/73] gnome-settings-daemon-0:50.1-1. 100% | 891.5 KiB/s |   1.1 MiB |  00m01s
+[27/73] mutter-0:50.4-1.fc44.x86_64     100% | 951.4 KiB/s |   2.4 MiB |  00m03s
+[28/73] mutter-common-0:50.4-1.fc44.noa 100% | 205.8 KiB/s |  19.3 KiB |  00m00s
+[29/73] tecla-0:50.0-1.fc44.x86_64      100% |   1.5 MiB/s |  69.3 KiB |  00m00s
+[30/73] gnome-control-center-0:50.4-1.f 100% | 981.4 KiB/s |   6.0 MiB |  00m06s
+[31/73] libmanette-0:0.2.13-2.fc44.x86_ 100% |   1.4 MiB/s |  67.8 KiB |  00m00s
+[32/73] mozjs140-0:140.13.0-3.fc44.x86_ 100% | 976.4 KiB/s |   7.3 MiB |  00m08s
+[33/73] hidapi-0:0.15.0-3.fc44.x86_64   100% | 317.9 KiB/s |  48.0 KiB |  00m00s
+[34/73] iio-sensor-proxy-0:3.8-2.fc44.x 100% | 411.2 KiB/s |  66.2 KiB |  00m00s
+[35/73] gnome-bluetooth-libs-1:47.2-1.f 100% | 745.6 KiB/s | 282.6 KiB |  00m00s
+[36/73] gnome-online-accounts-0:3.58.1- 100% | 792.9 KiB/s | 358.4 KiB |  00m00s
+[37/73] gnome-online-accounts-libs-0:3. 100% | 708.8 KiB/s | 219.0 KiB |  00m00s
+[38/73] gnome-session-0:50.1-1.fc44.x86 100% | 852.4 KiB/s | 384.4 KiB |  00m00s
+[39/73] gnome-session-wayland-session-0 100% | 149.8 KiB/s |  13.9 KiB |  00m00s
+[40/73] javascriptcoregtk6.0-0:2.52.5-1 100% | 982.5 KiB/s |   8.7 MiB |  00m09s
+[41/73] javascriptcoregtk4.1-0:2.52.5-1 100% | 977.4 KiB/s |   8.7 MiB |  00m09s
+[42/73] gweather-locations-0:2026.2-1.f 100% |  19.7 MiB/s |   2.8 MiB |  00m00s
+[43/73] gweather-locations-common-0:202 100% |  10.2 MiB/s | 187.5 KiB |  00m00s
+[44/73] libatomic-0:16.2.1-2.fc44.x86_6 100% | 269.8 KiB/s |  55.3 KiB |  00m00s
+[45/73] libeis-0:1.6.0-2.fc44.x86_64    100% | 357.3 KiB/s |  58.6 KiB |  00m00s
+[46/73] rest-0:0.10.2-9.fc44.x86_64     100% | 435.7 KiB/s |  71.5 KiB |  00m00s
+[47/73] gvfs-goa-0:1.60.2-1.fc44.x86_64 100% | 362.0 KiB/s |  59.4 KiB |  00m00s
+[48/73] msgraph-0:0.3.5-1.fc44.x86_64   100% | 356.6 KiB/s |  58.5 KiB |  00m00s
+[49/73] qadwaitadecorations-qt5-0:0.1.7 100% |   1.9 MiB/s |  62.5 KiB |  00m00s
+[50/73] qt6-qtwayland-adwaita-decoratio 100% | 358.7 KiB/s |  59.2 KiB |  00m00s
+[51/73] qt6-qtwayland-0:6.11.2-1.fc44.x 100% | 917.4 KiB/s | 801.8 KiB |  00m01s
+[52/73] gnome-tour-0:50.0-2.fc44.x86_64 100% | 942.4 KiB/s | 821.8 KiB |  00m01s
+[53/73] bolt-0:0.9.11-1.fc44.x86_64     100% | 810.4 KiB/s | 191.3 KiB |  00m00s
+[54/73] gnome-bluetooth-1:47.2-1.fc44.x 100% | 471.5 KiB/s |  43.8 KiB |  00m00s
+[55/73] bluez-obexd-0:5.87+1.git8750129 100% | 659.5 KiB/s | 155.0 KiB |  00m00s
+[56/73] webkitgtk6.0-0:2.52.5-1.fc44.x8 100% |   1.2 MiB/s |  28.1 MiB |  00m24s
+[57/73] gupnp-dlna-0:0.12.0-12.fc44.x86 100% |   1.0 MiB/s |  96.8 KiB |  00m00s
+[58/73] libmediaart-0:1.9.7-4.fc44.x86_ 100% |   1.8 MiB/s |  37.9 KiB |  00m00s
+[59/73] gnome-remote-desktop-0:50.2-1.f 100% | 584.2 KiB/s | 556.8 KiB |  00m01s
+[60/73] libvncserver-0:0.9.15-6.fc44.x8 100% |   4.4 MiB/s | 333.2 KiB |  00m00s
+[61/73] rygel-0:45.2-1.fc44.x86_64      100% | 891.8 KiB/s |   1.1 MiB |  00m01s
+[62/73] gnome-color-manager-0:3.36.2-3. 100% |  13.2 MiB/s |   1.1 MiB |  00m00s
+[63/73] malcontent-control-0:0.14.0-1.f 100% |   3.7 MiB/s |  94.2 KiB |  00m00s
+[64/73] malcontent-ui-libs-0:0.14.0-1.f 100% | 573.8 KiB/s |  41.9 KiB |  00m00s
+[65/73] evolution-ews-langpacks-0:3.60. 100% | 770.9 KiB/s | 292.9 KiB |  00m00s
+[66/73] evolution-ews-core-0:3.60.2-1.f 100% | 850.0 KiB/s | 561.0 KiB |  00m01s
+[67/73] gupnp-av-0:0.14.5-1.fc44.x86_64 100% | 615.3 KiB/s | 101.5 KiB |  00m00s
+[68/73] gst-editing-services-0:1.28.7-1 100% | 887.5 KiB/s | 465.0 KiB |  00m01s
+[69/73] sso-mib-libs-0:0.8.0-1.fc44.x86 100% |   1.8 MiB/s |  35.7 KiB |  00m00s
+[70/73] libwinpr-2:3.31.1-1.fc44.x86_64 100% | 818.2 KiB/s | 428.8 KiB |  00m01s
+[71/73] uriparser-0:1.0.2-1.fc44.x86_64 100% | 454.0 KiB/s |  74.9 KiB |  00m00s
+[72/73] freerdp-libs-2:3.31.1-1.fc44.x8 100% | 956.6 KiB/s |   1.4 MiB |  00m02s
+[73/73] webkit2gtk4.1-0:2.52.5-1.fc44.x 100% | 983.2 KiB/s |  27.8 MiB |  00m29s
 --------------------------------------------------------------------------------
-[73/73] Total                           100% |  25.0 MiB/s | 116.0 MiB |  00m05s
+[73/73] Total                           100% |   2.8 MiB/s | 116.0 MiB |  00m42s
 Running transaction
-[ 1/78] Verify package files            100% | 166.0   B/s |  76.0   B |  00m00s
-[ 2/78] Prepare transaction             100% | 231.0   B/s |  76.0   B |  00m00s
-[ 3/78] Installing libatomic-0:16.2.1-2 100% |   5.1 MiB/s |  46.6 KiB |  00m00s
-[ 4/78] Installing libical-0:3.0.20-7.f 100% |  72.9 MiB/s | 970.6 KiB |  00m00s
-[ 5/78] Installing libical-glib-0:3.0.2 100% |  79.7 MiB/s | 571.1 KiB |  00m00s
-[ 6/78] Installing rest-0:0.10.2-9.fc44 100% |  25.0 MiB/s | 205.0 KiB |  00m00s
-[ 7/78] Installing gnome-online-account 100% |  82.9 MiB/s | 764.3 KiB |  00m00s
-[ 8/78] Installing tecla-0:50.0-1.fc44. 100% | 511.3 KiB/s | 163.1 KiB |  00m00s
+[ 1/78] Verify package files            100% | 143.0   B/s |  76.0   B |  00m01s
+[ 2/78] Prepare transaction             100% |  58.0   B/s |  76.0   B |  00m01s
+[ 3/78] Installing libatomic-0:16.2.1-2 100% |   4.1 MiB/s |  46.6 KiB |  00m00s
+[ 4/78] Installing libical-0:3.0.20-7.f 100% |  63.2 MiB/s | 970.6 KiB |  00m00s
+[ 5/78] Installing libical-glib-0:3.0.2 100% |  62.0 MiB/s | 571.1 KiB |  00m00s
+[ 6/78] Installing rest-0:0.10.2-9.fc44 100% |  22.2 MiB/s | 205.0 KiB |  00m00s
+[ 7/78] Installing gnome-online-account 100% |  67.9 MiB/s | 764.3 KiB |  00m00s
+[ 8/78] Installing tecla-0:50.0-1.fc44. 100% |   2.3 MiB/s | 163.1 KiB |  00m00s
+[ 9/78] Installing gnome-control-center 100% |   2.4 KiB/s | 568.0   B |  00m00s
 >>> Running sysusers scriptlet: malcontent-0:0.14.0-1.fc44.x86_64
 >>> Finished sysusers scriptlet: malcontent-0:0.14.0-1.fc44.x86_64
 >>> Scriptlet output:
@@ -216,69 +217,68 @@ Running transaction
 >>> Creating group 'malcontent-webd' with GID 972.
 >>> Creating user 'malcontent-webd' (Malcontent (Parental Controls) Web Filtering Daemon) with UID 972 and GID 972.
 >>> 
-[ 9/78] Installing malcontent-0:0.14.0- 100% |  11.3 MiB/s |   1.1 MiB |  00m00s
-[10/78] Installing gsound-0:1.0.3-12.fc 100% |   3.3 MiB/s |  83.4 KiB |  00m00s
-[11/78] Installing gnome-bluetooth-libs 100% |  18.3 MiB/s |   1.0 MiB |  00m00s
-[12/78] Installing gnome-control-center 100% | 110.9 KiB/s | 568.0   B |  00m00s
-[13/78] Installing geoclue2-libs-0:2.8. 100% |  21.1 MiB/s | 172.5 KiB |  00m00s
+[10/78] Installing malcontent-0:0.14.0- 100% |  13.4 MiB/s |   1.1 MiB |  00m00s
+[11/78] Installing gsound-0:1.0.3-12.fc 100% |   3.4 MiB/s |  83.4 KiB |  00m00s
+[12/78] Installing gnome-bluetooth-libs 100% |  24.2 MiB/s |   1.0 MiB |  00m00s
+[13/78] Installing geoclue2-libs-0:2.8. 100% |  16.8 MiB/s | 172.5 KiB |  00m00s
 [14/78] Installing geocode-glib-0:3.26. 100% |  17.3 MiB/s | 230.7 KiB |  00m00s
-[15/78] Installing libnma-gtk4-0:1.10.6 100% |  27.3 MiB/s | 335.9 KiB |  00m00s
-[16/78] Installing w11-0:0.4.0-1.fc44.n 100% |  27.4 MiB/s |   6.3 MiB |  00m00s
-[17/78] Installing msgraph-0:0.3.5-1.fc 100% |  14.8 MiB/s | 151.6 KiB |  00m00s
-[18/78] Installing gvfs-goa-0:1.60.2-1. 100% |   2.5 MiB/s | 164.0 KiB |  00m00s
-[19/78] Installing gnome-online-account 100% |  21.0 MiB/s |   1.5 MiB |  00m00s
-[20/78] Installing bluez-obexd-0:5.87+1 100% |   6.7 MiB/s | 363.9 KiB |  00m00s
+[15/78] Installing libnma-gtk4-0:1.10.6 100% |  29.8 MiB/s | 335.9 KiB |  00m00s
+[16/78] Installing w11-0:0.4.0-1.fc44.n 100% |  24.0 MiB/s |   6.3 MiB |  00m00s
+[17/78] Installing msgraph-0:0.3.5-1.fc 100% |  13.5 MiB/s | 151.6 KiB |  00m00s
+[18/78] Installing gvfs-goa-0:1.60.2-1. 100% |   3.7 MiB/s | 164.0 KiB |  00m00s
+[19/78] Installing gnome-online-account 100% |  21.3 MiB/s |   1.5 MiB |  00m00s
+[20/78] Installing bluez-obexd-0:5.87+1 100% |   6.3 MiB/s | 363.9 KiB |  00m00s
 >>> Running %post scriptlet: bluez-obexd-0:5.87+1.git8750129efca8-1.fc44.x86_64
 >>> Finished %post scriptlet: bluez-obexd-0:5.87+1.git8750129efca8-1.fc44.x86_64
 >>> Scriptlet output:
 >>> Created symlink '/etc/systemd/user/dbus-org.bluez.obex.service' → '/usr/lib/systemd/user/obex.service'.
 >>> 
-[21/78] Installing javascriptcoregtk6.0 100% | 226.7 MiB/s |  32.2 MiB |  00m00s
-[22/78] Installing javascriptcoregtk4.1 100% | 220.5 MiB/s |  32.2 MiB |  00m00s
-[23/78] Installing uriparser-0:1.0.2-1. 100% |   7.2 MiB/s | 190.6 KiB |  00m00s
+[21/78] Installing javascriptcoregtk6.0 100% | 213.2 MiB/s |  32.2 MiB |  00m00s
+[22/78] Installing javascriptcoregtk4.1 100% | 255.5 MiB/s |  32.2 MiB |  00m00s
+[23/78] Installing uriparser-0:1.0.2-1. 100% |   6.6 MiB/s | 190.6 KiB |  00m00s
 [24/78] Installing libwinpr-2:3.31.1-1. 100% |  56.0 MiB/s |   1.3 MiB |  00m00s
-[25/78] Installing sso-mib-libs-0:0.8.0 100% |   6.7 MiB/s |  82.0 KiB |  00m00s
-[26/78] Installing freerdp-libs-2:3.31. 100% |  74.1 MiB/s |   3.9 MiB |  00m00s
-[27/78] Installing gupnp-av-0:0.14.5-1. 100% |  27.4 MiB/s | 364.6 KiB |  00m00s
-[28/78] Installing gst-editing-services 100% |  34.1 MiB/s |   1.4 MiB |  00m00s
-[29/78] Installing malcontent-ui-libs-0 100% |   7.9 MiB/s | 105.1 KiB |  00m00s
+[25/78] Installing sso-mib-libs-0:0.8.0 100% |   7.3 MiB/s |  82.0 KiB |  00m00s
+[26/78] Installing freerdp-libs-2:3.31. 100% |  68.9 MiB/s |   3.9 MiB |  00m00s
+[27/78] Installing gupnp-av-0:0.14.5-1. 100% |  25.4 MiB/s | 364.6 KiB |  00m00s
+[28/78] Installing gst-editing-services 100% |  30.3 MiB/s |   1.4 MiB |  00m00s
+[29/78] Installing malcontent-ui-libs-0 100% |   8.6 MiB/s | 105.1 KiB |  00m00s
 [30/78] Installing libvncserver-0:0.9.1 100% |  62.6 MiB/s |   1.1 MiB |  00m00s
-[31/78] Installing libmediaart-0:1.9.7- 100% |   8.3 MiB/s |  85.0 KiB |  00m00s
-[32/78] Installing gupnp-dlna-0:0.12.0- 100% |   9.2 MiB/s | 358.8 KiB |  00m00s
-[33/78] Installing qt6-qtwayland-0:6.11 100% |  50.4 MiB/s |   3.4 MiB |  00m00s
-[34/78] Installing libeis-0:1.6.0-2.fc4 100% |  13.9 MiB/s | 128.5 KiB |  00m00s
-[35/78] Installing iio-sensor-proxy-0:3 100% |   1.9 MiB/s | 158.9 KiB |  00m00s
-[36/78] Installing hidapi-0:0.15.0-3.fc 100% |   7.3 MiB/s | 112.6 KiB |  00m00s
-[37/78] Installing libmanette-0:0.2.13- 100% |  30.0 MiB/s | 368.9 KiB |  00m00s
-[38/78] Installing webkitgtk6.0-0:2.52. 100% | 165.0 MiB/s |  91.7 MiB |  00m01s
-[39/78] Installing webkit2gtk4.1-0:2.52 100% | 170.6 MiB/s |  91.2 MiB |  00m01s
-[40/78] Installing mutter-common-0:50.4 100% |   3.6 MiB/s |  37.2 KiB |  00m00s
-[41/78] Installing colord-gtk4-0:0.3.1- 100% |   3.9 MiB/s |  32.2 KiB |  00m00s
-[42/78] Installing mozjs140-0:140.13.0- 100% | 228.1 MiB/s |  20.5 MiB |  00m00s
-[43/78] Installing gjs-0:1.88.1-2.fc44. 100% |  57.4 MiB/s |   2.1 MiB |  00m00s
-[44/78] Installing python3-pam-0:2.0.2- 100% |   3.3 MiB/s |  57.5 KiB |  00m00s
-[45/78] Installing protobuf-0:3.19.6-20 100% | 121.7 MiB/s |   3.3 MiB |  00m00s
-[46/78] Installing libphonenumber-0:8.1 100% | 166.1 MiB/s |   6.5 MiB |  00m00s
-[47/78] Installing gweather-locations-c 100% | 134.9 MiB/s |   1.6 MiB |  00m00s
-[48/78] Installing gweather-locations-0 100% |  66.9 MiB/s |  20.3 MiB |  00m00s
-[49/78] Installing libgweather-0:4.6.0- 100% |  31.8 MiB/s |   1.8 MiB |  00m00s
-[50/78] Installing evolution-data-serve 100% |  65.5 MiB/s |   8.9 MiB |  00m00s
-[51/78] Installing evolution-data-serve 100% | 151.8 MiB/s |   9.1 MiB |  00m00s
-[52/78] Installing evolution-ews-core-0 100% |  77.9 MiB/s |   2.1 MiB |  00m00s
-[53/78] Installing evolution-ews-langpa 100% |  66.0 MiB/s |   1.6 MiB |  00m00s
-[54/78] Installing gnome-desktop3-0:44. 100% |  16.5 MiB/s |   3.0 MiB |  00m00s
-[55/78] Installing gnome-desktop4-0:44. 100% |  25.8 MiB/s | 474.8 KiB |  00m00s
-[56/78] Installing gnome-settings-daemo 100% |  35.7 MiB/s |   6.2 MiB |  00m00s
-[57/78] Installing gnome-session-0:50.1 100% |   8.8 MiB/s |   1.4 MiB |  00m00s
-[58/78] Installing gnome-control-center 100% |  88.2 MiB/s |  23.8 MiB |  00m00s
-[59/78] Installing mutter-0:50.4-1.fc44 100% |  86.6 MiB/s |   9.1 MiB |  00m00s
-[60/78] Installing xdg-desktop-portal-g 100% |  15.2 MiB/s | 998.4 KiB |  00m00s
-[61/78] Installing xdg-user-dirs-gtk-0: 100% |   3.1 MiB/s | 237.8 KiB |  00m00s
-[62/78] Installing gnome-autoar-0:0.4.5 100% |  13.6 MiB/s | 153.3 KiB |  00m00s
-[63/78] Installing gcr-0:4.4.0.1-7.fc44 100% |   2.7 MiB/s | 136.2 KiB |  00m00s
-[64/78] Installing gnome-shell-common-0 100% |   2.7 MiB/s |  16.7 KiB |  00m00s
-[65/78] Installing gnome-shell-0:50.4-1 100% | 120.6 MiB/s |  14.3 MiB |  00m00s
-[66/78] Installing gnome-session-waylan 100% |  96.3 KiB/s |   8.3 KiB |  00m00s
+[31/78] Installing libmediaart-0:1.9.7- 100% |   9.2 MiB/s |  85.0 KiB |  00m00s
+[32/78] Installing gupnp-dlna-0:0.12.0- 100% |   9.0 MiB/s | 358.8 KiB |  00m00s
+[33/78] Installing qt6-qtwayland-0:6.11 100% |  22.8 MiB/s |   3.4 MiB |  00m00s
+[34/78] Installing libeis-0:1.6.0-2.fc4 100% |   7.0 MiB/s | 128.5 KiB |  00m00s
+[35/78] Installing gweather-locations-c 100% | 161.9 MiB/s |   1.6 MiB |  00m00s
+[36/78] Installing gweather-locations-0 100% | 150.7 MiB/s |  20.3 MiB |  00m00s
+[37/78] Installing libgweather-0:4.6.0- 100% |  26.2 MiB/s |   1.8 MiB |  00m00s
+[38/78] Installing iio-sensor-proxy-0:3 100% |   1.9 MiB/s | 158.9 KiB |  00m00s
+[39/78] Installing hidapi-0:0.15.0-3.fc 100% |   7.9 MiB/s | 112.6 KiB |  00m00s
+[40/78] Installing libmanette-0:0.2.13- 100% |  27.7 MiB/s | 368.9 KiB |  00m00s
+[41/78] Installing webkitgtk6.0-0:2.52. 100% | 178.1 MiB/s |  91.7 MiB |  00m01s
+[42/78] Installing webkit2gtk4.1-0:2.52 100% | 161.8 MiB/s |  91.2 MiB |  00m01s
+[43/78] Installing mutter-common-0:50.4 100% |   4.5 MiB/s |  37.2 KiB |  00m00s
+[44/78] Installing colord-gtk4-0:0.3.1- 100% |   3.9 MiB/s |  32.2 KiB |  00m00s
+[45/78] Installing mozjs140-0:140.13.0- 100% | 228.1 MiB/s |  20.5 MiB |  00m00s
+[46/78] Installing gjs-0:1.88.1-2.fc44. 100% |  64.4 MiB/s |   2.1 MiB |  00m00s
+[47/78] Installing python3-pam-0:2.0.2- 100% |   3.7 MiB/s |  57.5 KiB |  00m00s
+[48/78] Installing protobuf-0:3.19.6-20 100% | 117.3 MiB/s |   3.3 MiB |  00m00s
+[49/78] Installing libphonenumber-0:8.1 100% | 101.2 MiB/s |   6.5 MiB |  00m00s
+[50/78] Installing evolution-data-serve 100% |  35.8 MiB/s |   8.9 MiB |  00m00s
+[51/78] Installing evolution-data-serve 100% |  58.4 MiB/s |   9.1 MiB |  00m00s
+[52/78] Installing evolution-ews-core-0 100% |  84.1 MiB/s |   2.1 MiB |  00m00s
+[53/78] Installing evolution-ews-langpa 100% |  61.1 MiB/s |   1.6 MiB |  00m00s
+[54/78] Installing gnome-desktop3-0:44. 100% |  36.6 MiB/s |   3.0 MiB |  00m00s
+[55/78] Installing gnome-desktop4-0:44. 100% |  35.7 MiB/s | 474.8 KiB |  00m00s
+[56/78] Installing gnome-settings-daemo 100% |  33.4 MiB/s |   6.2 MiB |  00m00s
+[57/78] Installing gnome-session-0:50.1 100% |   9.6 MiB/s |   1.4 MiB |  00m00s
+[58/78] Installing gnome-control-center 100% |  70.7 MiB/s |  23.8 MiB |  00m00s
+[59/78] Installing mutter-0:50.4-1.fc44 100% |  61.4 MiB/s |   9.1 MiB |  00m00s
+[60/78] Installing xdg-desktop-portal-g 100% |  16.0 MiB/s | 998.4 KiB |  00m00s
+[61/78] Installing gnome-shell-common-0 100% |   3.3 MiB/s |  16.7 KiB |  00m00s
+[62/78] Installing xdg-user-dirs-gtk-0: 100% |   3.4 MiB/s | 237.8 KiB |  00m00s
+[63/78] Installing gnome-autoar-0:0.4.5 100% |  15.0 MiB/s | 153.3 KiB |  00m00s
+[64/78] Installing gcr-0:4.4.0.1-7.fc44 100% |   2.8 MiB/s | 136.2 KiB |  00m00s
+[65/78] Installing gnome-shell-0:50.4-1 100% | 113.9 MiB/s |  14.3 MiB |  00m00s
+[66/78] Installing gnome-session-waylan 100% |  84.5 KiB/s |   8.3 KiB |  00m00s
 >>> Running sysusers scriptlet: gdm-1:50.3-1.fc44.x86_64
 >>> Finished sysusers scriptlet: gdm-1:50.3-1.fc44.x86_64
 >>> Scriptlet output:
@@ -291,23 +291,23 @@ Running transaction
 >>> Scriptlet output:
 >>> Failed to preset unit: File '/etc/systemd/system/display-manager.service' already exists and is a symlink to /usr/lib/systemd/system/greetd.service
 >>> 
-[68/78] Installing gnome-shell-extensio 100% |   3.4 MiB/s |  91.1 KiB |  00m00s
-[69/78] Installing gnome-shell-extensio 100% |   5.9 MiB/s |  90.9 KiB |  00m00s
-[70/78] Installing qt6-qtwayland-adwait 100% |   5.7 MiB/s | 133.7 KiB |  00m00s
-[71/78] Installing rygel-0:45.2-1.fc44. 100% |  24.2 MiB/s |   4.7 MiB |  00m00s
+[68/78] Installing gnome-shell-extensio 100% |   6.4 MiB/s |  91.1 KiB |  00m00s
+[69/78] Installing gnome-shell-extensio 100% |   8.9 MiB/s |  90.9 KiB |  00m00s
+[70/78] Installing qt6-qtwayland-adwait 100% |   8.7 MiB/s | 133.7 KiB |  00m00s
+[71/78] Installing rygel-0:45.2-1.fc44. 100% |  25.6 MiB/s |   4.7 MiB |  00m00s
 >>> Running sysusers scriptlet: gnome-remote-desktop-0:50.2-1.fc44.x86_64
 >>> Finished sysusers scriptlet: gnome-remote-desktop-0:50.2-1.fc44.x86_64
 >>> Scriptlet output:
 >>> Creating group 'gnome-remote-desktop' with GID 971.
 >>> Creating user 'gnome-remote-desktop' (GNOME Remote Desktop) with UID 971 and GID 971.
 >>> 
-[72/78] Installing gnome-remote-desktop 100% |  17.1 MiB/s |   2.1 MiB |  00m00s
-[73/78] Installing malcontent-control-0 100% |   9.4 MiB/s | 269.2 KiB |  00m00s
-[74/78] Installing gnome-bluetooth-1:47 100% |   3.8 MiB/s |  97.9 KiB |  00m00s
-[75/78] Installing gnome-color-manager- 100% |  36.9 MiB/s |   3.1 MiB |  00m00s
-[76/78] Installing bolt-0:0.9.11-1.fc44 100% |   7.1 MiB/s | 502.7 KiB |  00m00s
-[77/78] Installing gnome-tour-0:50.0-2. 100% |  27.5 MiB/s |   2.3 MiB |  00m00s
-[78/78] Installing qadwaitadecorations- 100% |  41.6 KiB/s | 153.0 KiB |  00m04s
+[72/78] Installing gnome-remote-desktop 100% |  14.9 MiB/s |   2.1 MiB |  00m00s
+[73/78] Installing malcontent-control-0 100% |   9.7 MiB/s | 269.2 KiB |  00m00s
+[74/78] Installing gnome-bluetooth-1:47 100% |   3.7 MiB/s |  97.9 KiB |  00m00s
+[75/78] Installing gnome-color-manager- 100% |  36.5 MiB/s |   3.1 MiB |  00m00s
+[76/78] Installing bolt-0:0.9.11-1.fc44 100% |   7.0 MiB/s | 502.7 KiB |  00m00s
+[77/78] Installing gnome-tour-0:50.0-2. 100% |  39.9 MiB/s |   2.3 MiB |  00m00s
+[78/78] Installing qadwaitadecorations- 100% |  46.3 KiB/s | 153.0 KiB |  00m03s
 Warning: skipped OpenPGP checks for 3 packages from repository: @commandline
 Complete!
 ### rc=0
@@ -326,26 +326,25 @@ Complete!
 ### rm -f $HOME/w11-smoke.txt; setsid nohup foot -- sh -c 'cat >> $HOME/w11-smoke.txt' >/dev/null 2>&1 </dev/null &            sleep 3; true
 ### rc=0
 ### wdotool search --class foot | head -1
-2022682538
+1198818438
 ### rc=0
-### wdotool getwindowname 2022682538
+### wdotool getwindowname 1198818438
 foot
 ### rc=0
-### wdotool getwindowgeometry 2022682538
-Window 2022682538
+### wdotool getwindowgeometry 1198818438
+Window 1198818438
   Position: 886,183 (screen: 0)
   Geometry: 696x532
 ### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
-Virtual-1 0,0
 Virtual-2 1920,0
-Virtual-3 3840,0
+Virtual-1 0,0
 ### rc=0
 ### cosmic-randr list --kdl
-output "Virtual-3" enabled=#true {
+output "Virtual-1" enabled=#true {
   description make="Red Hat, Inc." model="QEMU Monitor"
   physical 480 270
-  position 3840 0
+  position 0 0
   scale 1.00
   transform "normal"
   adaptive_sync_support #false
@@ -418,166 +417,12 @@ output "Virtual-2" enabled=#true {
     mode 640 480 59940
   }
 }
+### rc=0
+### cosmic-randr list --kdl
 output "Virtual-1" enabled=#true {
   description make="Red Hat, Inc." model="QEMU Monitor"
   physical 480 270
   position 0 0
-  scale 1.00
-  transform "normal"
-  adaptive_sync_support #false
-  adaptive_sync #false
-  xwayland_primary #false
-  modes {
-    mode 5120 2160 50000
-    mode 4096 2160 50000
-    mode 3840 2160 60000
-    mode 3840 2160 59940
-    mode 3840 2160 50000
-    mode 2560 1080 50000
-    mode 2048 1152 60000
-    mode 1920 1440 60000
-    mode 1920 1200 59885
-    mode 1920 1080 74998 current=#true preferred=#true
-    mode 1920 1080 60000
-    mode 1920 1080 50000
-    mode 1856 1392 59995
-    mode 1792 1344 60000
-    mode 1680 1050 59954
-    mode 1600 1200 60000
-    mode 1440 900 59887
-    mode 1400 1050 59978
-    mode 1360 768 60015
-    mode 1280 1024 60020
-    mode 1280 960 60000
-    mode 1280 768 59870
-    mode 1024 768 60004
-    mode 800 600 60317
-    mode 640 480 60000
-    mode 640 480 59940
-  }
-}
-### rc=0
-### cosmic-randr list --kdl
-output "Virtual-2" enabled=#true {
-  description make="Red Hat, Inc." model="QEMU Monitor"
-  physical 480 270
-  position 1920 0
-  scale 1.00
-  transform "normal"
-  adaptive_sync_support #false
-  adaptive_sync #false
-  xwayland_primary #false
-  modes {
-    mode 5120 2160 50000
-    mode 4096 2160 50000
-    mode 3840 2160 60000
-    mode 3840 2160 59940
-    mode 3840 2160 50000
-    mode 2560 1080 50000
-    mode 2048 1152 60000
-    mode 1920 1440 60000
-    mode 1920 1200 59885
-    mode 1920 1080 74998 current=#true preferred=#true
-    mode 1920 1080 60000
-    mode 1920 1080 50000
-    mode 1856 1392 59995
-    mode 1792 1344 60000
-    mode 1680 1050 59954
-    mode 1600 1200 60000
-    mode 1440 900 59887
-    mode 1400 1050 59978
-    mode 1360 768 60015
-    mode 1280 1024 60020
-    mode 1280 960 60000
-    mode 1280 768 59870
-    mode 1024 768 60004
-    mode 800 600 60317
-    mode 640 480 60000
-    mode 640 480 59940
-  }
-}
-output "Virtual-1" enabled=#true {
-  description make="Red Hat, Inc." model="QEMU Monitor"
-  physical 480 270
-  position 0 0
-  scale 1.00
-  transform "normal"
-  adaptive_sync_support #false
-  adaptive_sync #false
-  xwayland_primary #false
-  modes {
-    mode 5120 2160 50000
-    mode 4096 2160 50000
-    mode 3840 2160 60000
-    mode 3840 2160 59940
-    mode 3840 2160 50000
-    mode 2560 1080 50000
-    mode 2048 1152 60000
-    mode 1920 1440 60000
-    mode 1920 1200 59885
-    mode 1920 1080 74998 current=#true preferred=#true
-    mode 1920 1080 60000
-    mode 1920 1080 50000
-    mode 1856 1392 59995
-    mode 1792 1344 60000
-    mode 1680 1050 59954
-    mode 1600 1200 60000
-    mode 1440 900 59887
-    mode 1400 1050 59978
-    mode 1360 768 60015
-    mode 1280 1024 60020
-    mode 1280 960 60000
-    mode 1280 768 59870
-    mode 1024 768 60004
-    mode 800 600 60317
-    mode 640 480 60000
-    mode 640 480 59940
-  }
-}
-output "Virtual-3" enabled=#true {
-  description make="Red Hat, Inc." model="QEMU Monitor"
-  physical 480 270
-  position 3840 0
-  scale 1.00
-  transform "normal"
-  adaptive_sync_support #false
-  adaptive_sync #false
-  xwayland_primary #true
-  modes {
-    mode 5120 2160 50000
-    mode 4096 2160 50000
-    mode 3840 2160 60000
-    mode 3840 2160 59940
-    mode 3840 2160 50000
-    mode 2560 1080 50000
-    mode 2048 1152 60000
-    mode 1920 1440 60000
-    mode 1920 1200 59885
-    mode 1920 1080 74998 current=#true preferred=#true
-    mode 1920 1080 60000
-    mode 1920 1080 50000
-    mode 1856 1392 59995
-    mode 1792 1344 60000
-    mode 1680 1050 59954
-    mode 1600 1200 60000
-    mode 1440 900 59887
-    mode 1400 1050 59978
-    mode 1360 768 60015
-    mode 1280 1024 60020
-    mode 1280 960 60000
-    mode 1280 768 59870
-    mode 1024 768 60004
-    mode 800 600 60317
-    mode 640 480 60000
-    mode 640 480 59940
-  }
-}
-### rc=0
-### cosmic-randr list --kdl
-output "Virtual-3" enabled=#true {
-  description make="Red Hat, Inc." model="QEMU Monitor"
-  physical 480 270
-  position 3840 0
   scale 1.00
   transform "normal"
   adaptive_sync_support #false
@@ -650,64 +495,25 @@ output "Virtual-2" enabled=#true {
     mode 640 480 59940
   }
 }
-output "Virtual-1" enabled=#true {
-  description make="Red Hat, Inc." model="QEMU Monitor"
-  physical 480 270
-  position 0 0
-  scale 1.00
-  transform "normal"
-  adaptive_sync_support #false
-  adaptive_sync #false
-  xwayland_primary #false
-  modes {
-    mode 5120 2160 50000
-    mode 4096 2160 50000
-    mode 3840 2160 60000
-    mode 3840 2160 59940
-    mode 3840 2160 50000
-    mode 2560 1080 50000
-    mode 2048 1152 60000
-    mode 1920 1440 60000
-    mode 1920 1200 59885
-    mode 1920 1080 74998 current=#true preferred=#true
-    mode 1920 1080 60000
-    mode 1920 1080 50000
-    mode 1856 1392 59995
-    mode 1792 1344 60000
-    mode 1680 1050 59954
-    mode 1600 1200 60000
-    mode 1440 900 59887
-    mode 1400 1050 59978
-    mode 1360 768 60015
-    mode 1280 1024 60020
-    mode 1280 960 60000
-    mode 1280 768 59870
-    mode 1024 768 60004
-    mode 800 600 60317
-    mode 640 480 60000
-    mode 640 480 59940
-  }
-}
 ### rc=0
-### wdotool windowmove 2022682538 100 100 2>&1
+### wdotool windowmove 1198818438 100 100 2>&1
 windowmove is not supported by the cosmic backend: the COSMIC toplevel protocol has no move, resize, raise or lower; not yet here, and the route is a patched cosmic-comp (AGENTS.md route 6)
-xdo_move_window reported an error while moving window 2022682538
-xdo_move_window reported an error while moving window 2022682538
+xdo_move_window reported an error while moving window 1198818438
+xdo_move_window reported an error while moving window 1198818438
 ### rc=1
-### wdotool windowsize 2022682538 800 600 2>&1
+### wdotool windowsize 1198818438 800 600 2>&1
 windowsize is not supported by the cosmic backend: the COSMIC toplevel protocol has no move, resize, raise or lower; not yet here, and the route is a patched cosmic-comp (AGENTS.md route 6)
-xdo_set_window_size on window:2022682538 reported an error
+xdo_set_window_size on window:1198818438 reported an error
 ### rc=1
-### wdotool windowactivate --sync 2022682538
+### wdotool windowactivate --sync 1198818438
 ### rc=0
 ### wdotool getactivewindow
-2022682538
+1198818438
 ### rc=0
 ### wwmctl -d
 0  * DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  1
 1  - DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  2
 2  * DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  1
-3  * DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  1
 ### rc=0
 ### wdotool set_desktop 1
 ### rc=0
@@ -719,7 +525,7 @@ xdo_set_window_size on window:2022682538 reported an error
 ### wdotool get_desktop
 0
 ### rc=0
-### wdotool windowactivate --sync 2022682538
+### wdotool windowactivate --sync 1198818438
 ### rc=0
 ### wdotool mousemove 300 300
 ### rc=0
@@ -729,8 +535,8 @@ x:300 y:300 screen:0 window:0
 ### wdotool mousemove 300 300 click 1
 ### rc=0
 ### wwmctl -l
-0x6fd89846  0 fedora44-cosmic-smoke 
-0x788fafaa  0 fedora44-cosmic-smoke foot
+0x782dc70e  0 fedora44-cosmic-smoke 
+0x47748486  0 fedora44-cosmic-smoke foot
 ### rc=0
 ### wwmctl -m
 Name: Smithay X WM
@@ -739,17 +545,17 @@ PID: N/A
 Window manager's "showing the desktop" mode: OFF
 ### rc=0
 ### wwmctl -lp
-0x6fd89846  0 0      fedora44-cosmic-smoke 
-0x788fafaa  0 0      fedora44-cosmic-smoke foot
+0x782dc70e  0 0      fedora44-cosmic-smoke 
+0x47748486  0 0      fedora44-cosmic-smoke foot
 ### rc=0
 ### wwmctl -r :ACTIVE: -b add,maximized_vert,maximized_horz
 ### rc=0
-### wxprop -id 2022682538 _NET_WM_STATE
+### wxprop -id 1198818438 _NET_WM_STATE
 _NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_FOCUSED
 ### rc=0
 ### wwmctl -r :ACTIVE: -b remove,maximized_vert,maximized_horz
 ### rc=0
-### wxprop -id 2022682538 _NET_WM_STATE
+### wxprop -id 1198818438 _NET_WM_STATE
 _NET_WM_STATE(ATOM) = _NET_WM_STATE_FOCUSED
 ### rc=0
 ### wwmctl -r :ACTIVE: -b add,fullscreen 2>&1
@@ -764,7 +570,7 @@ wwmctl: windowstate FULLSCREEN is not supported by the cosmic backend: cosmic-co
 ### setsid nohup xterm -T smokex -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 3; true
 ### rc=0
 ### wxprop -root _NET_CLIENT_LIST
-_NET_CLIENT_LIST(WINDOW): window id # 0x6fd89846, 0x788fafaa, 0x40001e
+_NET_CLIENT_LIST(WINDOW): window id # 0x782dc70e, 0x47748486, 0x40001e
 ### rc=0
 ### xprop -root _NET_CLIENT_LIST
 _NET_CLIENT_LIST(WINDOW): window id # 0x40001e
@@ -773,12 +579,12 @@ _NET_CLIENT_LIST(WINDOW): window id # 0x40001e
 WM_CLASS(STRING) = "xterm", "XTerm"
 ### rc=0
 ### wwmctl -lGpx
-0x6fd89846  0 0      1020 270  1024 768  com.system76.CosmicInitialSetup.com.system76.CosmicInitialSetup  fedora44-cosmic-smoke 
-0x788fafaa  0 0      1772 366  696  532  foot.foot             fedora44-cosmic-smoke foot
-0x0040001e  0 4942   1083 219  499  316  xterm.XTerm           fedora44-cosmic-smoke smokex
+0x782dc70e  0 0      1020 270  1024 768  com.system76.CosmicInitialSetup.com.system76.CosmicInitialSetup  fedora44-cosmic-smoke 
+0x47748486  0 0      1772 366  696  532  foot.foot             fedora44-cosmic-smoke foot
+0x0040001e  0 4759   3003 219  499  316  xterm.XTerm           fedora44-cosmic-smoke smokex
 ### rc=0
 ### wmctrl -lGpx
-0x0040001e  0 4942   1083 219  499  316  xterm.XTerm           fedora44-cosmic-smoke smokex
+0x0040001e  0 4759   3003 219  499  316  xterm.XTerm           fedora44-cosmic-smoke smokex
 ### rc=0
 ### pkill -x xterm; true
 ### rc=0
@@ -791,7 +597,7 @@ WM_CLASS(STRING) = "xterm", "XTerm"
 :20
 ### rc=0
 ### cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null
-:20 5388 :0
+:20 5205 :0
 ### rc=0
 ### xw11 --print-display
 :20
@@ -805,14 +611,14 @@ WM_CLASS(STRING) = "xterm", "XTerm"
 ### DISPLAY=:20 xdotool search --class foot | head -1
 4194306
 ### rc=0
-### wdotool getwindowname 2022682538
+### wdotool getwindowname 1198818438
 foot
 ### rc=0
 ### DISPLAY=:20 xdotool getwindowname 4194306
 foot
 ### rc=0
-### wdotool getwindowgeometry 2022682538
-Window 2022682538
+### wdotool getwindowgeometry 1198818438
+Window 1198818438
   Position: 886,183 (screen: 0)
   Geometry: 696x532
 ### rc=0
@@ -836,8 +642,8 @@ _NET_FRAME_EXTENTS(CARDINAL) = 0, 0, 0, 0
 WM_PROTOCOLS(ATOM): protocols  WM_DELETE_WINDOW
 ### rc=0
 ### wwmctl -l
-0x6fd89846  0 fedora44-cosmic-smoke 
-0x788fafaa  0 fedora44-cosmic-smoke foot
+0x782dc70e  0 fedora44-cosmic-smoke 
+0x47748486  0 fedora44-cosmic-smoke foot
 ### rc=0
 ### DISPLAY=:20 wmctrl -l
 0x00400001  0 fedora44-cosmic-smoke 
@@ -850,7 +656,6 @@ WM_PROTOCOLS(ATOM): protocols  WM_DELETE_WINDOW
 0  * DG: 1920x1080  VP: 0,0  WA: N/A  1
 1  - DG: 1920x1080  VP: 0,0  WA: N/A  2
 2  - DG: 1920x1080  VP: 0,0  WA: N/A  1
-3  - DG: 1920x1080  VP: 0,0  WA: N/A  1
 ### rc=0
 ### DISPLAY=:20 xprop -root _NET_CLIENT_LIST
 _NET_CLIENT_LIST(WINDOW): window id # 0x400001, 0x400002
@@ -859,67 +664,34 @@ _NET_CLIENT_LIST(WINDOW): window id # 0x400001, 0x400002
 4194306
 ### rc=0
 ### W11_PROXY=never wdotool search --class foot | head -1
-2022682538
+1198818438
 ### rc=0
 ### wdotool --version
 xdotool version 4.20260303.1
 ### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
-Virtual-1 0,0
-Virtual-3 3840,0
 Virtual-2 1920,0
+Virtual-1 0,0
 ### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
-Virtual-3 3840,0
 Virtual-1 0,0
 Virtual-2 1920,0
 ### rc=0
-### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x200
+### DISPLAY=:20 xrandr --output Virtual-2 --pos 1920x200
 ### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
-Virtual-2 1920,0
-Virtual-3 3840,200
+Virtual-2 1920,200
 Virtual-1 0,0
 ### rc=0
-### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x0
+### DISPLAY=:20 xrandr --output Virtual-2 --pos 1920x0
 ### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
-Virtual-2 1920,0
 Virtual-1 0,0
-Virtual-3 3840,0
+Virtual-2 1920,0
 ### rc=0
 ### DISPLAY=:20 xrandr -q
-Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
-Virtual-3 connected primary 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
-   1920x1080     74.91*+
-   1440x1080     74.92  
-   1400x1050     74.87  
-   1280x1024     74.90  
-   1280x960      74.86  
-   1152x864      74.82  
-   1024x768      74.90  
-   800x600       74.91  
-   640x480       74.77  
-   320x240       73.82  
-   1680x1050     74.89  
-   1440x900      74.98  
-   1280x800      74.93  
-   1152x720      74.72  
-   960x600       74.84  
-   928x580       74.58  
-   800x500       74.87  
-   768x480       74.71  
-   720x480       74.51  
-   640x400       74.23  
-   320x200       73.70  
-   1600x900      74.89  
-   1368x768      74.90  
-   1280x720      74.78  
-   1024x576      74.80  
-   864x486       74.45  
-   720x400       74.23  
-   640x350       74.53  
-Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+Screen 0: minimum 16 x 16, current 3840 x 1080, maximum 32767 x 32767
+Virtual-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
    1920x1080     74.91*+
    1440x1080     74.92  
    1400x1050     74.87  
@@ -979,17 +751,17 @@ Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 
    640x350       74.53  
 ### rc=0
 ### tail -4 ${XW11_LOG:-/tmp/xw11-$(id -u).log}
-1789210081.817 xw11[5388] own connection to :0: root 0x2f4, ids 0x400000|n, 70 atoms, 7 extensions
-1789210089.881 xw11[5388] xw11: RandR writes apply through the wlr backend (detection), state keyed by /run/user/1000/wayland-1
-1789210090.173 xw11[5388] xw11: applied a RandR batch of 1 crtc(s) in 306 ms through wlr (Virtual-3 on)
-1789210093.116 xw11[5388] xw11: applied a RandR batch of 1 crtc(s) in 221 ms through wlr (Virtual-3 on)
+1789243292.292 xw11[5205] own connection to :0: root 0x2f2, ids 0x400000|n, 70 atoms, 7 extensions
+1789243300.265 xw11[5205] xw11: RandR writes apply through the wlr backend (detection), state keyed by /run/user/1000/wayland-1
+1789243300.586 xw11[5205] xw11: applied a RandR batch of 1 crtc(s) in 335 ms through wlr (Virtual-2 on)
+1789243303.701 xw11[5205] xw11: applied a RandR batch of 1 crtc(s) in 409 ms through wlr (Virtual-2 on)
 ### rc=0
 ### xw11 --stop
 ### rc=0
 ### printf "%s %s" "$(pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l)" \                   "$(test -e $XDG_RUNTIME_DIR/xw11/display && echo 1 || echo 0)"
 0 0
 ### rc=0
-### wdotool windowactivate --sync 2022682538
+### wdotool windowactivate --sync 1198818438
 ### rc=0
 ### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
 ### rc=0
@@ -1054,199 +826,69 @@ protocol: zwlr_output_manager_v1 version 4
 available: yes
 ### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
-Virtual-1 0,0
-Virtual-2 1920,0
-Virtual-3 3840,0
-### rc=0
-### wxrandr --listmonitors
-Monitors: 3
- 0: +Virtual-3 1920/480x1080/270+3840+0  Virtual-3
- 1: +Virtual-1 1920/480x1080/270+0+0  Virtual-1
- 2: +Virtual-2 1920/480x1080/270+1920+0  Virtual-2
-### rc=0
-### python3 $HOME/w11-oracle.py cosmic
-Virtual-1 0,0
-Virtual-2 1920,0
-Virtual-3 3840,0
-### rc=0
-### python3 $HOME/w11-oracle.py cosmic
-Virtual-2 1920,0
-Virtual-1 0,0
-Virtual-3 3840,0
-### rc=0
-### python3 $HOME/w11-oracle.py cosmic
-Virtual-3 3840,0
 Virtual-2 1920,0
 Virtual-1 0,0
 ### rc=0
 ### wxrandr --listmonitors
-Monitors: 3
- 0: +Virtual-3 1920/480x1080/270+3840+0  Virtual-3
- 1: +Virtual-1 1920/480x1080/270+0+0  Virtual-1
- 2: +Virtual-2 1920/480x1080/270+1920+0  Virtual-2
-### rc=0
-### wxrandr --output Virtual-3 --off
+Monitors: 2
+ 0: +Virtual-1 1920/480x1080/270+0+0  Virtual-1
+ 1: +Virtual-2 1920/480x1080/270+1920+0  Virtual-2
 ### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
 Virtual-2 1920,0
 Virtual-1 0,0
 ### rc=0
-### wxrandr --output Virtual-3 --auto
-### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
 Virtual-2 1920,0
-Virtual-3 0,0
 Virtual-1 0,0
-### rc=0
-### wxrandr --output Virtual-3 --right-of Virtual-2
 ### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
 Virtual-2 1920,0
 Virtual-1 0,0
-Virtual-3 3840,0
+### rc=0
+### wxrandr --listmonitors
+Monitors: 2
+ 0: +Virtual-1 1920/480x1080/270+0+0  Virtual-1
+ 1: +Virtual-2 1920/480x1080/270+1920+0  Virtual-2
+### rc=0
+### wxrandr --output Virtual-2 --off
 ### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
 Virtual-1 0,0
-Virtual-3 3840,0
-Virtual-2 1920,0
 ### rc=0
-### wxrandr --output Virtual-3 --below Virtual-2
+### wxrandr --output Virtual-2 --auto
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-2 0,0
+Virtual-1 0,0
+### rc=0
+### wxrandr --output Virtual-2 --right-of Virtual-1
 ### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
 Virtual-2 1920,0
-Virtual-3 1920,1080
 Virtual-1 0,0
 ### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
 Virtual-1 0,0
 Virtual-2 1920,0
-Virtual-3 1920,1080
 ### rc=0
-### wxrandr --output Virtual-3 --right-of Virtual-2
+### wxrandr --output Virtual-2 --below Virtual-1
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-2 0,1080
+Virtual-1 0,0
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-1 0,0
+Virtual-2 0,1080
+### rc=0
+### wxrandr --output Virtual-2 --right-of Virtual-1
 ### rc=0
 ### cosmic-randr list --kdl
-output "Virtual-1" enabled=#true {
-  description make="Red Hat, Inc." model="QEMU Monitor"
-  physical 480 270
-  position 0 0
-  scale 1.00
-  transform "normal"
-  adaptive_sync_support #false
-  adaptive_sync #false
-  xwayland_primary #false
-  modes {
-    mode 5120 2160 50000
-    mode 4096 2160 50000
-    mode 3840 2160 60000
-    mode 3840 2160 59940
-    mode 3840 2160 50000
-    mode 2560 1080 50000
-    mode 2048 1152 60000
-    mode 1920 1440 60000
-    mode 1920 1200 59885
-    mode 1920 1080 74998 current=#true preferred=#true
-    mode 1920 1080 60000
-    mode 1920 1080 50000
-    mode 1856 1392 59995
-    mode 1792 1344 60000
-    mode 1680 1050 59954
-    mode 1600 1200 60000
-    mode 1440 900 59887
-    mode 1400 1050 59978
-    mode 1360 768 60015
-    mode 1280 1024 60020
-    mode 1280 960 60000
-    mode 1280 768 59870
-    mode 1024 768 60004
-    mode 800 600 60317
-    mode 640 480 60000
-    mode 640 480 59940
-  }
-}
 output "Virtual-2" enabled=#true {
   description make="Red Hat, Inc." model="QEMU Monitor"
   physical 480 270
   position 1920 0
-  scale 1.00
-  transform "normal"
-  adaptive_sync_support #false
-  adaptive_sync #false
-  xwayland_primary #false
-  modes {
-    mode 5120 2160 50000
-    mode 4096 2160 50000
-    mode 3840 2160 60000
-    mode 3840 2160 59940
-    mode 3840 2160 50000
-    mode 2560 1080 50000
-    mode 2048 1152 60000
-    mode 1920 1440 60000
-    mode 1920 1200 59885
-    mode 1920 1080 74998 current=#true preferred=#true
-    mode 1920 1080 60000
-    mode 1920 1080 50000
-    mode 1856 1392 59995
-    mode 1792 1344 60000
-    mode 1680 1050 59954
-    mode 1600 1200 60000
-    mode 1440 900 59887
-    mode 1400 1050 59978
-    mode 1360 768 60015
-    mode 1280 1024 60020
-    mode 1280 960 60000
-    mode 1280 768 59870
-    mode 1024 768 60004
-    mode 800 600 60317
-    mode 640 480 60000
-    mode 640 480 59940
-  }
-}
-output "Virtual-3" enabled=#true {
-  description make="Red Hat, Inc." model="QEMU Monitor"
-  physical 480 270
-  position 3840 0
-  scale 1.00
-  transform "normal"
-  adaptive_sync_support #false
-  adaptive_sync #false
-  xwayland_primary #false
-  modes {
-    mode 5120 2160 50000
-    mode 4096 2160 50000
-    mode 3840 2160 60000
-    mode 3840 2160 59940
-    mode 3840 2160 50000
-    mode 2560 1080 50000
-    mode 2048 1152 60000
-    mode 1920 1440 60000
-    mode 1920 1200 59885
-    mode 1920 1080 74998 current=#true preferred=#true
-    mode 1920 1080 60000
-    mode 1920 1080 50000
-    mode 1856 1392 59995
-    mode 1792 1344 60000
-    mode 1680 1050 59954
-    mode 1600 1200 60000
-    mode 1440 900 59887
-    mode 1400 1050 59978
-    mode 1360 768 60015
-    mode 1280 1024 60020
-    mode 1280 960 60000
-    mode 1280 768 59870
-    mode 1024 768 60004
-    mode 800 600 60317
-    mode 640 480 60000
-    mode 640 480 59940
-  }
-}
-### rc=0
-### wxrandr --output Virtual-2 --rotate left
-### rc=0
-### cosmic-randr list --kdl
-output "Virtual-3" enabled=#true {
-  description make="Red Hat, Inc." model="QEMU Monitor"
-  physical 480 270
-  position 3840 0
   scale 1.00
   transform "normal"
   adaptive_sync_support #false
@@ -1289,6 +931,48 @@ output "Virtual-1" enabled=#true {
   transform "normal"
   adaptive_sync_support #false
   adaptive_sync #false
+  xwayland_primary #true
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+### rc=0
+### wxrandr --output Virtual-1 --rotate left
+### rc=0
+### cosmic-randr list --kdl
+output "Virtual-2" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 1920 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
   xwayland_primary #false
   modes {
     mode 5120 2160 50000
@@ -1319,15 +1003,15 @@ output "Virtual-1" enabled=#true {
     mode 640 480 59940
   }
 }
-output "Virtual-2" enabled=#true {
+output "Virtual-1" enabled=#true {
   description make="Red Hat, Inc." model="QEMU Monitor"
   physical 480 270
-  position 1920 0
+  position 0 0
   scale 1.00
   transform "rotate270"
   adaptive_sync_support #false
   adaptive_sync #false
-  xwayland_primary #false
+  xwayland_primary #true
   modes {
     mode 5120 2160 50000
     mode 4096 2160 50000
@@ -1358,7 +1042,7 @@ output "Virtual-2" enabled=#true {
   }
 }
 ### rc=0
-### wxrandr --output Virtual-2 --rotate normal
+### wxrandr --output Virtual-1 --rotate normal
 ### rc=0
 ### cosmic-randr list --kdl
 output "Virtual-1" enabled=#true {
@@ -1369,7 +1053,7 @@ output "Virtual-1" enabled=#true {
   transform "normal"
   adaptive_sync_support #false
   adaptive_sync #false
-  xwayland_primary #false
+  xwayland_primary #true
   modes {
     mode 5120 2160 50000
     mode 4096 2160 50000
@@ -1403,44 +1087,6 @@ output "Virtual-2" enabled=#true {
   description make="Red Hat, Inc." model="QEMU Monitor"
   physical 480 270
   position 1920 0
-  scale 1.00
-  transform "normal"
-  adaptive_sync_support #false
-  adaptive_sync #false
-  xwayland_primary #false
-  modes {
-    mode 5120 2160 50000
-    mode 4096 2160 50000
-    mode 3840 2160 60000
-    mode 3840 2160 59940
-    mode 3840 2160 50000
-    mode 2560 1080 50000
-    mode 2048 1152 60000
-    mode 1920 1440 60000
-    mode 1920 1200 59885
-    mode 1920 1080 74998 current=#true preferred=#true
-    mode 1920 1080 60000
-    mode 1920 1080 50000
-    mode 1856 1392 59995
-    mode 1792 1344 60000
-    mode 1680 1050 59954
-    mode 1600 1200 60000
-    mode 1440 900 59887
-    mode 1400 1050 59978
-    mode 1360 768 60015
-    mode 1280 1024 60020
-    mode 1280 960 60000
-    mode 1280 768 59870
-    mode 1024 768 60004
-    mode 800 600 60317
-    mode 640 480 60000
-    mode 640 480 59940
-  }
-}
-output "Virtual-3" enabled=#true {
-  description make="Red Hat, Inc." model="QEMU Monitor"
-  physical 480 270
-  position 3840 0
   scale 1.00
   transform "normal"
   adaptive_sync_support #false
@@ -1515,44 +1161,6 @@ output "Virtual-2" enabled=#true {
     mode 640 480 59940
   }
 }
-output "Virtual-3" enabled=#true {
-  description make="Red Hat, Inc." model="QEMU Monitor"
-  physical 480 270
-  position 3840 0
-  scale 1.00
-  transform "normal"
-  adaptive_sync_support #false
-  adaptive_sync #false
-  xwayland_primary #false
-  modes {
-    mode 5120 2160 50000
-    mode 4096 2160 50000
-    mode 3840 2160 60000
-    mode 3840 2160 59940
-    mode 3840 2160 50000
-    mode 2560 1080 50000
-    mode 2048 1152 60000
-    mode 1920 1440 60000
-    mode 1920 1200 59885
-    mode 1920 1080 74998 current=#true preferred=#true
-    mode 1920 1080 60000
-    mode 1920 1080 50000
-    mode 1856 1392 59995
-    mode 1792 1344 60000
-    mode 1680 1050 59954
-    mode 1600 1200 60000
-    mode 1440 900 59887
-    mode 1400 1050 59978
-    mode 1360 768 60015
-    mode 1280 1024 60020
-    mode 1280 960 60000
-    mode 1280 768 59870
-    mode 1024 768 60004
-    mode 800 600 60317
-    mode 640 480 60000
-    mode 640 480 59940
-  }
-}
 output "Virtual-1" enabled=#true {
   description make="Red Hat, Inc." model="QEMU Monitor"
   physical 480 270
@@ -1561,7 +1169,7 @@ output "Virtual-1" enabled=#true {
   transform "normal"
   adaptive_sync_support #false
   adaptive_sync #false
-  xwayland_primary #false
+  xwayland_primary #true
   modes {
     mode 5120 2160 50000
     mode 4096 2160 50000
@@ -1600,27 +1208,25 @@ Try 'xrandr --help' for more information.
 helper:   /usr/sbin/wl-mirror (wl-mirror v0.18.5)
 wayland:  /run/user/1000/wayland-1
 capture:  ext_image_copy_capture_manager_v1 v1
-outputs:  Virtual-3 1920x1080+3840+0, Virtual-1 1920x1080+0+0, Virtual-2 1920x1080+1920+0
+outputs:  Virtual-1 1920x1080+0+0, Virtual-2 1920x1080+1920+0
 mirrors:  none
 ### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
-Virtual-1 0,0
-Virtual-3 3840,0
 Virtual-2 1920,0
+Virtual-1 0,0
 ### rc=0
 ### python3 $HOME/w11-oracle.py cosmic
 Virtual-1 0,0
 Virtual-2 1920,0
-Virtual-3 3840,0
 ### rc=0
-### wmirror Virtual-2 --to Virtual-3 --region 800x600+2020+100
-Virtual-3 <- Virtual-2  region 800x600+2020+100  scaling fit  wl-mirror pid 9412
+### wmirror Virtual-1 --to Virtual-2 --region 800x600+100+100
+Virtual-2 <- Virtual-1  region 800x600+100+100  scaling fit  wl-mirror pid 9218
 ### rc=0
 ### wmirror --list
-Virtual-3 <- Virtual-2  region 800x600+2020+100  scaling fit  wl-mirror pid 9412
+Virtual-2 <- Virtual-1  region 800x600+100+100  scaling fit  wl-mirror pid 9218
 ### rc=0
-### wmirror --stop Virtual-3
-stopped  Virtual-3 <- Virtual-2  region 800x600+2020+100  scaling fit  wl-mirror pid 9412
+### wmirror --stop Virtual-2
+stopped  Virtual-2 <- Virtual-1  region 800x600+100+100  scaling fit  wl-mirror pid 9218
 ### rc=0
 ### pgrep -x wl-mirror
 ### rc=1
@@ -1631,41 +1237,17 @@ stopped  Virtual-3 <- Virtual-2  region 800x600+2020+100  scaling fit  wl-mirror
 2
 ### rc=0
 ### wxrandr --query | awk '$2=="connected"{print $1}'
-Virtual-3
 Virtual-1
 Virtual-2
 ### rc=0
 ### wxrandr --query | awk '$2=="connected"{print $1}'
-Virtual-3
 Virtual-1
 Virtual-2
 ### rc=0
 ### wmirror --list
 ### rc=0
 ### wxrandr --persistent --query
-Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
-Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
-   1920x1080     75.00*+  60.00    50.00  
-   5120x2160     50.00  
-   4096x2160     50.00  
-   3840x2160     60.00    59.94    50.00  
-   1920x1440     60.00  
-   2560x1080     50.00  
-   1856x1392     59.99  
-   1792x1344     60.00  
-   2048x1152     60.00  
-   1920x1200     59.88  
-   1600x1200     60.00  
-   1680x1050     59.95  
-   1400x1050     59.98  
-   1280x1024     60.02  
-   1440x900      59.89  
-   1280x960      60.00  
-   1360x768      60.02  
-   1280x768      59.87  
-   1024x768      60.00  
-   800x600       60.32  
-   640x480       60.00    59.94  
+Screen 0: minimum 16 x 16, current 3840 x 1080, maximum 32767 x 32767
 Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
    1920x1080     75.00*+  60.00    50.00  
    5120x2160     50.00  
@@ -1712,16 +1294,16 @@ Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 
    640x480       60.00    59.94  
 ### rc=0
 ### wwmctl -l
-0x00400001  0 fedora44-cosmic-smoke 
-0x00400002  0 fedora44-cosmic-smoke foot
+0x00400001  1 fedora44-cosmic-smoke 
+0x00400002  1 fedora44-cosmic-smoke foot
 ### rc=0
 ### wwmctl -l
-0x00400001  0 fedora44-cosmic-smoke 
-0x00400002  0 fedora44-cosmic-smoke foot
+0x00400001  1 fedora44-cosmic-smoke 
+0x00400002  1 fedora44-cosmic-smoke foot
 ### rc=0
 ### wxrandr --query
-Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
-Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+Screen 0: minimum 16 x 16, current 3840 x 1080, maximum 32767 x 32767
+Virtual-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
    1920x1080     74.91*+
    1440x1080     74.92  
    1400x1050     74.87  
@@ -1779,39 +1361,10 @@ Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 
    864x486       74.45  
    720x400       74.23  
    640x350       74.53  
-Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
-   1920x1080     74.91*+
-   1440x1080     74.92  
-   1400x1050     74.87  
-   1280x1024     74.90  
-   1280x960      74.86  
-   1152x864      74.82  
-   1024x768      74.90  
-   800x600       74.91  
-   640x480       74.77  
-   320x240       73.82  
-   1680x1050     74.89  
-   1440x900      74.98  
-   1280x800      74.93  
-   1152x720      74.72  
-   960x600       74.84  
-   928x580       74.58  
-   800x500       74.87  
-   768x480       74.71  
-   720x480       74.51  
-   640x400       74.23  
-   320x200       73.70  
-   1600x900      74.89  
-   1368x768      74.90  
-   1280x720      74.78  
-   1024x576      74.80  
-   864x486       74.45  
-   720x400       74.23  
-   640x350       74.53  
 ### rc=0
 ### wxrandr --query
-Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
-Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+Screen 0: minimum 16 x 16, current 3840 x 1080, maximum 32767 x 32767
+Virtual-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
    1920x1080     74.91*+
    1440x1080     74.92  
    1400x1050     74.87  
@@ -1841,35 +1394,6 @@ Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480
    720x400       74.23  
    640x350       74.53  
 Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
-   1920x1080     74.91*+
-   1440x1080     74.92  
-   1400x1050     74.87  
-   1280x1024     74.90  
-   1280x960      74.86  
-   1152x864      74.82  
-   1024x768      74.90  
-   800x600       74.91  
-   640x480       74.77  
-   320x240       73.82  
-   1680x1050     74.89  
-   1440x900      74.98  
-   1280x800      74.93  
-   1152x720      74.72  
-   960x600       74.84  
-   928x580       74.58  
-   800x500       74.87  
-   768x480       74.71  
-   720x480       74.51  
-   640x400       74.23  
-   320x200       73.70  
-   1600x900      74.89  
-   1368x768      74.90  
-   1280x720      74.78  
-   1024x576      74.80  
-   864x486       74.45  
-   720x400       74.23  
-   640x350       74.53  
-Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
    1920x1080     74.91*+
    1440x1080     74.92  
    1400x1050     74.87  
@@ -1902,7 +1426,7 @@ Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 
 ### ls /run/user/0/xw11/display /tmp/wdotool-0/xw11/display 2>/dev/null
 ### rc=2
 ### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
-55243
+53937
 ### rc=0
 ### grep -E '^method call ' $HOME/w11-bus.log | grep -c 'interface=org.freedesktop.portal\.'
 39
@@ -1914,7 +1438,7 @@ Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 
 ### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.PolicyKit1' | head -3
 ### rc=0
 ### grep -Ec '^signal ' $HOME/w11-bus.log
-1308
+1298
 ### rc=0
 ### grep -o 'org.freedesktop.portal.[A-Za-z]*' $HOME/w11-bus.log | sort | uniq -c | sort -rn | head
     101 org/freedesktop/portal/desktop
@@ -1930,14 +1454,14 @@ Enforcing
 0
 ### rc=1
 ### journalctl -b _TRANSPORT=audit --no-pager 2>/dev/null | wc -l
-4114
+4188
 ### rc=0
 ### rpm -V w11 2>&1
 ### rc=0
 ### dnf remove -y w11 2>&1
 Package                            Arch   Version                         Repository        Size
 Removing:
- w11                               noarch 0:0.4.0-1.fc44                  @commandline   6.2 MiB
+ w11                               noarch 0:0.4.0-1.fc44                  @commandline   6.3 MiB
 Removing dependent packages:
  gnome-shell-extension-w11-bridge  noarch 0:0.4.0-1.fc44                  @commandline  89.9 KiB
  gnome-shell-extension-w11-overlap noarch 0:0.4.0-1.fc44                  @commandline  88.8 KiB
@@ -2021,20 +1545,20 @@ Transaction Summary:
 
 After this operation, 430 MiB will be freed (install 0 B, remove 430 MiB).
 Running transaction
-[ 1/77] Prepare transaction             100% | 250.0   B/s |  76.0   B |  00m00s
-[ 2/77] Removing evolution-ews-core-0:3 100% | 120.0   B/s |  42.0   B |  00m00s
-[ 3/77] Removing rygel-0:45.2-1.fc44.x8 100% | 202.0   B/s | 200.0   B |  00m01s
-[ 4/77] Removing gnome-remote-desktop-0 100% |   1.3 KiB/s |  95.0   B |  00m00s
-[ 5/77] Removing freerdp-libs-2:3.31.1- 100% |   2.6 KiB/s |  48.0   B |  00m00s
-[ 6/77] Removing gnome-bluetooth-1:47.2 100% | 722.0   B/s |  13.0   B |  00m00s
-[ 7/77] Removing gnome-shell-extension- 100% |   3.6 KiB/s |  11.0   B |  00m00s
-[ 8/77] Removing gnome-shell-extension- 100% | 148.0   B/s |   7.0   B |  00m00s
-[ 9/77] Removing gdm-1:50.3-1.fc44.x86_ 100% |   3.7 KiB/s | 281.0   B |  00m00s
-[10/77] Removing gnome-session-wayland- 100% | 100.0   B/s |   1.0   B |  00m00s
+[ 1/77] Prepare transaction             100% | 160.0   B/s |  76.0   B |  00m00s
+[ 2/77] Removing evolution-ews-core-0:3 100% | 113.0   B/s |  42.0   B |  00m00s
+[ 3/77] Removing rygel-0:45.2-1.fc44.x8 100% | 196.0   B/s | 200.0   B |  00m01s
+[ 4/77] Removing gnome-remote-desktop-0 100% |   1.5 KiB/s |  95.0   B |  00m00s
+[ 5/77] Removing freerdp-libs-2:3.31.1- 100% |   2.2 KiB/s |  48.0   B |  00m00s
+[ 6/77] Removing gnome-bluetooth-1:47.2 100% | 684.0   B/s |  13.0   B |  00m00s
+[ 7/77] Removing gnome-shell-extension- 100% |   2.7 KiB/s |  11.0   B |  00m00s
+[ 8/77] Removing gnome-shell-extension- 100% | 179.0   B/s |   7.0   B |  00m00s
+[ 9/77] Removing gdm-1:50.3-1.fc44.x86_ 100% |   3.8 KiB/s | 281.0   B |  00m00s
+[10/77] Removing gnome-session-wayland- 100% |  90.0   B/s |   1.0   B |  00m00s
 [11/77] Removing gnome-shell-0:50.4-1.f 100% |   3.2 KiB/s | 190.0   B |  00m00s
 [12/77] Removing gnome-control-center-0 100% |   5.3 KiB/s | 323.0   B |  00m00s
-[13/77] Removing evolution-data-server- 100% |   6.2 KiB/s | 266.0   B |  00m00s
-[14/77] Removing mutter-0:50.4-1.fc44.x 100% | 325.0   B/s | 150.0   B |  00m00s
+[13/77] Removing evolution-data-server- 100% |   5.9 KiB/s | 266.0   B |  00m00s
+[14/77] Removing mutter-0:50.4-1.fc44.x 100% | 307.0   B/s | 150.0   B |  00m00s
 >>> Running %preun scriptlet: gnome-settings-daemon-0:50.1-1.fc44.x86_64
 >>> Finished %preun scriptlet: gnome-settings-daemon-0:50.1-1.fc44.x86_64
 >>> Scriptlet output:
@@ -2066,30 +1590,30 @@ Running transaction
 >>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.Sound.service' for details.
 >>> Failed to stop org.gnome.SettingsDaemon.A11ySettings.service: Operation refused, unit org.gnome.SettingsDaemon.A11ySettings.service may be requested by dependency only (it is configured to refuse manual start/stop).
 >>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.A11ySettings.service' for details.
->>> Failed to stop org.gnome.SettingsDaemon.Color.service: Operation refused, unit org.gnome.SettingsDaemon.Color.service may be requested by dependency only (it is configured to refuse manual start/stop).
->>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.Color.service' for details.
 >>> Failed to stop org.gnome.SettingsDaemon.UsbProtection.service: Operation refused, unit org.gnome.SettingsDaemon.UsbProtection.service may be requested by dependency only (it is configured to refuse manual start/stop).
 >>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.UsbProtection.service' for details.
+>>> Failed to stop org.gnome.SettingsDaemon.Color.service: Operation refused, unit org.gnome.SettingsDaemon.Color.service may be requested by dependency only (it is configured to refuse manual start/stop).
+>>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.Color.service' for details.
 >>> Failed to stop org.gnome.SettingsDaemon.Datetime.service: Operation refused, unit org.gnome.SettingsDaemon.Datetime.service may be requested by dependency only (it is configured to refuse manual start/stop).
 >>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.Datetime.service' for details.
 >>> Failed to stop org.gnome.SettingsDaemon.Housekeeping.service: Operation refused, unit org.gnome.SettingsDaemon.Housekeeping.service may be requested by dependency only (it is configured to refuse manual start/stop).
 >>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.Housekeeping.service' for details.
 >>> Failed to stop org.gnome.SettingsDaemon.Keyboard.service: Operation refused, unit org.gnome.SettingsDaemon.Keyboard.service may be requested by dependency only (it is configured to refuse manual start/stop).
 >>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.Keyboard.service' for details.
->>> Failed to stop org.gnome.SettingsDaemon.Wwan.service: Operation refused, unit org.gnome.SettingsDaemon.Wwan.service may be requested by dependency only (it is configured to refuse manual start/stop).
->>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.Wwan.service' for details.
 >>> Failed to stop org.gnome.SettingsDaemon.MediaKeys.service: Operation refused, unit org.gnome.SettingsDaemon.MediaKeys.service may be requested by dependency only (it is configured to refuse manual start/stop).
 >>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.MediaKeys.service' for details.
 >>> Failed to stop org.gnome.SettingsDaemon.Power.service: Operation refused, unit org.gnome.SettingsDaemon.Power.service may be requested by dependency only (it is configured to refuse manual start/stop).
 >>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.Power.service' for details.
+>>> Failed to stop org.gnome.SettingsDaemon.Wwan.service: Operation refused, unit org.gnome.SettingsDaemon.Wwan.service may be requested by dependency only (it is configured to refuse manual start/stop).
+>>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.Wwan.service' for details.
 >>> Failed to stop org.gnome.SettingsDaemon.PrintNotifications.service: Operation refused, unit org.gnome.SettingsDaemon.PrintNotifications.service may be requested by dependency only (it is configured to refuse manual start/stop).
 >>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.PrintNotifications.service' for details.
->>> Failed to stop org.gnome.SettingsDaemon.XSettings.service: Operation refused, unit org.gnome.SettingsDaemon.XSettings.service may be requested by dependency only (it is configured to refuse manual start/stop).
->>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.XSettings.service' for details.
 >>> Failed to stop org.gnome.SettingsDaemon.Rfkill.service: Operation refused, unit org.gnome.SettingsDaemon.Rfkill.service may be requested by dependency only (it is configured to refuse manual start/stop).
 >>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.Rfkill.service' for details.
 >>> Failed to stop org.gnome.SettingsDaemon.ScreensaverProxy.service: Operation refused, unit org.gnome.SettingsDaemon.ScreensaverProxy.service may be requested by dependency only (it is configured to refuse manual start/stop).
 >>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.ScreensaverProxy.service' for details.
+>>> Failed to stop org.gnome.SettingsDaemon.XSettings.service: Operation refused, unit org.gnome.SettingsDaemon.XSettings.service may be requested by dependency only (it is configured to refuse manual start/stop).
+>>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.XSettings.service' for details.
 >>> Failed to stop org.gnome.SettingsDaemon.Sharing.service: Operation refused, unit org.gnome.SettingsDaemon.Sharing.service may be requested by dependency only (it is configured to refuse manual start/stop).
 >>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.Sharing.service' for details.
 >>> Failed to stop org.gnome.SettingsDaemon.Smartcard.service: Operation refused, unit org.gnome.SettingsDaemon.Smartcard.service may be requested by dependency only (it is configured to refuse manual start/stop).
@@ -2103,74 +1627,74 @@ Running transaction
 >>> Failed to stop org.gnome.SettingsDaemon.XSettings.service: Operation refused, unit org.gnome.SettingsDaemon.XSettings.service may be requested by dependency only (it is configured to refuse manual start/stop).
 >>> See user logs and 'systemctl --user status org.gnome.SettingsDaemon.XSettings.service' for details.
 >>> 
-[15/77] Removing gnome-settings-daemon- 100% |   5.9 KiB/s | 216.0   B |  00m00s
-[16/77] Removing webkit2gtk4.1-0:2.52.5 100% |   2.2 KiB/s |  91.0   B |  00m00s
-[17/77] Removing webkitgtk6.0-0:2.52.5- 100% |   2.4 KiB/s |  94.0   B |  00m00s
-[18/77] Removing gnome-online-accounts- 100% |   3.3 KiB/s | 111.0   B |  00m00s
+[15/77] Removing gnome-settings-daemon- 100% |   4.6 KiB/s | 216.0   B |  00m00s
+[16/77] Removing webkit2gtk4.1-0:2.52.5 100% |   2.8 KiB/s |  91.0   B |  00m00s
+[17/77] Removing webkitgtk6.0-0:2.52.5- 100% |   1.9 KiB/s |  94.0   B |  00m00s
+[18/77] Removing gnome-online-accounts- 100% |   3.9 KiB/s | 111.0   B |  00m00s
 [19/77] Removing gjs-0:1.88.1-2.fc44.x8 100% | 894.0   B/s |  17.0   B |  00m00s
-[20/77] Removing gvfs-goa-0:1.60.2-1.fc 100% |   1.8 KiB/s |  11.0   B |  00m00s
-[21/77] Removing javascriptcoregtk6.0-0 100% |   1.1 KiB/s |   9.0   B |  00m00s
+[20/77] Removing gvfs-goa-0:1.60.2-1.fc 100% |   1.3 KiB/s |  11.0   B |  00m00s
+[21/77] Removing javascriptcoregtk6.0-0 100% |   1.3 KiB/s |   9.0   B |  00m00s
 [22/77] Removing javascriptcoregtk4.1-0 100% |   1.3 KiB/s |   9.0   B |  00m00s
-[23/77] Removing libgweather-0:4.6.0-1. 100% |   6.2 KiB/s | 128.0   B |  00m00s
+[23/77] Removing libgweather-0:4.6.0-1. 100% |   6.0 KiB/s | 128.0   B |  00m00s
 [24/77] Removing libical-glib-0:3.0.20- 100% |  19.0   B/s |   6.0   B |  00m00s
-[25/77] Removing xdg-desktop-portal-gno 100% |   2.2 KiB/s |  72.0   B |  00m00s
-[26/77] Removing malcontent-control-0:0 100% | 666.0   B/s |  12.0   B |  00m00s
-[27/77] Removing gweather-locations-0:2 100% |   5.2 KiB/s | 101.0   B |  00m00s
-[28/77] Removing msgraph-0:0.3.5-1.fc44 100% |   2.1 KiB/s |  11.0   B |  00m00s
+[25/77] Removing xdg-desktop-portal-gno 100% |   1.9 KiB/s |  72.0   B |  00m00s
+[26/77] Removing malcontent-control-0:0 100% | 600.0   B/s |  12.0   B |  00m00s
+[27/77] Removing gweather-locations-0:2 100% |   5.5 KiB/s | 101.0   B |  00m00s
+[28/77] Removing msgraph-0:0.3.5-1.fc44 100% |   1.8 KiB/s |  11.0   B |  00m00s
 [29/77] Removing gnome-online-accounts- 100% |   2.3 KiB/s |  12.0   B |  00m00s
 [30/77] Removing libmanette-0:0.2.13-2. 100% |   2.1 KiB/s |  11.0   B |  00m00s
 [31/77] Removing libphonenumber-0:8.13. 100% |   2.1 KiB/s |  13.0   B |  00m00s
 [32/77] Removing gnome-bluetooth-libs-1 100% |   4.0 KiB/s | 103.0   B |  00m00s
-[33/77] Removing gnome-session-0:50.1-1 100% |   4.8 KiB/s | 180.0   B |  00m00s
-[34/77] Removing gnome-desktop4-0:44.5- 100% |  57.0   B/s |  23.0   B |  00m00s
+[33/77] Removing gnome-session-0:50.1-1 100% |   4.2 KiB/s | 180.0   B |  00m00s
+[34/77] Removing gnome-desktop4-0:44.5- 100% |  76.0   B/s |  23.0   B |  00m00s
 >>> Running %preun scriptlet: bluez-obexd-0:5.87+1.git8750129efca8-1.fc44.x86_64
 >>> Finished %preun scriptlet: bluez-obexd-0:5.87+1.git8750129efca8-1.fc44.x86_64
 >>> Scriptlet output:
 >>> Removed '/etc/systemd/user/dbus-org.bluez.obex.service'.
 >>> 
-[35/77] Removing bluez-obexd-0:5.87+1.g 100% | 258.0   B/s |   8.0   B |  00m00s
-[36/77] Removing libwinpr-2:3.31.1-1.fc 100% |   1.7 KiB/s |  16.0   B |  00m00s
+[35/77] Removing bluez-obexd-0:5.87+1.g 100% | 296.0   B/s |   8.0   B |  00m00s
+[36/77] Removing libwinpr-2:3.31.1-1.fc 100% |   1.4 KiB/s |  16.0   B |  00m00s
 [37/77] Removing qt6-qtwayland-adwaita- 100% |   1.8 KiB/s |  11.0   B |  00m00s
 [38/77] Removing gweather-locations-com 100% | 750.0   B/s |   3.0   B |  00m00s
-[39/77] Removing gnome-control-center-f 100% | 750.0   B/s |   3.0   B |  00m00s
-[40/77] Removing mutter-common-0:50.4-1 100% |   1.1 KiB/s |   8.0   B |  00m00s
-[41/77] Removing evolution-data-server- 100% |   5.1 KiB/s |  89.0   B |  00m00s
+[39/77] Removing gnome-control-center-f 100% |   1.0 KiB/s |   3.0   B |  00m00s
+[40/77] Removing mutter-common-0:50.4-1 100% |   1.6 KiB/s |   8.0   B |  00m00s
+[41/77] Removing evolution-data-server- 100% |   4.6 KiB/s |  89.0   B |  00m00s
 [42/77] Removing gnome-shell-common-0:5 100% | 333.0   B/s |   1.0   B |  00m00s
-[43/77] Removing python3-pam-0:2.0.2-18 100% |   1.4 KiB/s |  22.0   B |  00m00s
+[43/77] Removing python3-pam-0:2.0.2-18 100% |   1.3 KiB/s |  22.0   B |  00m00s
 [44/77] Removing w11-0:0.4.0-1.fc44.noa 100% |   2.0 KiB/s | 337.0   B |  00m00s
 [45/77] Removing evolution-ews-langpack 100% |   5.2 KiB/s |  48.0   B |  00m00s
-[46/77] Removing qt6-qtwayland-0:6.11.2 100% |   5.1 KiB/s | 115.0   B |  00m00s
-[47/77] Removing uriparser-0:1.0.2-1.fc 100% | 875.0   B/s |  14.0   B |  00m00s
+[46/77] Removing qt6-qtwayland-0:6.11.2 100% |   4.7 KiB/s | 115.0   B |  00m00s
+[47/77] Removing uriparser-0:1.0.2-1.fc 100% | 823.0   B/s |  14.0   B |  00m00s
 [48/77] Removing libical-0:3.0.20-7.fc4 100% |   3.9 KiB/s |  28.0   B |  00m00s
-[49/77] Removing gnome-desktop3-0:44.5- 100% |   6.1 KiB/s | 300.0   B |  00m00s
+[49/77] Removing gnome-desktop3-0:44.5- 100% |   5.1 KiB/s | 300.0   B |  00m00s
 [50/77] Removing gsound-0:1.0.3-12.fc44 100% | 833.0   B/s |  15.0   B |  00m00s
-[51/77] Removing protobuf-0:3.19.6-20.f 100% |   2.1 KiB/s |  11.0   B |  00m00s
-[52/77] Removing hidapi-0:0.15.0-3.fc44 100% |   2.6 KiB/s |  16.0   B |  00m00s
-[53/77] Removing rest-0:0.10.2-9.fc44.x 100% |   3.1 KiB/s |  16.0   B |  00m00s
-[54/77] Removing malcontent-ui-libs-0:0 100% |   1.8 KiB/s |  11.0   B |  00m00s
-[55/77] Removing malcontent-0:0.14.0-1. 100% |   5.9 KiB/s | 213.0   B |  00m00s
-[56/77] Removing geocode-glib-0:3.26.4- 100% |   2.3 KiB/s |  24.0   B |  00m00s
+[51/77] Removing protobuf-0:3.19.6-20.f 100% |   1.8 KiB/s |  11.0   B |  00m00s
+[52/77] Removing hidapi-0:0.15.0-3.fc44 100% |   3.1 KiB/s |  16.0   B |  00m00s
+[53/77] Removing rest-0:0.10.2-9.fc44.x 100% |   2.6 KiB/s |  16.0   B |  00m00s
+[54/77] Removing malcontent-ui-libs-0:0 100% |   2.7 KiB/s |  11.0   B |  00m00s
+[55/77] Removing malcontent-0:0.14.0-1. 100% |   4.8 KiB/s | 213.0   B |  00m00s
+[56/77] Removing geocode-glib-0:3.26.4- 100% |   2.6 KiB/s |  24.0   B |  00m00s
 [57/77] Removing libatomic-0:16.2.1-2.f 100% |   1.5 KiB/s |   6.0   B |  00m00s
-[58/77] Removing mozjs140-0:140.13.0-3. 100% | 183.0   B/s |   9.0   B |  00m00s
-[59/77] Removing iio-sensor-proxy-0:3.8 100% | 468.0   B/s |  15.0   B |  00m00s
-[60/77] Removing geoclue2-libs-0:2.8.2- 100% |   1.8 KiB/s |   9.0   B |  00m00s
-[61/77] Removing libeis-0:1.6.0-2.fc44. 100% | 538.0   B/s |   7.0   B |  00m00s
-[62/77] Removing tecla-0:50.0-1.fc44.x8 100% |   2.4 KiB/s |  64.0   B |  00m00s
-[63/77] Removing colord-gtk4-0:0.3.1-6. 100% |   1.0 KiB/s |   5.0   B |  00m00s
-[64/77] Removing libnma-gtk4-0:1.10.6-1 100% |  15.0   B/s |   6.0   B |  00m00s
-[65/77] Removing gcr-0:4.4.0.1-7.fc44.x 100% | 483.0   B/s |  15.0   B |  00m00s
-[66/77] Removing gnome-autoar-0:0.4.5-4 100% |  49.0   B/s |  16.0   B |  00m00s
-[67/77] Removing xdg-user-dirs-gtk-0:0. 100% |   1.5 KiB/s |  94.0   B |  00m00s
-[68/77] Removing sso-mib-libs-0:0.8.0-1 100% |   1.1 KiB/s |   9.0   B |  00m00s
-[69/77] Removing libvncserver-0:0.9.15- 100% | 950.0   B/s |  19.0   B |  00m00s
-[70/77] Removing gst-editing-services-0 100% |   1.2 KiB/s |  28.0   B |  00m00s
-[71/77] Removing gupnp-av-0:0.14.5-1.fc 100% |   1.2 KiB/s |  19.0   B |  00m00s
-[72/77] Removing gupnp-dlna-0:0.12.0-12 100% |   2.0 KiB/s |  46.0   B |  00m00s
+[58/77] Removing mozjs140-0:140.13.0-3. 100% | 169.0   B/s |   9.0   B |  00m00s
+[59/77] Removing iio-sensor-proxy-0:3.8 100% | 454.0   B/s |  15.0   B |  00m00s
+[60/77] Removing geoclue2-libs-0:2.8.2- 100% |   2.2 KiB/s |   9.0   B |  00m00s
+[61/77] Removing libeis-0:1.6.0-2.fc44. 100% | 583.0   B/s |   7.0   B |  00m00s
+[62/77] Removing tecla-0:50.0-1.fc44.x8 100% |   2.2 KiB/s |  64.0   B |  00m00s
+[63/77] Removing colord-gtk4-0:0.3.1-6. 100% |   1.2 KiB/s |   5.0   B |  00m00s
+[64/77] Removing libnma-gtk4-0:1.10.6-1 100% |  16.0   B/s |   6.0   B |  00m00s
+[65/77] Removing gcr-0:4.4.0.1-7.fc44.x 100% | 326.0   B/s |  15.0   B |  00m00s
+[66/77] Removing gnome-autoar-0:0.4.5-4 100% |  53.0   B/s |  16.0   B |  00m00s
+[67/77] Removing xdg-user-dirs-gtk-0:0. 100% |   1.7 KiB/s |  94.0   B |  00m00s
+[68/77] Removing sso-mib-libs-0:0.8.0-1 100% |   1.5 KiB/s |   9.0   B |  00m00s
+[69/77] Removing libvncserver-0:0.9.15- 100% |   1.1 KiB/s |  19.0   B |  00m00s
+[70/77] Removing gst-editing-services-0 100% |   1.1 KiB/s |  28.0   B |  00m00s
+[71/77] Removing gupnp-av-0:0.14.5-1.fc 100% |   1.3 KiB/s |  19.0   B |  00m00s
+[72/77] Removing gupnp-dlna-0:0.12.0-12 100% |   1.9 KiB/s |  46.0   B |  00m00s
 [73/77] Removing libmediaart-0:1.9.7-4. 100% |   2.0 KiB/s |  10.0   B |  00m00s
-[74/77] Removing qadwaitadecorations-qt 100% | 615.0   B/s |   8.0   B |  00m00s
+[74/77] Removing qadwaitadecorations-qt 100% | 533.0   B/s |   8.0   B |  00m00s
 [75/77] Removing gnome-tour-0:50.0-2.fc 100% |   1.9 KiB/s |  78.0   B |  00m00s
-[76/77] Removing gnome-color-manager-0: 100% |   3.0 KiB/s | 245.0   B |  00m00s
-[77/77] Removing bolt-0:0.9.11-1.fc44.x 100% |   9.0   B/s |  22.0   B |  00m02s
+[76/77] Removing gnome-color-manager-0: 100% |   2.6 KiB/s | 245.0   B |  00m00s
+[77/77] Removing bolt-0:0.9.11-1.fc44.x 100% |   8.0   B/s |  22.0   B |  00m03s
 Complete!
 ### rc=0
 ### ls -d /usr/libexec/w11 /var/lib/w11 /etc/xdg/autostart/w11-enable-bridge.desktop /usr/share/gnome-shell/extensions/w11-bridge@w11 /usr/share/gnome-shell/extensions/w11-overlap@w11  2>/dev/null | tr '\n' ' '
@@ -2200,7 +1724,7 @@ Package                            Arch   Version                         Reposi
 Installing:
  gnome-shell-extension-w11-bridge  noarch 0:0.4.0-1.fc44                  @commandline  89.9 KiB
  gnome-shell-extension-w11-overlap noarch 0:0.4.0-1.fc44                  @commandline  88.8 KiB
- w11                               noarch 0:0.4.0-1.fc44                  @commandline   6.2 MiB
+ w11                               noarch 0:0.4.0-1.fc44                  @commandline   6.3 MiB
 Installing dependencies:
  bluez-obexd                       x86_64 0:5.87+1.git8750129efca8-1.fc44 updates      362.6 KiB
  colord-gtk4                       x86_64 0:0.3.1-6.fc44                  fedora        31.4 KiB
@@ -2282,170 +1806,165 @@ Transaction Summary:
 
 Total size of inbound packages is 118 MiB. Need to download 116 MiB.
 After this operation, 430 MiB extra will be used (install 430 MiB, remove 0 B).
-[ 1/73] gcr-0:4.4.0.1-7.fc44.x86_64     100% | 184.2 KiB/s |  56.9 KiB |  00m00s
-[ 2/73] gnome-autoar-0:0.4.5-4.fc44.x86 100% | 179.3 KiB/s |  57.2 KiB |  00m00s
-[ 3/73] gnome-shell-0:50.4-1.fc44.x86_6 100% |   4.8 MiB/s |   1.9 MiB |  00m00s
-[ 4/73] gnome-desktop4-0:44.5-1.fc44.x8 100% |   1.1 MiB/s | 153.3 KiB |  00m00s
-[ 5/73] libnma-gtk4-0:1.10.6-11.fc44.x8 100% |   1.5 MiB/s | 110.4 KiB |  00m00s
-[ 6/73] libgweather-0:4.6.0-1.fc44.x86_ 100% |   1.7 MiB/s | 352.6 KiB |  00m00s
-[ 7/73] xdg-user-dirs-gtk-0:0.16-2.fc44 100% |   1.5 MiB/s |  90.5 KiB |  00m00s
-[ 8/73] gnome-shell-common-0:50.4-1.fc4 100% | 476.7 KiB/s |  14.8 KiB |  00m00s
-[ 9/73] xdg-desktop-portal-gnome-0:50.0 100% |   2.1 MiB/s | 277.7 KiB |  00m00s
-[10/73] geocode-glib-0:3.26.4-15.fc44.x 100% |   1.2 MiB/s |  71.3 KiB |  00m00s
-[11/73] libical-glib-0:3.0.20-7.fc44.x8 100% | 362.1 KiB/s | 120.6 KiB |  00m00s
-[12/73] gnome-desktop3-0:44.5-1.fc44.x8 100% |   4.2 MiB/s | 663.3 KiB |  00m00s
-[13/73] libical-0:3.0.20-7.fc44.x86_64  100% |   3.2 MiB/s | 262.3 KiB |  00m00s
-[14/73] evolution-data-server-0:3.60.2- 100% |  25.0 MiB/s |   2.6 MiB |  00m00s
-[15/73] libphonenumber-0:8.13.55-9.fc44 100% |   8.3 MiB/s |   1.1 MiB |  00m00s
-[16/73] gdm-1:50.3-1.fc44.x86_64        100% |  23.0 MiB/s | 988.2 KiB |  00m00s
-[17/73] python3-pam-0:2.0.2-18.fc44.noa 100% | 533.9 KiB/s |  27.2 KiB |  00m00s
-[18/73] protobuf-0:3.19.6-20.fc44.x86_6 100% |   6.1 MiB/s |   1.0 MiB |  00m00s
-[19/73] geoclue2-libs-0:2.8.2-1.fc44.x8 100% |   1.8 MiB/s |  57.2 KiB |  00m00s
-[20/73] mozjs140-0:140.13.0-3.fc44.x86_ 100% |  59.4 MiB/s |   7.3 MiB |  00m00s
-[21/73] evolution-data-server-langpacks 100% |   3.6 MiB/s |   1.4 MiB |  00m00s
-[22/73] colord-gtk4-0:0.3.1-6.fc44.x86_ 100% | 355.4 KiB/s |  18.5 KiB |  00m00s
-[23/73] gnome-control-center-0:50.4-1.f 100% |  62.5 MiB/s |   6.0 MiB |  00m00s
-[24/73] gsound-0:1.0.3-12.fc44.x86_64   100% | 549.3 KiB/s |  35.7 KiB |  00m00s
-[25/73] gjs-0:1.88.1-2.fc44.x86_64      100% |   2.2 MiB/s | 674.6 KiB |  00m00s
-[26/73] gnome-control-center-filesystem 100% | 320.9 KiB/s |  10.3 KiB |  00m00s
-[27/73] malcontent-0:0.14.0-1.fc44.x86_ 100% |   3.5 MiB/s | 300.2 KiB |  00m00s
-[28/73] mutter-0:50.4-1.fc44.x86_64     100% |  49.1 MiB/s |   2.4 MiB |  00m00s
-[29/73] mutter-common-0:50.4-1.fc44.noa 100% | 604.6 KiB/s |  19.3 KiB |  00m00s
-[30/73] gnome-settings-daemon-0:50.1-1. 100% |  14.2 MiB/s |   1.1 MiB |  00m00s
-[31/73] tecla-0:50.0-1.fc44.x86_64      100% |   1.2 MiB/s |  69.3 KiB |  00m00s
-[32/73] libmanette-0:0.2.13-2.fc44.x86_ 100% |   1.2 MiB/s |  67.8 KiB |  00m00s
-[33/73] hidapi-0:0.15.0-3.fc44.x86_64   100% | 857.1 KiB/s |  48.0 KiB |  00m00s
-[34/73] iio-sensor-proxy-0:3.8-2.fc44.x 100% |   1.2 MiB/s |  66.2 KiB |  00m00s
-[35/73] javascriptcoregtk6.0-0:2.52.5-1 100% |  43.4 MiB/s |   8.7 MiB |  00m00s
-[36/73] gnome-bluetooth-libs-1:47.2-1.f 100% |   3.7 MiB/s | 282.6 KiB |  00m00s
-[37/73] webkitgtk6.0-0:2.52.5-1.fc44.x8 100% |  75.1 MiB/s |  28.1 MiB |  00m00s
-[38/73] gnome-online-accounts-libs-0:3. 100% |   1.8 MiB/s | 219.0 KiB |  00m00s
-[39/73] gnome-online-accounts-0:3.58.1- 100% |   2.6 MiB/s | 358.4 KiB |  00m00s
-[40/73] gnome-session-0:50.1-1.fc44.x86 100% |  10.7 MiB/s | 384.4 KiB |  00m00s
-[41/73] gnome-session-wayland-session-0 100% | 449.5 KiB/s |  13.9 KiB |  00m00s
-[42/73] javascriptcoregtk4.1-0:2.52.5-1 100% |  75.2 MiB/s |   8.7 MiB |  00m00s
-[43/73] gweather-locations-0:2026.2-1.f 100% |  16.2 MiB/s |   2.8 MiB |  00m00s
-[44/73] gweather-locations-common-0:202 100% |   3.1 MiB/s | 187.5 KiB |  00m00s
-[45/73] libatomic-0:16.2.1-2.fc44.x86_6 100% |   1.7 MiB/s |  55.3 KiB |  00m00s
-[46/73] libeis-0:1.6.0-2.fc44.x86_64    100% |   1.8 MiB/s |  58.6 KiB |  00m00s
-[47/73] rest-0:0.10.2-9.fc44.x86_64     100% |   2.3 MiB/s |  71.5 KiB |  00m00s
-[48/73] gvfs-goa-0:1.60.2-1.fc44.x86_64 100% |   1.8 MiB/s |  59.4 KiB |  00m00s
-[49/73] msgraph-0:0.3.5-1.fc44.x86_64   100% |   1.7 MiB/s |  58.5 KiB |  00m00s
-[50/73] qt6-qtwayland-adwaita-decoratio 100% |   1.8 MiB/s |  59.2 KiB |  00m00s
-[51/73] qadwaitadecorations-qt5-0:0.1.7 100% | 892.4 KiB/s |  62.5 KiB |  00m00s
-[52/73] webkit2gtk4.1-0:2.52.5-1.fc44.x 100% |  63.9 MiB/s |  27.8 MiB |  00m00s
-[53/73] qt6-qtwayland-0:6.11.2-1.fc44.x 100% |   6.9 MiB/s | 801.8 KiB |  00m00s
-[54/73] gnome-tour-0:50.0-2.fc44.x86_64 100% |   7.4 MiB/s | 821.8 KiB |  00m00s
-[55/73] bolt-0:0.9.11-1.fc44.x86_64     100% |   5.3 MiB/s | 191.3 KiB |  00m00s
-[56/73] gnome-bluetooth-1:47.2-1.fc44.x 100% |   1.3 MiB/s |  43.8 KiB |  00m00s
-[57/73] bluez-obexd-0:5.87+1.git8750129 100% |   4.1 MiB/s | 155.0 KiB |  00m00s
-[58/73] rygel-0:45.2-1.fc44.x86_64      100% |  26.6 MiB/s |   1.1 MiB |  00m00s
-[59/73] gnome-remote-desktop-0:50.2-1.f 100% |  15.1 MiB/s | 556.8 KiB |  00m00s
-[60/73] gupnp-dlna-0:0.12.0-12.fc44.x86 100% |   1.5 MiB/s |  96.8 KiB |  00m00s
-[61/73] libmediaart-0:1.9.7-4.fc44.x86_ 100% | 479.1 KiB/s |  37.9 KiB |  00m00s
-[62/73] libvncserver-0:0.9.15-6.fc44.x8 100% |   5.6 MiB/s | 333.2 KiB |  00m00s
-[63/73] malcontent-control-0:0.14.0-1.f 100% |   1.2 MiB/s |  94.2 KiB |  00m00s
-[64/73] malcontent-ui-libs-0:0.14.0-1.f 100% | 590.0 KiB/s |  41.9 KiB |  00m00s
-[65/73] evolution-ews-core-0:3.60.2-1.f 100% |  13.7 MiB/s | 561.0 KiB |  00m00s
-[66/73] evolution-ews-langpacks-0:3.60. 100% |   7.9 MiB/s | 292.9 KiB |  00m00s
-[67/73] gst-editing-services-0:1.28.7-1 100% |  11.4 MiB/s | 465.0 KiB |  00m00s
-[68/73] gupnp-av-0:0.14.5-1.fc44.x86_64 100% |   3.0 MiB/s | 101.5 KiB |  00m00s
-[69/73] freerdp-libs-2:3.31.1-1.fc44.x8 100% |  34.4 MiB/s |   1.4 MiB |  00m00s
-[70/73] libwinpr-2:3.31.1-1.fc44.x86_64 100% |  12.0 MiB/s | 428.8 KiB |  00m00s
-[71/73] sso-mib-libs-0:0.8.0-1.fc44.x86 100% | 699.8 KiB/s |  35.7 KiB |  00m00s
-[72/73] uriparser-0:1.0.2-1.fc44.x86_64 100% |   2.3 MiB/s |  74.9 KiB |  00m00s
-[73/73] gnome-color-manager-0:3.36.2-3. 100% |   3.4 MiB/s |   1.1 MiB |  00m00s
+[ 1/73] gcr-0:4.4.0.1-7.fc44.x86_64     100% | 286.0 KiB/s |  56.9 KiB |  00m00s
+[ 2/73] gnome-autoar-0:0.4.5-4.fc44.x86 100% | 286.0 KiB/s |  57.2 KiB |  00m00s
+[ 3/73] gnome-shell-0:50.4-1.fc44.x86_6 100% |   9.1 MiB/s |   1.9 MiB |  00m00s
+[ 4/73] gnome-desktop4-0:44.5-1.fc44.x8 100% |   7.1 MiB/s | 153.3 KiB |  00m00s
+[ 5/73] libical-glib-0:3.0.20-7.fc44.x8 100% |   2.7 MiB/s | 120.6 KiB |  00m00s
+[ 6/73] xdg-desktop-portal-gnome-0:50.0 100% |   9.7 MiB/s | 277.7 KiB |  00m00s
+[ 7/73] xdg-user-dirs-gtk-0:0.16-2.fc44 100% |   8.0 MiB/s |  90.5 KiB |  00m00s
+[ 8/73] gnome-shell-common-0:50.4-1.fc4 100% | 738.8 KiB/s |  14.8 KiB |  00m00s
+[ 9/73] libnma-gtk4-0:1.10.6-11.fc44.x8 100% |   1.1 MiB/s | 110.4 KiB |  00m00s
+[10/73] gnome-desktop3-0:44.5-1.fc44.x8 100% |  23.1 MiB/s | 663.3 KiB |  00m00s
+[11/73] libical-0:3.0.20-7.fc44.x86_64  100% |  19.7 MiB/s | 262.3 KiB |  00m00s
+[12/73] geocode-glib-0:3.26.4-15.fc44.x 100% |   1.8 MiB/s |  71.3 KiB |  00m00s
+[13/73] libgweather-0:4.6.0-1.fc44.x86_ 100% |   1.9 MiB/s | 352.6 KiB |  00m00s
+[14/73] libphonenumber-0:8.13.55-9.fc44 100% |  29.7 MiB/s |   1.1 MiB |  00m00s
+[15/73] evolution-data-server-0:3.60.2- 100% |  45.2 MiB/s |   2.6 MiB |  00m00s
+[16/73] gdm-1:50.3-1.fc44.x86_64        100% |  34.5 MiB/s | 988.2 KiB |  00m00s
+[17/73] python3-pam-0:2.0.2-18.fc44.noa 100% |   3.0 MiB/s |  27.2 KiB |  00m00s
+[18/73] protobuf-0:3.19.6-20.fc44.x86_6 100% |  17.3 MiB/s |   1.0 MiB |  00m00s
+[19/73] geoclue2-libs-0:2.8.2-1.fc44.x8 100% |   3.3 MiB/s |  57.2 KiB |  00m00s
+[20/73] mozjs140-0:140.13.0-3.fc44.x86_ 100% |  96.1 MiB/s |   7.3 MiB |  00m00s
+[21/73] evolution-data-server-langpacks 100% |   6.5 MiB/s |   1.4 MiB |  00m00s
+[22/73] colord-gtk4-0:0.3.1-6.fc44.x86_ 100% |   2.0 MiB/s |  18.5 KiB |  00m00s
+[23/73] gnome-control-center-0:50.4-1.f 100% |  92.3 MiB/s |   6.0 MiB |  00m00s
+[24/73] gsound-0:1.0.3-12.fc44.x86_64   100% |   1.8 MiB/s |  35.7 KiB |  00m00s
+[25/73] gjs-0:1.88.1-2.fc44.x86_64      100% |   4.0 MiB/s | 674.6 KiB |  00m00s
+[26/73] malcontent-0:0.14.0-1.fc44.x86_ 100% |  26.7 MiB/s | 300.2 KiB |  00m00s
+[27/73] gnome-control-center-filesystem 100% | 604.0 KiB/s |  10.3 KiB |  00m00s
+[28/73] mutter-common-0:50.4-1.fc44.noa 100% |   1.1 MiB/s |  19.3 KiB |  00m00s
+[29/73] tecla-0:50.0-1.fc44.x86_64      100% |   7.5 MiB/s |  69.3 KiB |  00m00s
+[30/73] gnome-settings-daemon-0:50.1-1. 100% |  23.5 MiB/s |   1.1 MiB |  00m00s
+[31/73] libmanette-0:0.2.13-2.fc44.x86_ 100% |   6.0 MiB/s |  67.8 KiB |  00m00s
+[32/73] mutter-0:50.4-1.fc44.x86_64     100% |  26.2 MiB/s |   2.4 MiB |  00m00s
+[33/73] hidapi-0:0.15.0-3.fc44.x86_64   100% |   5.2 MiB/s |  48.0 KiB |  00m00s
+[34/73] iio-sensor-proxy-0:3.8-2.fc44.x 100% |   5.9 MiB/s |  66.2 KiB |  00m00s
+[35/73] gnome-bluetooth-libs-1:47.2-1.f 100% |  11.5 MiB/s | 282.6 KiB |  00m00s
+[36/73] gnome-online-accounts-0:3.58.1- 100% |  14.6 MiB/s | 358.4 KiB |  00m00s
+[37/73] javascriptcoregtk6.0-0:2.52.5-1 100% |  60.6 MiB/s |   8.7 MiB |  00m00s
+[38/73] gnome-online-accounts-libs-0:3. 100% |   6.7 MiB/s | 219.0 KiB |  00m00s
+[39/73] gnome-session-0:50.1-1.fc44.x86 100% |  17.1 MiB/s | 384.4 KiB |  00m00s
+[40/73] gnome-session-wayland-session-0 100% | 663.6 KiB/s |  13.9 KiB |  00m00s
+[41/73] webkitgtk6.0-0:2.52.5-1.fc44.x8 100% |  87.8 MiB/s |  28.1 MiB |  00m00s
+[42/73] javascriptcoregtk4.1-0:2.52.5-1 100% |  47.4 MiB/s |   8.7 MiB |  00m00s
+[43/73] gweather-locations-common-0:202 100% |  15.3 MiB/s | 187.5 KiB |  00m00s
+[44/73] gweather-locations-0:2026.2-1.f 100% |  34.9 MiB/s |   2.8 MiB |  00m00s
+[45/73] libatomic-0:16.2.1-2.fc44.x86_6 100% |   3.2 MiB/s |  55.3 KiB |  00m00s
+[46/73] libeis-0:1.6.0-2.fc44.x86_64    100% |   3.4 MiB/s |  58.6 KiB |  00m00s
+[47/73] rest-0:0.10.2-9.fc44.x86_64     100% |   4.1 MiB/s |  71.5 KiB |  00m00s
+[48/73] gvfs-goa-0:1.60.2-1.fc44.x86_64 100% |   3.2 MiB/s |  59.4 KiB |  00m00s
+[49/73] msgraph-0:0.3.5-1.fc44.x86_64   100% |   3.4 MiB/s |  58.5 KiB |  00m00s
+[50/73] qadwaitadecorations-qt5-0:0.1.7 100% |   6.1 MiB/s |  62.5 KiB |  00m00s
+[51/73] webkit2gtk4.1-0:2.52.5-1.fc44.x 100% |  83.6 MiB/s |  27.8 MiB |  00m00s
+[52/73] qt6-qtwayland-adwaita-decoratio 100% | 768.6 KiB/s |  59.2 KiB |  00m00s
+[53/73] qt6-qtwayland-0:6.11.2-1.fc44.x 100% |   9.7 MiB/s | 801.8 KiB |  00m00s
+[54/73] bolt-0:0.9.11-1.fc44.x86_64     100% |   9.8 MiB/s | 191.3 KiB |  00m00s
+[55/73] gnome-tour-0:50.0-2.fc44.x86_64 100% |  28.7 MiB/s | 821.8 KiB |  00m00s
+[56/73] gnome-bluetooth-1:47.2-1.fc44.x 100% |   1.9 MiB/s |  43.8 KiB |  00m00s
+[57/73] bluez-obexd-0:5.87+1.git8750129 100% |   8.0 MiB/s | 155.0 KiB |  00m00s
+[58/73] gupnp-dlna-0:0.12.0-12.fc44.x86 100% |   7.9 MiB/s |  96.8 KiB |  00m00s
+[59/73] rygel-0:45.2-1.fc44.x86_64      100% |  38.5 MiB/s |   1.1 MiB |  00m00s
+[60/73] libmediaart-0:1.9.7-4.fc44.x86_ 100% |   2.1 MiB/s |  37.9 KiB |  00m00s
+[61/73] gnome-remote-desktop-0:50.2-1.f 100% |  23.6 MiB/s | 556.8 KiB |  00m00s
+[62/73] libvncserver-0:0.9.15-6.fc44.x8 100% |  20.3 MiB/s | 333.2 KiB |  00m00s
+[63/73] malcontent-control-0:0.14.0-1.f 100% |   7.7 MiB/s |  94.2 KiB |  00m00s
+[64/73] malcontent-ui-libs-0:0.14.0-1.f 100% |   3.4 MiB/s |  41.9 KiB |  00m00s
+[65/73] gnome-color-manager-0:3.36.2-3. 100% |  32.7 MiB/s |   1.1 MiB |  00m00s
+[66/73] evolution-ews-core-0:3.60.2-1.f 100% |  23.8 MiB/s | 561.0 KiB |  00m00s
+[67/73] evolution-ews-langpacks-0:3.60. 100% |  12.4 MiB/s | 292.9 KiB |  00m00s
+[68/73] gst-editing-services-0:1.28.7-1 100% |  21.6 MiB/s | 465.0 KiB |  00m00s
+[69/73] gupnp-av-0:0.14.5-1.fc44.x86_64 100% |   5.2 MiB/s | 101.5 KiB |  00m00s
+[70/73] sso-mib-libs-0:0.8.0-1.fc44.x86 100% |   2.7 MiB/s |  35.7 KiB |  00m00s
+[71/73] freerdp-libs-2:3.31.1-1.fc44.x8 100% |  47.1 MiB/s |   1.4 MiB |  00m00s
+[72/73] libwinpr-2:3.31.1-1.fc44.x86_64 100% |  19.9 MiB/s | 428.8 KiB |  00m00s
+[73/73] uriparser-0:1.0.2-1.fc44.x86_64 100% |   3.5 MiB/s |  74.9 KiB |  00m00s
 --------------------------------------------------------------------------------
-[73/73] Total                           100% |  35.6 MiB/s | 116.0 MiB |  00m03s
+[73/73] Total                           100% |  60.7 MiB/s | 116.0 MiB |  00m02s
 Running transaction
 [ 1/78] Verify package files            100% | 170.0   B/s |  76.0   B |  00m00s
-[ 2/78] Prepare transaction             100% | 234.0   B/s |  76.0   B |  00m00s
-[ 3/78] Installing libatomic-0:16.2.1-2 100% |   5.7 MiB/s |  46.6 KiB |  00m00s
-[ 4/78] Installing libical-0:3.0.20-7.f 100% |  72.9 MiB/s | 970.6 KiB |  00m00s
-[ 5/78] Installing libical-glib-0:3.0.2 100% |  92.9 MiB/s | 571.1 KiB |  00m00s
-[ 6/78] Installing rest-0:0.10.2-9.fc44 100% |  22.2 MiB/s | 205.0 KiB |  00m00s
-[ 7/78] Installing gnome-online-account 100% |  82.9 MiB/s | 764.3 KiB |  00m00s
-[ 8/78] Installing tecla-0:50.0-1.fc44. 100% |   3.3 MiB/s | 163.1 KiB |  00m00s
-[ 9/78] Installing gnome-control-center 100% |   3.2 KiB/s | 568.0   B |  00m00s
+[ 2/78] Prepare transaction             100% | 207.0   B/s |  76.0   B |  00m00s
+[ 3/78] Installing libatomic-0:16.2.1-2 100% |   4.5 MiB/s |  46.6 KiB |  00m00s
+[ 4/78] Installing libical-0:3.0.20-7.f 100% |  63.2 MiB/s | 970.6 KiB |  00m00s
+[ 5/78] Installing libical-glib-0:3.0.2 100% |  62.0 MiB/s | 571.1 KiB |  00m00s
+[ 6/78] Installing rest-0:0.10.2-9.fc44 100% |  20.0 MiB/s | 205.0 KiB |  00m00s
+[ 7/78] Installing gnome-online-account 100% |  74.6 MiB/s | 764.3 KiB |  00m00s
+[ 8/78] Installing tecla-0:50.0-1.fc44. 100% |   1.7 MiB/s | 163.1 KiB |  00m00s
+[ 9/78] Installing gnome-control-center 100% |   4.3 KiB/s | 568.0   B |  00m00s
 [10/78] Installing malcontent-0:0.14.0- 100% |  12.7 MiB/s |   1.1 MiB |  00m00s
-[11/78] Installing gsound-0:1.0.3-12.fc 100% |   3.7 MiB/s |  83.4 KiB |  00m00s
-[12/78] Installing gnome-bluetooth-libs 100% |  31.5 MiB/s |   1.0 MiB |  00m00s
+[11/78] Installing gsound-0:1.0.3-12.fc 100% |   3.5 MiB/s |  83.4 KiB |  00m00s
+[12/78] Installing gnome-bluetooth-libs 100% |  26.0 MiB/s |   1.0 MiB |  00m00s
 [13/78] Installing geoclue2-libs-0:2.8. 100% |  24.1 MiB/s | 172.5 KiB |  00m00s
-[14/78] Installing geocode-glib-0:3.26. 100% |  22.5 MiB/s | 230.7 KiB |  00m00s
-[15/78] Installing libnma-gtk4-0:1.10.6 100% |  41.0 MiB/s | 335.9 KiB |  00m00s
-[16/78] Installing w11-0:0.4.0-1.fc44.n 100% |  20.8 MiB/s |   6.3 MiB |  00m00s
-[17/78] Installing msgraph-0:0.3.5-1.fc 100% |  12.3 MiB/s | 151.6 KiB |  00m00s
-[18/78] Installing gvfs-goa-0:1.60.2-1. 100% |   3.4 MiB/s | 164.0 KiB |  00m00s
-[19/78] Installing gnome-online-account 100% |  35.6 MiB/s |   1.5 MiB |  00m00s
-[20/78] Installing bluez-obexd-0:5.87+1 100% |   7.6 MiB/s | 363.9 KiB |  00m00s
+[14/78] Installing geocode-glib-0:3.26. 100% |  17.3 MiB/s | 230.7 KiB |  00m00s
+[15/78] Installing libnma-gtk4-0:1.10.6 100% |  29.8 MiB/s | 335.9 KiB |  00m00s
+[16/78] Installing w11-0:0.4.0-1.fc44.n 100% |  23.9 MiB/s |   6.3 MiB |  00m00s
+[17/78] Installing msgraph-0:0.3.5-1.fc 100% |  16.5 MiB/s | 151.6 KiB |  00m00s
+[18/78] Installing gvfs-goa-0:1.60.2-1. 100% |   3.8 MiB/s | 164.0 KiB |  00m00s
+[19/78] Installing gnome-online-account 100% |  28.4 MiB/s |   1.5 MiB |  00m00s
+[20/78] Installing bluez-obexd-0:5.87+1 100% |   9.6 MiB/s | 363.9 KiB |  00m00s
 >>> Running %post scriptlet: bluez-obexd-0:5.87+1.git8750129efca8-1.fc44.x86_64
 >>> Finished %post scriptlet: bluez-obexd-0:5.87+1.git8750129efca8-1.fc44.x86_64
 >>> Scriptlet output:
 >>> Created symlink '/etc/systemd/user/dbus-org.bluez.obex.service' → '/usr/lib/systemd/user/obex.service'.
 >>> 
-[21/78] Installing javascriptcoregtk6.0 100% | 168.5 MiB/s |  32.2 MiB |  00m00s
-[22/78] Installing javascriptcoregtk4.1 100% | 187.2 MiB/s |  32.2 MiB |  00m00s
+[21/78] Installing javascriptcoregtk6.0 100% | 231.6 MiB/s |  32.2 MiB |  00m00s
+[22/78] Installing javascriptcoregtk4.1 100% | 268.3 MiB/s |  32.2 MiB |  00m00s
 [23/78] Installing uriparser-0:1.0.2-1. 100% |   8.9 MiB/s | 190.6 KiB |  00m00s
-[24/78] Installing libwinpr-2:3.31.1-1. 100% |  92.0 MiB/s |   1.3 MiB |  00m00s
-[25/78] Installing sso-mib-libs-0:0.8.0 100% |  11.4 MiB/s |  82.0 KiB |  00m00s
-[26/78] Installing freerdp-libs-2:3.31. 100% | 104.2 MiB/s |   3.9 MiB |  00m00s
-[27/78] Installing gupnp-av-0:0.14.5-1. 100% |  14.8 MiB/s | 364.6 KiB |  00m00s
-[28/78] Installing gst-editing-services 100% |  29.0 MiB/s |   1.4 MiB |  00m00s
+[24/78] Installing libwinpr-2:3.31.1-1. 100% |  99.0 MiB/s |   1.3 MiB |  00m00s
+[25/78] Installing sso-mib-libs-0:0.8.0 100% |  13.4 MiB/s |  82.0 KiB |  00m00s
+[26/78] Installing freerdp-libs-2:3.31. 100% | 120.5 MiB/s |   3.9 MiB |  00m00s
+[27/78] Installing gupnp-av-0:0.14.5-1. 100% |  39.6 MiB/s | 364.6 KiB |  00m00s
+[28/78] Installing gst-editing-services 100% |  37.9 MiB/s |   1.4 MiB |  00m00s
 [29/78] Installing malcontent-ui-libs-0 100% |  14.7 MiB/s | 105.1 KiB |  00m00s
-[30/78] Installing libvncserver-0:0.9.1 100% |  81.8 MiB/s |   1.1 MiB |  00m00s
-[31/78] Installing libmediaart-0:1.9.7- 100% |  13.8 MiB/s |  85.0 KiB |  00m00s
-[32/78] Installing gupnp-dlna-0:0.12.0- 100% |  13.0 MiB/s | 358.8 KiB |  00m00s
-[33/78] Installing qt6-qtwayland-0:6.11 100% |  73.4 MiB/s |   3.4 MiB |  00m00s
-[34/78] Installing libeis-0:1.6.0-2.fc4 100% |  20.9 MiB/s | 128.5 KiB |  00m00s
+[30/78] Installing libvncserver-0:0.9.1 100% |  88.6 MiB/s |   1.1 MiB |  00m00s
+[31/78] Installing libmediaart-0:1.9.7- 100% |  11.9 MiB/s |  85.0 KiB |  00m00s
+[32/78] Installing gupnp-dlna-0:0.12.0- 100% |  11.0 MiB/s | 358.8 KiB |  00m00s
+[33/78] Installing qt6-qtwayland-0:6.11 100% |  25.8 MiB/s |   3.4 MiB |  00m00s
+[34/78] Installing libeis-0:1.6.0-2.fc4 100% |  15.7 MiB/s | 128.5 KiB |  00m00s
 [35/78] Installing gweather-locations-c 100% | 179.8 MiB/s |   1.6 MiB |  00m00s
-[36/78] Installing gweather-locations-0 100% | 141.3 MiB/s |  20.3 MiB |  00m00s
-[37/78] Installing libgweather-0:4.6.0- 100% |  23.5 MiB/s |   1.8 MiB |  00m00s
-[38/78] Installing iio-sensor-proxy-0:3 100% |   1.7 MiB/s | 158.9 KiB |  00m00s
-[39/78] Installing hidapi-0:0.15.0-3.fc 100% |   6.5 MiB/s | 112.6 KiB |  00m00s
-[40/78] Installing libmanette-0:0.2.13- 100% |  32.7 MiB/s | 368.9 KiB |  00m00s
-[41/78] Installing webkitgtk6.0-0:2.52. 100% | 136.1 MiB/s |  91.7 MiB |  00m01s
-[42/78] Installing webkit2gtk4.1-0:2.52 100% | 133.2 MiB/s |  91.2 MiB |  00m01s
-[43/78] Installing mutter-common-0:50.4 100% |   6.1 MiB/s |  37.2 KiB |  00m00s
-[44/78] Installing colord-gtk4-0:0.3.1- 100% |   6.3 MiB/s |  32.2 KiB |  00m00s
-[45/78] Installing mozjs140-0:140.13.0- 100% | 183.3 MiB/s |  20.5 MiB |  00m00s
-[46/78] Installing gjs-0:1.88.1-2.fc44. 100% |  73.3 MiB/s |   2.1 MiB |  00m00s
-[47/78] Installing python3-pam-0:2.0.2- 100% |   6.2 MiB/s |  57.5 KiB |  00m00s
+[36/78] Installing gweather-locations-0 100% | 166.8 MiB/s |  20.3 MiB |  00m00s
+[37/78] Installing libgweather-0:4.6.0- 100% |  42.4 MiB/s |   1.8 MiB |  00m00s
+[38/78] Installing iio-sensor-proxy-0:3 100% |   1.8 MiB/s | 158.9 KiB |  00m00s
+[39/78] Installing hidapi-0:0.15.0-3.fc 100% |  12.2 MiB/s | 112.6 KiB |  00m00s
+[40/78] Installing libmanette-0:0.2.13- 100% |  51.5 MiB/s | 368.9 KiB |  00m00s
+[41/78] Installing webkitgtk6.0-0:2.52. 100% | 125.8 MiB/s |  91.7 MiB |  00m01s
+[42/78] Installing webkit2gtk4.1-0:2.52 100% | 209.8 MiB/s |  91.2 MiB |  00m00s
+[43/78] Installing mutter-common-0:50.4 100% |   1.8 MiB/s |  37.2 KiB |  00m00s
+[44/78] Installing colord-gtk4-0:0.3.1- 100% |   1.7 MiB/s |  32.2 KiB |  00m00s
+[45/78] Installing mozjs140-0:140.13.0- 100% | 125.2 MiB/s |  20.5 MiB |  00m00s
+[46/78] Installing gjs-0:1.88.1-2.fc44. 100% |  39.4 MiB/s |   2.1 MiB |  00m00s
+[47/78] Installing python3-pam-0:2.0.2- 100% |   4.3 MiB/s |  57.5 KiB |  00m00s
 [48/78] Installing protobuf-0:3.19.6-20 100% | 172.9 MiB/s |   3.3 MiB |  00m00s
-[49/78] Installing libphonenumber-0:8.1 100% | 162.0 MiB/s |   6.5 MiB |  00m00s
-[50/78] Installing evolution-data-serve 100% |  38.2 MiB/s |   8.9 MiB |  00m00s
-[51/78] Installing evolution-data-serve 100% | 162.6 MiB/s |   9.1 MiB |  00m00s
-[52/78] Installing evolution-ews-core-0 100% | 110.7 MiB/s |   2.1 MiB |  00m00s
-[53/78] Installing evolution-ews-langpa 100% |  78.5 MiB/s |   1.6 MiB |  00m00s
-[54/78] Installing gnome-desktop3-0:44. 100% |  33.0 MiB/s |   3.0 MiB |  00m00s
-[55/78] Installing gnome-desktop4-0:44. 100% |  27.3 MiB/s | 474.8 KiB |  00m00s
-[56/78] Installing gnome-settings-daemo 100% |  32.0 MiB/s |   6.2 MiB |  00m00s
-[57/78] Installing gnome-session-0:50.1 100% |  10.3 MiB/s |   1.4 MiB |  00m00s
-[58/78] Installing gnome-control-center 100% | 114.0 MiB/s |  23.8 MiB |  00m00s
-[59/78] Installing mutter-0:50.4-1.fc44 100% |  67.4 MiB/s |   9.1 MiB |  00m00s
-[60/78] Installing xdg-desktop-portal-g 100% |  11.3 MiB/s | 998.4 KiB |  00m00s
-[61/78] Installing gnome-shell-common-0 100% |   1.5 MiB/s |  16.7 KiB |  00m00s
-[62/78] Installing xdg-user-dirs-gtk-0: 100% |   2.4 MiB/s | 237.8 KiB |  00m00s
-[63/78] Installing gnome-autoar-0:0.4.5 100% |  11.5 MiB/s | 153.3 KiB |  00m00s
-[64/78] Installing gcr-0:4.4.0.1-7.fc44 100% |   2.9 MiB/s | 136.2 KiB |  00m00s
-[65/78] Installing gnome-shell-0:50.4-1 100% | 115.7 MiB/s |  14.3 MiB |  00m00s
-[66/78] Installing gnome-session-waylan 100% | 169.1 KiB/s |   8.3 KiB |  00m00s
-[67/78] Installing gdm-1:50.3-1.fc44.x8 100% |  26.0 MiB/s |   5.2 MiB |  00m00s
->>> Running %post scriptlet: gdm-1:50.3-1.fc44.x86_64
->>> Finished %post scriptlet: gdm-1:50.3-1.fc44.x86_64
->>> Scriptlet output:
->>> Failed to preset unit: File '/etc/systemd/system/display-manager.service' already exists and is a symlink to /usr/lib/systemd/system/greetd.service
->>> 
-[68/78] Installing gnome-shell-extensio 100% |   6.4 MiB/s |  91.1 KiB |  00m00s
+[49/78] Installing libphonenumber-0:8.1 100% | 223.4 MiB/s |   6.5 MiB |  00m00s
+[50/78] Installing evolution-data-serve 100% |  99.0 MiB/s |   8.9 MiB |  00m00s
+[51/78] Installing evolution-data-serve 100% | 119.8 MiB/s |   9.1 MiB |  00m00s
+[52/78] Installing evolution-ews-core-0 100% |  56.8 MiB/s |   2.1 MiB |  00m00s
+[53/78] Installing evolution-ews-langpa 100% |  48.5 MiB/s |   1.6 MiB |  00m00s
+[54/78] Installing gnome-desktop3-0:44. 100% |  21.1 MiB/s |   3.0 MiB |  00m00s
+[55/78] Installing gnome-desktop4-0:44. 100% |  15.5 MiB/s | 474.8 KiB |  00m00s
+[56/78] Installing gnome-settings-daemo 100% |  47.5 MiB/s |   6.2 MiB |  00m00s
+[57/78] Installing gnome-session-0:50.1 100% |  14.4 MiB/s |   1.4 MiB |  00m00s
+[58/78] Installing gnome-control-center 100% |  54.6 MiB/s |  23.8 MiB |  00m00s
+[59/78] Installing mutter-0:50.4-1.fc44 100% |  75.1 MiB/s |   9.1 MiB |  00m00s
+[60/78] Installing xdg-desktop-portal-g 100% |  14.3 MiB/s | 998.4 KiB |  00m00s
+[61/78] Installing gnome-shell-common-0 100% |   2.7 MiB/s |  16.7 KiB |  00m00s
+[62/78] Installing xdg-user-dirs-gtk-0: 100% |   3.3 MiB/s | 237.8 KiB |  00m00s
+[63/78] Installing gnome-autoar-0:0.4.5 100% |  15.0 MiB/s | 153.3 KiB |  00m00s
+[64/78] Installing gcr-0:4.4.0.1-7.fc44 100% |   2.7 MiB/s | 136.2 KiB |  00m00s
+[65/78] Installing gnome-shell-0:50.4-1 100% | 121.6 MiB/s |  14.3 MiB |  00m00s
+[66/78] Installing gnome-session-waylan 100% | 153.4 KiB/s |   8.3 KiB |  00m00s
+[67/78] Installing gdm-1:50.3-1.fc44.x8 100% |  23.2 MiB/s |   5.2 MiB |  00m00s
+[68/78] Installing gnome-shell-extensio 100% |   5.6 MiB/s |  91.1 KiB |  00m00s
 [69/78] Installing gnome-shell-extensio 100% |   8.1 MiB/s |  90.9 KiB |  00m00s
-[70/78] Installing qt6-qtwayland-adwait 100% |   8.2 MiB/s | 133.7 KiB |  00m00s
-[71/78] Installing rygel-0:45.2-1.fc44. 100% |  35.5 MiB/s |   4.7 MiB |  00m00s
-[72/78] Installing gnome-remote-desktop 100% |  16.7 MiB/s |   2.1 MiB |  00m00s
-[73/78] Installing malcontent-control-0 100% |  11.9 MiB/s | 269.2 KiB |  00m00s
-[74/78] Installing gnome-bluetooth-1:47 100% |   3.3 MiB/s |  97.9 KiB |  00m00s
-[75/78] Installing gnome-color-manager- 100% |  33.0 MiB/s |   3.1 MiB |  00m00s
-[76/78] Installing bolt-0:0.9.11-1.fc44 100% |   5.3 MiB/s | 502.7 KiB |  00m00s
-[77/78] Installing gnome-tour-0:50.0-2. 100% |  22.9 MiB/s |   2.3 MiB |  00m00s
-[78/78] Installing qadwaitadecorations- 100% |  56.6 KiB/s | 153.0 KiB |  00m03s
+[70/78] Installing qt6-qtwayland-adwait 100% |   4.7 MiB/s | 133.7 KiB |  00m00s
+[71/78] Installing rygel-0:45.2-1.fc44. 100% |  30.6 MiB/s |   4.7 MiB |  00m00s
+[72/78] Installing gnome-remote-desktop 100% |  18.8 MiB/s |   2.1 MiB |  00m00s
+[73/78] Installing malcontent-control-0 100% |  10.5 MiB/s | 269.2 KiB |  00m00s
+[74/78] Installing gnome-bluetooth-1:47 100% |   4.2 MiB/s |  97.9 KiB |  00m00s
+[75/78] Installing gnome-color-manager- 100% |  39.7 MiB/s |   3.1 MiB |  00m00s
+[76/78] Installing bolt-0:0.9.11-1.fc44 100% |   7.9 MiB/s | 502.7 KiB |  00m00s
+[77/78] Installing gnome-tour-0:50.0-2. 100% |  45.3 MiB/s |   2.3 MiB |  00m00s
+[78/78] Installing qadwaitadecorations- 100% |  52.7 KiB/s | 153.0 KiB |  00m03s
 Warning: skipped OpenPGP checks for 3 packages from repository: @commandline
 Complete!
 ### rc=0
