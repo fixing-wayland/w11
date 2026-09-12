@@ -842,7 +842,14 @@ jobs:
       # 1 MB across the 38 flavors. Without it every push measures 38 desktops and then
       # deletes the evidence, and tests/fixtures/live/NOT-YET-RUN can never empty.
       - name: vm/live-smoke.sh --pkg --remove --record
-        run: vm/live-smoke.sh ${{ matrix.flavor }} --pkg --remove --record --heads 3 --cpus 2 --mem 3G
+        # Heads default to 3; a flavor may pin fewer with `# vmctl-ci-heads:` in its yaml.
+        # fedora44-cosmic pins 2: cosmic-comp SIGSEGVs intermittently in llvmpipe's
+        # per-output render threads under headless software GL, and one fewer output is
+        # one fewer such thread (rung 4, the GL stack; softpipe degrades fedora's cosmic
+        # and LP_NUM_THREADS=0 only reduced it -- runs 34704305466/34709568224).
+        run: |
+          H=$(sed -n 's/^#[[:space:]]*vmctl-ci-heads:[[:space:]]*//p' vm/flavors/${{ matrix.flavor }}.yaml | head -1)
+          vm/live-smoke.sh ${{ matrix.flavor }} --pkg --remove --record --heads "${H:-3}" --cpus 2 --mem 3G
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -624,8 +624,10 @@ class TheRigJob(unittest.TestCase):
         self.assertIn("system-features = nixos-test benchmark big-parallel kvm", self.vm)
 
     def test_the_smoke_runs_in_package_mode_and_removes_afterwards(self):
+        # heads default to 3; a flavor pins fewer with `# vmctl-ci-heads:` (fedora44-cosmic: 2)
         self.assertIn("vm/live-smoke.sh ${{ matrix.flavor }} --pkg --remove --record "
-                      "--heads 3 --cpus 2 --mem 3G", self.vm)
+                      '--heads "${H:-3}" --cpus 2 --mem 3G', self.vm)
+        self.assertIn("vmctl-ci-heads:", self.vm)
 
     def test_the_smoke_records_and_the_upload_carries_the_capture(self):
         """`--record` is the whole of what CI had to add for the recordings:
@@ -635,8 +637,9 @@ class TheRigJob(unittest.TestCase):
         every push measures 38 desktops and deletes the evidence
         [recon/recordings.md 1.1: nothing in this file set CAPLOG].  24 KB per
         Wayland flavor, measured on resolute-sway 2026-09-12."""
-        run = [ln for ln in self.vm.splitlines() if "vm/live-smoke.sh" in ln
-               and ln.strip().startswith("run:")]
+        # the step is a `run: |` block now (it reads the flavor's head count first),
+        # so the invocation is its own line rather than on `run:`.
+        run = [ln for ln in self.vm.splitlines() if "vm/live-smoke.sh ${{ matrix.flavor }}" in ln]
         self.assertEqual(len(run), 1, self.vm)
         self.assertIn("--record", run[0])
         self.assertIn("path: vm/live-smoke.out/", self.vm)
