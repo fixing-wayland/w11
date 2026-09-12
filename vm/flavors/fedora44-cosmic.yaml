@@ -102,8 +102,9 @@
 # vmctl-desktop: cosmic
 # vmctl-distro: fedora
 # vmctl-ci: push
-# vmctl-ci-heads: 2  (cosmic-comp SIGSEGVs in llvmpipe's per-output render threads under
-#                     headless software GL; one fewer output is one fewer such thread)
+# cosmic-comp SIGSEGVs in llvmpipe's per-output render threads under headless software
+# GL; one fewer output is one fewer such thread, so this flavor runs two heads:
+# vmctl-ci-heads: 2
 hostname: fedora44-cosmic
 manage_etc_hosts: true
 disable_root: false

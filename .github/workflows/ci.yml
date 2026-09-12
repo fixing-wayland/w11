@@ -848,7 +848,7 @@ jobs:
         # one fewer such thread (rung 4, the GL stack; softpipe degrades fedora's cosmic
         # and LP_NUM_THREADS=0 only reduced it -- runs 34704305466/34709568224).
         run: |
-          H=$(sed -n 's/^#[[:space:]]*vmctl-ci-heads:[[:space:]]*//p' vm/flavors/${{ matrix.flavor }}.yaml | head -1)
+          H=$(sed -n 's/^#[[:space:]]*vmctl-ci-heads:[[:space:]]*\([0-9][0-9]*\).*/\1/p' vm/flavors/${{ matrix.flavor }}.yaml | head -1)
           vm/live-smoke.sh ${{ matrix.flavor }} --pkg --remove --record --heads "${H:-3}" --cpus 2 --mem 3G
       - uses: actions/upload-artifact@v4
         if: always()
