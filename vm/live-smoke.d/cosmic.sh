@@ -80,10 +80,36 @@ editor_clear() { guest "wdotool key ctrl+u; : > $SMOKE_FILE" >/dev/null 2>&1 || 
 # `transform "flipped270"`) [recon2/cosmic 6].  The KDL is parsed on the HOST, which is why
 # every one of these is `guest ... | python3` and not `guest 'python3'`.
 
+# cosmic-randr's raw KDL, but POLLED past the empty-document settle.  cosmic-randr answers zero
+# `output` rows for a second or so right after a modeset -- MEASURED on the arch-cosmic golden, up to
+# ~4 s once (oracle_outputs' paragraph, which polls the same transient for the output count).  A `mode`
+# or `transform` read taken in that window comes back empty and the `same "$t0"` after `--rotate
+# normal` fails against it: that reddened CI run 34682383044 fedora44-cosmic (`--rotate normal ... want
+# 'normal' got ''`, with `mode of Virtual-2 per cosmic-randr:` empty on the SAME read -- the whole
+# document was empty, not one field).  The empty window is load-dependent, like the count one: on the
+# quiet fcos-b19 golden (cosmic-comp 1.8.0-1.fc44 git a55785, three heads, 2026-09-12) `cosmic-randr list
+# --kdl` answered three rows and `normal` on the first read after `--rotate normal` in every one of 15
+# samples and under 3 `yes` workers, so it did not reproduce there -- the fix is against the measured
+# window, not a fresh reproduction.  So the document is polled until it carries an `output` row, bounded
+# (10 x 1 s), the same wait oracle_outputs uses -- an enabled head always answers a row once cosmic-comp
+# has settled (a head that is really --off still answers the other rows), so the poll waits the empty
+# window out without masking anything, and returns on the first read when the oracle is healthy
+# (verified: a healthy read returns immediately, a forced empty-first-read retries once and returns
+# `normal`, an always-empty oracle gives up bounded at ~10 s).
+cosmic_kdl() {
+    local out i
+    for i in $(seq 1 10); do
+        out=$(guest 'cosmic-randr list --kdl' 2>/dev/null || true)
+        printf '%s\n' "$out" | grep -q '^output ' && { printf '%s\n' "$out"; return 0; }
+        sleep 1
+    done
+    printf '%s\n' "$out"
+}
+
 # "<w>x<h>" for output $1, from cosmic-randr's own current mode -- where oracle.py reads the
 # position, this reads the mode, so the two never assert the same field.
 cosmic_mode() {
-    guest 'cosmic-randr list --kdl' | python3 -c '
+    cosmic_kdl | python3 -c '
 import re, sys
 doc, want, cur = sys.stdin.read(), sys.argv[1], None
 for block in re.split(r"(?m)^output ", doc):
@@ -97,7 +123,7 @@ for block in re.split(r"(?m)^output ", doc):
 
 # cosmic-randr's own transform word for output $1 -- "normal", "flipped270" and so on.
 cosmic_transform() {
-    guest 'cosmic-randr list --kdl' | python3 -c '
+    cosmic_kdl | python3 -c '
 import re, sys
 doc, want = sys.stdin.read(), sys.argv[1]
 for block in re.split(r"(?m)^output ", doc):
@@ -182,18 +208,21 @@ outside the floor's arrival range"
     # against is version-independent [R src/lib.rs:340-367] and both goldens run the same 1.8.0 build.
     # The fallback is a STRING we can build -- 0,0 plus some head's mode, and cosmic-randr
     # prints every head's mode -- so the reading is compared against it rather than against a
-    # rectangle shape, which the fallback satisfies too.  No mode from cosmic-randr means the
-    # comparison could not be made, and NO-HEAD-MODE fails: a check that cannot read its own
-    # oracle has not passed.
+    # rectangle shape, which the fallback satisfies too.  A FAIL here has TWO distinct causes and
+    # the verdict must name which, or the next reader of an arch-cosmic red chases the wrong oracle
+    # (CI run 34682383044 read the floors fine -- 0,0 1920x1080 x3 in the note -- and it was
+    # `win_geom` that came back empty, yet the old single NO-HEAD-MODE label pointed at the mode
+    # oracle): NO-HEAD-MODE means cosmic-randr gave no head mode (the fallback string can't be
+    # built), NO-GEOMETRY means `wdotool getwindowgeometry` itself returned no rectangle.
     local g floors verdict o
     g=$(win_geom "$WIN")
     floors=$(for o in $(oracle_outputs | awk '{print $1}'); do
                  printf '0,0 %s\n' "$(cosmic_mode "$o")"
              done | grep -E '^0,0 [0-9]+x[0-9]+$' || true)
-    verdict="NO-HEAD-MODE"
-    if [ -n "$floors" ] && printf '%s\n' "$g" | grep -Eq '^[0-9]+,[0-9]+ [0-9]+x[0-9]+$'; then
-        if printf '%s\n' "$floors" | grep -Fxq "$g"; then verdict="FLOOR-FALLBACK"
-        else verdict="OWN-RECTANGLE"; fi
+    verdict="OWN-RECTANGLE"
+    if [ -z "$floors" ]; then verdict="NO-HEAD-MODE"
+    elif ! printf '%s\n' "$g" | grep -Eq '^[0-9]+,[0-9]+ [0-9]+x[0-9]+$'; then verdict="NO-GEOMETRY"
+    elif printf '%s\n' "$floors" | grep -Fxq "$g"; then verdict="FLOOR-FALLBACK"
     fi
     note "getwindowgeometry: $g (the floor's fallbacks on this session: $(ev "$floors"))"
     want "getwindowgeometry is the window's own rectangle and not 0,0 + a head's mode" \

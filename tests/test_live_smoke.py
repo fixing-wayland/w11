@@ -520,6 +520,74 @@ class TheStepFiles(unittest.TestCase):
         self.assertEqual([d for d in want if d not in step_tokens()], [])
 
 
+class TheCosmicKdlPoller(unittest.TestCase):
+    """cosmic.sh's `cosmic_kdl`, which `cosmic_transform`/`cosmic_mode` read
+    through.  cosmic-randr answers zero `output` rows for a second or so right
+    after a modeset (MEASURED ~4 s once on the arch-cosmic golden, oracle_outputs'
+    paragraph), and a single read in that window asserts an empty '' against the
+    resting transform -- that is what reddened fedora44-cosmic in CI run
+    34682383044 (`--rotate normal ... want 'normal' got ''`).  So the read polls
+    the document until it carries an `output` row, bounded 10 x 1 s -- the same
+    wait oracle_outputs uses.  This sources the shipped cosmic.sh the way the
+    driver does (R13's stubs) with `guest` answering an empty document N times
+    then the real KDL and `sleep` counted instead of taken, so the poll's shape
+    is checked in a second where the golden costs a boot."""
+
+    KDL = os.path.join(VMFIX, "cosmic-randr-2heads-one-disabled.kdl")
+
+    def _poll(self, empties):
+        """Source cosmic.sh, make `guest` emit an empty KDL `empties` times then
+        the fixture, count guest+sleep calls, read Virtual-2's transform through
+        cosmic_transform.  Returns (transform, guest_calls, sleeps)."""
+        tmp = tempfile.mkdtemp()
+        cnt, scnt = os.path.join(tmp, "n"), os.path.join(tmp, "s")
+        for path in (cnt, scnt):
+            with open(path, "w") as fh:
+                fh.write("0")
+        pre = "set -u\n"
+        pre += 'STEPS=%s\nDESKTOP=cosmic\nDISTRO=ubuntu\nMODE=pkg\nREUSE=0\n' % STEPS
+        pre += 'VM=/nonexistent/vmctl\nNAME=t\nFLAVOR=t\nREPO=%s\nHEADS=2\nSCALE=0\n' % ROOT
+        for name in TheStepFiles.HELPERS.split():
+            pre += '%s() { :; }\n' % name
+        pre += '. "$STEPS/common.sh"\n. "$STEPS/cosmic.sh"\n'
+        # Redefine AFTER sourcing so these win: `guest` (the KDL source) counts
+        # itself and answers empty until the (empties+1)-th read; `sleep` is
+        # counted, never taken, so an always-empty run does not wait 10 real s.
+        tail = ('guest() { local n; n=$(cat "$CNT"); n=$((n+1)); printf %s "$n" > "$CNT";\n'
+                '  if [ "$n" -gt "$EMPTIES" ]; then cat "$KDL"; fi; }\n'
+                'sleep() { local s; s=$(cat "$SCNT"); printf %s "$((s+1))" > "$SCNT"; }\n'
+                't=$(cosmic_transform Virtual-2)\n'
+                'printf "T:[%s]\\n" "$t"\n'
+                'printf "G:%s\\n" "$(cat "$CNT")"\n'
+                'printf "S:%s\\n" "$(cat "$SCNT")"\n')
+        env = dict(os.environ, CNT=cnt, SCNT=scnt, KDL=self.KDL, EMPTIES=str(empties))
+        got = subprocess.run(["bash", "-c", pre + tail],
+                             capture_output=True, text=True, timeout=60, env=env)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        out = dict(ln.split(":", 1) for ln in got.stdout.splitlines() if ":" in ln)
+        return out["T"], int(out["G"]), int(out["S"])
+
+    def test_a_healthy_read_returns_on_the_first_guest_call(self):
+        """When cosmic-randr answers rows straight away there is no added
+        latency: one guest call, no sleep, the resting transform."""
+        transform, calls, sleeps = self._poll(0)
+        self.assertEqual((transform, calls, sleeps), ("[normal]", 1, 0))
+
+    def test_an_empty_document_is_reread_past_the_settle_until_rows_arrive(self):
+        """Two empty documents then rows: the poll re-reads past both (three
+        guest calls, two sleeps) and still returns `normal`, where a single read
+        would have asserted ''."""
+        transform, calls, sleeps = self._poll(2)
+        self.assertEqual((transform, calls, sleeps), ("[normal]", 3, 2))
+
+    def test_an_always_empty_oracle_gives_up_bounded_at_ten_reads(self):
+        """An oracle that never answers rows does not hang: the poll stops at
+        ten reads (ten counted 1 s sleeps) and hands back the empty document, so
+        the check FAILs rather than blocking the whole smoke."""
+        transform, calls, sleeps = self._poll(99)
+        self.assertEqual((transform, calls, sleeps), ("[]", 10, 10))
+
+
 class TheDriversPackageAxis(unittest.TestCase):
     """R14.  `--pkg` and its `--deb` alias, and the four per-distro tables, run
     as the shell functions they are."""

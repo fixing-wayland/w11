@@ -209,7 +209,8 @@ class SessionRegistryRetries(unittest.TestCase):
         # a socket the finder will name; the fake WlConn below never touches it
         self.hit = (1000, "/run/user/1000", "/run/user/1000/wayland-1")
         p = mock.patch.object(session, "find_wayland_socket", return_value=self.hit)
-        p.start(); self.addCleanup(p.stop)
+        p.start()
+        self.addCleanup(p.stop)
 
     def _install(self, sequence):
         """`sequence` is a list of get_registry() outcomes, one per WlConn() built: an Exception
@@ -232,7 +233,8 @@ class SessionRegistryRetries(unittest.TestCase):
 
         import w11common.wayland_mini as wm
         p = mock.patch.object(wm, "WlConn", FakeConn)
-        p.start(); self.addCleanup(p.stop)
+        p.start()
+        self.addCleanup(p.stop)
 
     def test_a_transient_connect_failure_is_retried_and_then_succeeds(self):
         self._install([OSError("momentary"),
