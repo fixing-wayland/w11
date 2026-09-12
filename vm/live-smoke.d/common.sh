@@ -182,13 +182,26 @@ display_pair() {   # prints "<anchor> <mover>"; an empty mover means one head
 # `--right-of` / `--below` in the oracle's numbers, which is the only way to
 # state them once for a two-head and a three-head instance: the mover shares one
 # coordinate with the anchor and is strictly past it on the other.
+# beside_ok right|below <anchor-pos> <mover-pos>  -- the placement predicate, no output: 0 when the mover
+# position sits to the right of / below the anchor position.  It takes positions ALREADY READ (each `opos`
+# is a `guest` round trip that the ordered replay counts, so the caller reads each exactly once), which is
+# why `beside` passes its own `ap`/`bp` rather than the names: split out so the off-head xwant path
+# (common_display_phase, OFF_HEAD_STAYS_OFF) can ask the same question without emitting a pass/fail.
+beside_ok() {
+    local how=$1 ap=$2 bp=$3
+    [ -n "$ap" ] && [ -n "$bp" ] || return 1
+    if [ "$how" = right ]; then
+        [ "${bp#*,}" = "${ap#*,}" ] && [ "${bp%,*}" -gt "${ap%,*}" ]
+    else
+        [ "${bp%,*}" = "${ap%,*}" ] && [ "${bp#*,}" -gt "${ap#*,}" ]
+    fi
+}
+
 beside() {   # beside right|below <anchor> <mover> <what>
     local how=$1 a=$2 b=$3 what=$4 ap bp
     ap=$(opos "$a"); bp=$(opos "$b")
     if [ -z "$ap" ] || [ -z "$bp" ]; then fail "$what [no position for $a ($ap) or $b ($bp)]"; return 1; fi
-    if [ "$how" = right ] && [ "${bp#*,}" = "${ap#*,}" ] && [ "${bp%,*}" -gt "${ap%,*}" ]; then
-        pass "$what ($a at $ap, $b at $bp)"
-    elif [ "$how" = below ] && [ "${bp%,*}" = "${ap%,*}" ] && [ "${bp#*,}" -gt "${ap#*,}" ]; then
+    if beside_ok "$how" "$ap" "$bp"; then
         pass "$what ($a at $ap, $b at $bp)"
     else
         fail "$what [$a at $ap, $b at $bp]"
@@ -778,6 +791,17 @@ common_display_phase() {
     fi
     guest "wxrandr --output $second --auto" >/dev/null || true
     sleep 2
+    # Some compositors cannot re-enable a head they switched --off, so a flavor declares it in
+    # OFF_HEAD_STAYS_OFF (arch-river: river 0.4.8's output manager answers `failed to apply
+    # configuration` to wlr-randr --on; fedora44/arch-cosmic: cosmic-randr cannot re-add a head to the
+    # layout) [run 34667595059, diagnosis §4,§5].  wxrandr's own half is done -- X keeps a disabled
+    # output in --query and wxrandr does too, so the head is still LISTED; bringing it back is the
+    # refusal, and the route is 6 (a patched river / a cosmic-randr that re-adds a head).  There the
+    # three re-enable checks are xwants naming that route; everywhere else they are plain checks.
+    if [ -n "${OFF_HEAD_STAYS_OFF:-}" ]; then
+        off_head_route6_xwants "$first" "$second" "$n0"
+        return 0
+    fi
     same "--output $second --auto brings it back" "$n0" "$(oracle_outputs | grep -c .)"
     guest "wxrandr --output $second --right-of $first" >/dev/null || true
     sleep 2
@@ -797,6 +821,26 @@ common_display_phase() {
         guest "wxrandr --output $second --right-of $first" >/dev/null || true
         sleep 2
     fi
+}
+
+# The three re-enable checks a compositor that keeps an --off head off cannot pass, as xwants naming
+# route 6.  Each attempts the layout call the plain path makes (so a patched compositor XPASSes it the
+# day it lands) and asks `beside_ok` / the oracle count whether it took -- OFF_HEAD_STAYS_OFF carries the
+# measured refusal for the label.  arch-river and fedora44/arch-cosmic only [diagnosis §4,§5].
+off_head_route6_xwants() {
+    local first=$1 second=$2 n0=$3 ap bp why=${OFF_HEAD_STAYS_OFF:-the off head does not come back}
+    xwant "--output $second --auto brings it back (until route 6, a patched $DESKTOP re-adds the head: $why)" \
+          "^$n0$" "$(oracle_outputs | grep -c .)"
+    guest "wxrandr --output $second --right-of $first" >/dev/null || true
+    sleep 2
+    ap=$(opos "$first"); bp=$(opos "$second")
+    xwant "--right-of puts $second to the right of $first (until route 6, a patched $DESKTOP re-adds the head: $why)" \
+          "^placed$" "$(beside_ok right "$ap" "$bp" && echo placed || echo "off at ${bp:-gone}")"
+    guest "wxrandr --output $second --below $first" >/dev/null || true
+    sleep 2
+    ap=$(opos "$first"); bp=$(opos "$second")
+    xwant "--below puts $second under $first (until route 6, a patched $DESKTOP re-adds the head: $why)" \
+          "^placed$" "$(beside_ok below "$ap" "$bp" && echo placed || echo "off at ${bp:-gone}")"
 }
 
 # F2.3 and the root-vs-user axis: root over ssh has no session environment at

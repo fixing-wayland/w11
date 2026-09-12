@@ -53,8 +53,14 @@ LIVEFIX=$REPO/tests/fixtures/live
 OUT=${RIG_REC_OUT:-$LIVEFIX}
 NYR=${RIG_REC_NYR:-$LIVEFIX/NOT-YET-RUN}
 WORK=${RIG_REC_WORK:-$(mktemp -d -t rig-recordings-XXXXXX)}
+# `|| true`: a failed command substitution inside a ${X:-$(...)} default aborts
+# under `set -euo pipefail` even though the value would just be empty -- and the
+# nix sandbox copies the source with no .git, so `git config` here exits 128
+# (test_live_smoke.py::TheRecordingsPipeline, the nix check).  RIG_REC_LOCAL runs
+# never reach gh, so an empty GH_REPO is harmless there; a `gh run download` run
+# without it dies later with a clear message of its own.
 GH_REPO=${RIG_REC_GH_REPO:-$(git -C "$REPO" config --get remote.origin.url 2>/dev/null \
-    | sed 's|.*[:/]\([^/]*\)/\([^/]*\)$|\1/\2|; s|\.git$||')}
+    | sed 's|.*[:/]\([^/]*\)/\([^/]*\)$|\1/\2|; s|\.git$||' || true)}
 mkdir -p "$WORK" "$OUT"
 
 flavors=${*:-}

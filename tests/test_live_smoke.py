@@ -1637,5 +1637,49 @@ class ThePromotedChecks(unittest.TestCase):
         self.assertIn(self.NO_OWN_PROXY, checks)
         self.assertTrue([n for n in notes if "no original wmctrl on this flavor" in n], notes)
 
+
+class TheOffHeadHook(unittest.TestCase):
+    """The per-flavor `OFF_HEAD_STAYS_OFF` hook (batch 18 item 2): a compositor that keeps an --off head
+    off declares it, and common_display_phase's three re-enable checks become route-6 xwants there and stay
+    plain everywhere else.  river.sh sets it (river 0.4.8 refuses wlr-randr --on); cosmic.sh does NOT --
+    MEASURED on the arch-cosmic 1.8.0 golden (instance acos-b18r, 2026-09-12): a `--off` head comes back
+    with `--auto` across three cycles, so cosmic's path is the plain one."""
+
+    def setUp(self):
+        self.common = read(STEPS, "common.sh")
+
+    def _sets_hook(self, token):
+        # a real assignment `OFF_HEAD_STAYS_OFF=...` at the top of a line, not a comment mentioning it
+        return [ln for ln in read(STEPS, token + ".sh").splitlines()
+                if re.match(r'\s*OFF_HEAD_STAYS_OFF=', ln)]
+
+    def test_river_sets_the_hook_and_cosmic_does_not(self):
+        river = self._sets_hook("river")
+        self.assertEqual(len(river), 1, river)
+        self.assertIn("river 0.4.8", river[0])
+        # cosmic only NAMES the variable in prose (why it is not set); it must not assign it
+        self.assertEqual(self._sets_hook("cosmic"), [],
+                         "cosmic re-enables an --off head on 1.8.0, so it must not set OFF_HEAD_STAYS_OFF")
+
+    def test_the_route6_path_has_exactly_the_three_re_enable_xwants(self):
+        """off_head_route6_xwants turns the same three re-enable checks into xwants naming route 6, each
+        with the measured refusal in the label -- so a patched compositor XPASSes them the day it lands."""
+        body = support.sh_function(COMMON_SH, "off_head_route6_xwants")
+        route6 = re.findall(r'xwant "([^"]*\(until route 6, a patched \$DESKTOP[^"]*)"', body)
+        self.assertEqual(len(route6), 3, route6)
+        self.assertTrue(any("--auto brings it back" in k for k in route6), route6)
+        self.assertTrue(any("--right-of" in k for k in route6), route6)
+        self.assertTrue(any("--below" in k for k in route6), route6)
+
+    def test_the_plain_path_keeps_its_three_checks(self):
+        """The everywhere-else path: common_display_phase's `same`/`beside` re-enable checks stay plain,
+        and the hook is what routes between them (`if [ -n "${OFF_HEAD_STAYS_OFF:-}" ]`)."""
+        phase = support.sh_function(COMMON_SH, "common_display_phase")
+        self.assertIn('same "--output $second --auto brings it back"', phase)
+        self.assertIn('beside right "$first" "$second"', phase)
+        self.assertIn('beside below "$first" "$second"', phase)
+        self.assertIn('if [ -n "${OFF_HEAD_STAYS_OFF:-}" ]; then', phase)
+        self.assertIn("off_head_route6_xwants", phase)
+
 if __name__ == "__main__":
     unittest.main()

@@ -3218,14 +3218,25 @@ class TestTheActiveGroupFromCinnamon(unittest.TestCase):
         self.assertNotIn("set_", self.PROGRAM)
         self.assertNotIn("%", xkbmap.CINNAMON_SCRIPT, "the constant is a literal, not a format string")
 
-    def test_the_snapshot_says_who_answered(self):
+    def test_the_snapshot_says_who_answered_and_that_the_group_is_a_guess(self):
+        """The source names Cinnamon, the group is the one `current` indexes (2) -- and `group_known` is
+        FALSE, so the "assuming '<name>'" notice fires (item 7, requests-batch-18.md 2). muffin 6.4 has no
+        group getter, so `current` can name a group muffin is not decoding under whenever it is written
+        behind muffin's back; the value is still our best guess and typing uses it, but it is a guess and
+        `keys explain` marks it "(assumed)". The four other desktops `desktop_group` asks LOCK the group
+        they report and stay known -- only Cinnamon is in `GROUP_ASSUMED_DESKTOPS`."""
         self.service(current=1)
         self.addCleanup(setattr, xkbmap, "_fetch_wayland", xkbmap._fetch_wayland)
         xkbmap._fetch_wayland = fake_wayland("kde_us_de")
         with env(WDOTOOL_XKB_KEYMAP=None, WDOTOOL_XKB_GROUP=None, WDOTOOL_LAYOUT=None):
             snap = xkbmap.fetch()
+            # end to end: the same guess reaches `keys explain`, whose layout line MUST carry "(assumed)"
+            # and name Cinnamon -- the visible half of item 7. group_known=False is what puts it there.
+            line = keys_cmds.Layout.load().describe()[0]
         self.assertEqual((snap.group, snap.group_known, snap.source),
-                         (2, True, "wayland + cinnamon input-sources"))
+                         (2, False, "wayland + cinnamon input-sources"))
+        self.assertEqual(line, "layout: German -- group 2 of 2 (assumed), "
+                               "from wayland + cinnamon input-sources")
 
 
 class CosmicWithKeyboard(wl_fake.CosmicCompositor):

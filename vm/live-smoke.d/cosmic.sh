@@ -2,9 +2,13 @@
 #
 # Two flavors run this file: fedora44-cosmic (Fedora 44; the flavor was written at cosmic-comp
 # 1.6.0-3.fc44 and the golden as rebuilt on 2026-09-11 carries 1.8.0-1.fc44, `rpm -q` in the guest)
-# and arch-cosmic (Arch 20260901, 1:1.7.0-1), so the two flavors bracket 1.7.0 rather than repeat a
-# version.  The driver appends `selinux` and `pkgverify` on Fedora and `pkgverify` on Arch, so no
-# branch on the distro is needed anywhere below.
+# and arch-cosmic (Arch 20260901; the golden rebuilt 2026-09-12 carries cosmic-comp 1:1.8.0-1,
+# `pacman -Q` in the guest -- MEASURED on instance acos-b18r; note its own `cosmic-comp --version`
+# still prints "1.0.0", a stale internal string, so the package version is the fact and both git to
+# a55785993e).  Both goldens run the SAME cosmic-comp 1.8.0 build now, so they no longer bracket a
+# version; the v1/v3/v4 toplevel set below is measured identical on every cosmic-comp anyone dumped
+# (1.0.0-binary/1.6.0, 1.7.0 and 1.8.0) [M recon2/cosmic.md §4].  The driver appends `selinux` and
+# `pkgverify` on Fedora and `pkgverify` on Arch, so no branch on the distro is needed anywhere below.
 #
 # COSMIC is the one desktop in this tree where a window backend had to be written from
 # nothing.  cosmic-comp publishes NO zwlr_foreign_toplevel_manager_v1 at all, so before
@@ -103,6 +107,28 @@ for block in re.split(r"(?m)^output ", doc):
         break' "$1" 2>/dev/null || true
 }
 
+# cosmic-randr returns an EMPTY KDL document (zero `output` rows) for a second or so right after a
+# modeset, while cosmic-comp settles the new layout -- so oracle.py, which reads that document, emits
+# nothing and a single read taken in that window counts 0 outputs.  MEASURED on the arch-cosmic 1.8.0
+# golden (instance acos-b18r, 2026-09-12): after `wxrandr --output Virtual-3 --auto` the KDL had zero
+# rows for up to ~4 s once, then all three came back enabled=#true; three later off/auto cycles read
+# 3 rows immediately, so the empty window is intermittent -- which is exactly what reddened CI run
+# 34667595059 r3 on a loaded runner (`--off leaves 0 enabled outputs`, `--auto want 3 got 2`: the
+# oracle read once during the settle).  So this desktop's oracle_outputs POLLS until cosmic-randr
+# answers with rows, bounded (10 x 1 s).  An --off head that is really gone still answers rows (n-1 of
+# them, its own line dropped by enabled=#false), so the poll waits out the empty transient without
+# masking a genuine disable; and the head DOES re-enable here (measured 2->3 across three cycles), so
+# there is no OFF_HEAD_STAYS_OFF on cosmic -- the plain re-enable checks pass once the oracle has settled.
+oracle_outputs() {
+    local out i
+    for i in $(seq 1 10); do
+        out=$(guest "python3 $ORACLE $DESKTOP" | grep -E '^[A-Za-z]' || true)
+        [ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+        sleep 1
+    done
+    printf '%s\n' "$out"
+}
+
 # ---------------------------------------------------------------- windows
 phase_windows() {
     guest "rm -f $SMOKE_FILE; touch $SMOKE_FILE" >/dev/null || true
@@ -148,13 +174,12 @@ outside the floor's arrival range"
     # [goal2/recon/cosmic-state-probe.txt, vm/live-smoke.out/fedora44-cosmic-20260911-213252.log].
     # So it is a plain want now: a rectangle that IS the whole output is the backend falling back
     # to the floor, and this line is where that shows.
-    # STILL OWED, and a red here on arch-cosmic is that and not a regression: arch-cosmic
-    # (1:1.7.0-1) has not been run since the wait landed -- CI had it at FLOOR-FALLBACK
-    # [goal2/ci/rig-arch-cosmic.log:540] with the same unwaited-for client as Fedora's.  The
-    # rate-limited refresh the wait is written against is version-independent [R src/lib.rs:340-367]
-    # and the flavor that HAS been measured runs 1.8.0, newer than 1.7.0, so the two runs bracket
-    # it; the run itself is one `vm/live-smoke.sh arch-cosmic --phases windows` and nobody has
-    # spent the VM slot on it yet.
+    # MEASURED on arch-cosmic too now: the golden is cosmic-comp 1:1.8.0-1 (not the 1.7.0 the flavor
+    # header once named), and `wdotool getwindowgeometry` on a foot reads 612,153 696x532 -- the
+    # window's own rectangle, not 0,0 + a head's mode -- on instance acos-b18r (2026-09-12) and again
+    # in CI run 34667595059 r3 (PASS at that same reading, rig_arch-cosmic.log). So the geometry wait
+    # lands on both goldens and this is a plain want on both; the rate-limited refresh it is written
+    # against is version-independent [R src/lib.rs:340-367] and both goldens run the same 1.8.0 build.
     # The fallback is a STRING we can build -- 0,0 plus some head's mode, and cosmic-randr
     # prints every head's mode -- so the reading is compared against it rather than against a
     # rectangle shape, which the fallback satisfies too.  No mode from cosmic-randr means the
@@ -364,6 +389,14 @@ phase_display() {
     local pair first
     pair=$(display_pair); first=${pair%% *}
     if [ -z "$first" ]; then fail "no enabled output in the oracle [$(ev "$outs")]"; return 1; fi
+    # An --off head DOES come back on cosmic-comp 1.8.0 (both goldens): MEASURED on arch-cosmic
+    # (instance acos-b18r, cosmic-comp 1:1.8.0-1, three off/auto cycles -> 3 enabled=#true each) and on
+    # fedora44-cosmic (instance fcos-b18, cosmic-comp 1.8.0-1.fc44, two cycles -> 3 each), 2026-09-12.
+    # So no OFF_HEAD_STAYS_OFF here and
+    # common_display_phase's three re-enable checks are plain.  What reddened CI run 34667595059 r3
+    # (`--off leaves 0 enabled`, `--auto want 3 got 2`) was NOT the head staying off -- it was
+    # cosmic-randr answering an empty document during the post-modeset settle, which this file's
+    # polling oracle_outputs (above) now waits out before any count is taken.
     common_display_phase
     # The rotate the recon watched cosmic-randr track, read back through the KDL's own
     # `transform` word -- a field oracle.py never touches, so this is a second reading and not

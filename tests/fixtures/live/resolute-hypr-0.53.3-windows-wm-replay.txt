@@ -2,138 +2,19 @@
 ### rc=0
 ### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
 ### rc=0
-### cd /tmp && DEBIAN_FRONTEND=noninteractive apt-get install -y ./w11.deb 2>&1
-Reading package lists...
-Building dependency tree...
-Reading state information...
-Solving dependencies...
-The following additional packages will be installed:
-  gir1.2-atk-1.0 gir1.2-freedesktop gir1.2-gdkpixbuf-2.0 gir1.2-gtk-3.0
-  gir1.2-harfbuzz-0.0 gir1.2-pango-1.0 libharfbuzz-gobject0 libpangoxft-1.0-0
-The following NEW packages will be installed:
-  w11 gir1.2-atk-1.0 gir1.2-freedesktop gir1.2-gdkpixbuf-2.0
-  gir1.2-gtk-3.0 gir1.2-harfbuzz-0.0 gir1.2-pango-1.0 libharfbuzz-gobject0
-  libpangoxft-1.0-0
-0 upgraded, 9 newly installed, 0 to remove and 92 not upgraded.
-Need to get 472 kB/979 kB of archives.
-After this operation, 4127 kB of additional disk space will be used.
-Get:1 /tmp/w11.deb w11 all 0.4.0 [507 kB]
-Get:2 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 gir1.2-atk-1.0 amd64 2.60.4-0ubuntu0.1 [23.2 kB]
-Get:3 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-freedesktop amd64 1.86.0-6build1 [66.0 kB]
-Get:4 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-gdkpixbuf-2.0 amd64 2.44.5+dfsg-4ubuntu1 [9312 B]
-Get:5 http://archive.ubuntu.com/ubuntu resolute/main amd64 libharfbuzz-gobject0 amd64 12.3.2-2 [33.3 kB]
-Get:6 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-harfbuzz-0.0 amd64 12.3.2-2 [44.6 kB]
-Get:7 http://archive.ubuntu.com/ubuntu resolute/main amd64 libpangoxft-1.0-0 amd64 1.57.0-1 [20.6 kB]
-Get:8 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-pango-1.0 amd64 1.57.0-1 [34.8 kB]
-Get:9 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-gtk-3.0 amd64 3.24.52-0ubuntu1 [240 kB]
-Fetched 472 kB in 1s (424 kB/s)
-Selecting previously unselected package gir1.2-atk-1.0:amd64.
-(Reading database ... 
-(Reading database ... 5%
-(Reading database ... 10%
-(Reading database ... 15%
-(Reading database ... 20%
-(Reading database ... 25%
-(Reading database ... 30%
-(Reading database ... 35%
-(Reading database ... 40%
-(Reading database ... 45%
-(Reading database ... 50%
-(Reading database ... 55%
-(Reading database ... 60%
-(Reading database ... 65%
-(Reading database ... 70%
-(Reading database ... 75%
-(Reading database ... 80%
-(Reading database ... 85%
-(Reading database ... 90%
-(Reading database ... 95%
-(Reading database ... 100%
-(Reading database ... 98776 files and directories currently installed.)
-Preparing to unpack .../0-gir1.2-atk-1.0_2.60.4-0ubuntu0.1_amd64.deb ...
-Unpacking gir1.2-atk-1.0:amd64 (2.60.4-0ubuntu0.1) ...
-Selecting previously unselected package gir1.2-freedesktop:amd64.
-Preparing to unpack .../1-gir1.2-freedesktop_1.86.0-6build1_amd64.deb ...
-Unpacking gir1.2-freedesktop:amd64 (1.86.0-6build1) ...
-Selecting previously unselected package gir1.2-gdkpixbuf-2.0:amd64.
-Preparing to unpack .../2-gir1.2-gdkpixbuf-2.0_2.44.5+dfsg-4ubuntu1_amd64.deb ...
-Unpacking gir1.2-gdkpixbuf-2.0:amd64 (2.44.5+dfsg-4ubuntu1) ...
-Selecting previously unselected package libharfbuzz-gobject0:amd64.
-Preparing to unpack .../3-libharfbuzz-gobject0_12.3.2-2_amd64.deb ...
-Unpacking libharfbuzz-gobject0:amd64 (12.3.2-2) ...
-Selecting previously unselected package gir1.2-harfbuzz-0.0:amd64.
-Preparing to unpack .../4-gir1.2-harfbuzz-0.0_12.3.2-2_amd64.deb ...
-Unpacking gir1.2-harfbuzz-0.0:amd64 (12.3.2-2) ...
-Selecting previously unselected package libpangoxft-1.0-0:amd64.
-Preparing to unpack .../5-libpangoxft-1.0-0_1.57.0-1_amd64.deb ...
-Unpacking libpangoxft-1.0-0:amd64 (1.57.0-1) ...
-Selecting previously unselected package gir1.2-pango-1.0:amd64.
-Preparing to unpack .../6-gir1.2-pango-1.0_1.57.0-1_amd64.deb ...
-Unpacking gir1.2-pango-1.0:amd64 (1.57.0-1) ...
-Selecting previously unselected package gir1.2-gtk-3.0:amd64.
-Preparing to unpack .../7-gir1.2-gtk-3.0_3.24.52-0ubuntu1_amd64.deb ...
-Unpacking gir1.2-gtk-3.0:amd64 (3.24.52-0ubuntu1) ...
-Selecting previously unselected package w11.
-Preparing to unpack .../8-w11.deb ...
-Unpacking w11 (0.4.0) ...
-Setting up gir1.2-freedesktop:amd64 (1.86.0-6build1) ...
-Setting up libpangoxft-1.0-0:amd64 (1.57.0-1) ...
-Setting up gir1.2-gdkpixbuf-2.0:amd64 (2.44.5+dfsg-4ubuntu1) ...
-Setting up gir1.2-atk-1.0:amd64 (2.60.4-0ubuntu0.1) ...
-Setting up libharfbuzz-gobject0:amd64 (12.3.2-2) ...
-Setting up gir1.2-harfbuzz-0.0:amd64 (12.3.2-2) ...
-Setting up gir1.2-pango-1.0:amd64 (1.57.0-1) ...
-Setting up gir1.2-gtk-3.0:amd64 (3.24.52-0ubuntu1) ...
-Setting up w11 (0.4.0) ...
-
-w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
-
-  * On GNOME, the window commands need the bridge extension, and gnome-shell
-    only scans extension directories at login: LOG OUT AND BACK IN ONCE.  The
-    extension is installed and is enabled for you automatically in that first
-    session.  wxrandr and warandr work already; until the relogin the window
-    commands say the bridge is not running and name gnome/install-bridge.sh,
-    which is the from-a-clone route -- this package has done that part.
-  * /dev/uinput is now open to the user at the active seat (udev rule
-    60-w11-uinput.rules), which is what lets wdotool type and click
-    without root.  Anyone who can open it can type as you -- see the threat
-    model in /usr/share/doc/w11/README.md.gz.
-  * On an X11 session the tools hand over to the real ones; install those
-    with: apt install xdotool wmctrl
-
-Processing triggers for libc-bin (2.43-2ubuntu2.3) ...
-
-Running kernel seems to be up-to-date.
-
-No services need to be restarted.
-
-No containers need to be restarted.
-
-No user sessions are running outdated binaries.
-
-No VM guests are running outdated hypervisor (qemu) binaries on this host.
-### rc=0
-### for t in wdotool wwmctl wxprop wxrandr warandr wmirror; do [ -f /tmp/$t ] && install -m 0755 /tmp/$t /usr/local/bin/$t; done
-### rc=0
-### command -v wdotool
-/usr/local/bin/wdotool
-### rc=0
-### ( sleep 1; reboot ) >/dev/null 2>&1 &
-### rc=0
-### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
-### rc=0
-### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### printf 'w11-desktop-version: '; hyprctl version | head -1
+w11-desktop-version: Hyprland 0.53.3 built from branch v0.53.3 at commit dd220efe7b1e292415bd0ea7161f63df9c95bfd3 clean (version: bump to 0.53.3).
 ### rc=0
 ### rm -f $HOME/w11-smoke.txt; touch $HOME/w11-smoke.txt
 ### rc=0
 ### rm -f $HOME/w11-smoke.txt; setsid nohup foot -- sh -c 'cat >> $HOME/w11-smoke.txt' >/dev/null 2>&1 </dev/null &            sleep 3; true
 ### rc=0
 ### wdotool search --class foot | head -1
-1073743984
+1792318773
 ### rc=0
 ### hyprctl -j clients
 [{
-    "address": "0x64090a990ed0",
+    "address": "0x5f894024fe10",
     "mapped": true,
     "hidden": false,
     "at": [22, 22],
@@ -149,7 +30,7 @@ No VM guests are running outdated hypervisor (qemu) binaries on this host.
     "title": "foot",
     "initialClass": "foot",
     "initialTitle": "foot",
-    "pid": 3719,
+    "pid": 20997,
     "xwayland": false,
     "pinned": false,
     "fullscreen": 0,
@@ -164,26 +45,26 @@ No VM guests are running outdated hypervisor (qemu) binaries on this host.
     "contentType": "none"
 }]
 ### rc=0
-### wdotool getwindowname 1073743984
+### wdotool getwindowname 1792318773
 foot
 ### rc=0
-### wdotool windowmove 1073743984 100 100 2>&1
+### wdotool windowmove 1792318773 100 100 2>&1
 hypr: cannot move a tiled window to an absolute position (setfloating it first)
-xdo_move_window reported an error while moving window 1073743984
+xdo_move_window reported an error while moving window 1792318773
 ### rc=0
-### wdotool windowactivate --sync 1073743984; hyprctl dispatch setfloating
+### wdotool windowactivate --sync 1792318773; hyprctl dispatch setfloating
 ok
 ### rc=0
-### wdotool windowmove 1073743984 100 100; wdotool windowsize 1073743984 800 600
+### wdotool windowmove 1792318773 100 100; wdotool windowsize 1792318773 800 600
 ### rc=0
-### wdotool getwindowgeometry 1073743984
-Window 1073743984
+### wdotool getwindowgeometry 1792318773
+Window 1792318773
   Position: 100,100 (screen: 0)
   Geometry: 800x600
 ### rc=0
 ### hyprctl -j clients
 [{
-    "address": "0x64090a990ed0",
+    "address": "0x5f894024fe10",
     "mapped": true,
     "hidden": false,
     "at": [100, 100],
@@ -199,7 +80,7 @@ Window 1073743984
     "title": "foot",
     "initialClass": "foot",
     "initialTitle": "foot",
-    "pid": 3719,
+    "pid": 20997,
     "xwayland": false,
     "pinned": false,
     "fullscreen": 0,
@@ -214,13 +95,13 @@ Window 1073743984
     "contentType": "none"
 }]
 ### rc=0
-### wdotool windowactivate --sync 1073743984
+### wdotool windowactivate --sync 1792318773
 ### rc=0
 ### wdotool getactivewindow
-1073743984
+1792318773
 ### rc=0
-### wdotool windowminimize 1073743984 2>&1
-windowminimize is not supported by the hypr backend (Hyprland has no minimize)
+### wdotool windowminimize 1792318773 2>&1
+windowminimize is not supported by the hypr backend (Hyprland has no minimize); not yet here, and the route is Hyprland's own IPC (AGENTS.md route 2), a special workspace to stash the window in, at the cost of the bookkeeping that brings it back and a listing that keeps showing it while it is stashed
 ### rc=1
 ### wdotool set_desktop 1
 ### rc=0
@@ -232,38 +113,38 @@ windowminimize is not supported by the hypr backend (Hyprland has no minimize)
 ### wdotool get_desktop
 0
 ### rc=0
-### wdotool windowactivate --sync 1073743984
+### wdotool windowactivate --sync 1792318773
 ### rc=0
 ### wdotool mousemove 300 300
 ### rc=0
 ### wdotool getmouselocation
-x:300 y:300 screen:0 window:1073743984
+x:300 y:300 screen:0 window:1792318773
 ### rc=0
 ### hyprctl cursorpos
 300, 300
 ### rc=0
 ### wdotool mousemove 300 300 click 1
 ### rc=0
-### wdotool windowactivate --sync 1073743984; wdotool windowmove 1073743984 100 100;            wdotool windowsize 1073743984 800 600
+### wdotool windowactivate --sync 1792318773; wdotool windowmove 1792318773 100 100;            wdotool windowsize 1792318773 800 600
 ### rc=0
-### wdotool getwindowgeometry 1073743984
-Window 1073743984
+### wdotool getwindowgeometry 1792318773
+Window 1792318773
   Position: 100,100 (screen: 0)
   Geometry: 800x600
 ### rc=0
 ### wwmctl -r :ACTIVE: -b add,maximized_vert,maximized_horz
 ### rc=0
-### wdotool getwindowgeometry 1073743984
-Window 1073743984
+### wdotool getwindowgeometry 1792318773
+Window 1792318773
   Position: 22,22 (screen: 0)
   Geometry: 1876x1036
 ### rc=0
-### wxprop -id 1073743984 _NET_WM_STATE
+### wxprop -id 1792318773 _NET_WM_STATE
 _NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_FOCUSED
 ### rc=0
 ### hyprctl -j clients
 [{
-    "address": "0x64090a990ed0",
+    "address": "0x5f894024fe10",
     "mapped": true,
     "hidden": false,
     "at": [22, 22],
@@ -279,7 +160,7 @@ _NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT
     "title": "foot",
     "initialClass": "foot",
     "initialTitle": "foot",
-    "pid": 3719,
+    "pid": 20997,
     "xwayland": false,
     "pinned": false,
     "fullscreen": 1,
@@ -295,18 +176,18 @@ _NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT
 }]
 ### rc=0
 ### wwmctl -r :ACTIVE: -b add,maximized_vert 2>&1
-wwmctl: windowstate MAXIMIZED_VERT is not supported by the hypr backend (Hyprland maximizes both axes at once; ask for both); ignoring
+wwmctl: windowstate MAXIMIZED_VERT is not supported by the hypr backend (Hyprland maximizes both axes at once; ask for both); not yet here, and the route is a patched Hyprland (AGENTS.md route 6), one dispatcher each; ignoring
 ### rc=0
 ### wwmctl -r :ACTIVE: -b remove,maximized_vert,maximized_horz
 ### rc=0
-### wdotool getwindowgeometry 1073743984
-Window 1073743984
+### wdotool getwindowgeometry 1792318773
+Window 1792318773
   Position: 100,100 (screen: 0)
   Geometry: 800x600
 ### rc=0
 ### hyprctl -j clients
 [{
-    "address": "0x64090a990ed0",
+    "address": "0x5f894024fe10",
     "mapped": true,
     "hidden": false,
     "at": [100, 100],
@@ -322,7 +203,7 @@ Window 1073743984
     "title": "foot",
     "initialClass": "foot",
     "initialTitle": "foot",
-    "pid": 3719,
+    "pid": 20997,
     "xwayland": false,
     "pinned": false,
     "fullscreen": 0,
@@ -341,7 +222,7 @@ Window 1073743984
 ### rc=0
 ### hyprctl -j clients
 [{
-    "address": "0x64090a990ed0",
+    "address": "0x5f894024fe10",
     "mapped": true,
     "hidden": false,
     "at": [0, 0],
@@ -357,7 +238,7 @@ Window 1073743984
     "title": "foot",
     "initialClass": "foot",
     "initialTitle": "foot",
-    "pid": 3719,
+    "pid": 20997,
     "xwayland": false,
     "pinned": false,
     "fullscreen": 2,
@@ -374,21 +255,23 @@ Window 1073743984
 ### rc=0
 ### wwmctl -r :ACTIVE: -b remove,fullscreen
 ### rc=0
-### wdotool getwindowgeometry 1073743984
-Window 1073743984
+### wdotool getwindowgeometry 1792318773
+Window 1792318773
   Position: 100,100 (screen: 0)
   Geometry: 800x600
 ### rc=0
 ### wwmctl -l
-0x40000870  0 resolute-hypr-smoke foot
+0x6ad49d35  0 hyprrec foot
+### rc=0
+### wwmctl --true-geometry -lGpx
+0x6ad49d35  0 20997  100  100  800  600  foot.foot             hyprrec foot
 ### rc=0
 ### wwmctl -lGpx
-0x40000870  0 3719   100  100  800  600  foot.foot             resolute-hypr-smoke foot
+0x6ad49d35  0 20997  200  200  800  600  foot.foot             hyprrec foot
 ### rc=0
 ### wwmctl -d
-0  * DG: 5760x1080  VP: 0,0  WA: 0,0 1920x1080     1
-1  - DG: 5760x1080  VP: N/A  WA: 1920,0 1920x1080  2
-2  - DG: 5760x1080  VP: N/A  WA: 3840,0 1920x1080  3
+0  * DG: 3840x1080  VP: 0,0  WA: 0,0 1920x1080     1
+1  - DG: 3840x1080  VP: 0,0  WA: 1920,0 1920x1080  2
 ### rc=0
 ### wwmctl -m
 Name: Hyprland :D
@@ -405,48 +288,48 @@ Window manager's "showing the desktop" mode: N/A
 _NET_CLIENT_LIST(WINDOW): window id # 0x400020
 ### rc=0
 ### wxprop -root _NET_CLIENT_LIST
-_NET_CLIENT_LIST(WINDOW): window id # 0x40000870, 0x400020
+_NET_CLIENT_LIST(WINDOW): window id # 0x6ad49d35, 0x400020
 ### rc=0
 ### wwmctl -lpx
-0x40000870  0 3719   foot.foot             resolute-hypr-smoke foot
-0x00400020  0 6182   xmessage.Xmessage     resolute-hypr-smoke xmessage
+0x6ad49d35  0 20997  foot.foot             hyprrec foot
+0x00400020  0 23515  xmessage.Xmessage     hyprrec xmessage
 ### rc=0
 ### wwmctl -lGpx
-0x40000870  0 3719   100  100  800  600  foot.foot             resolute-hypr-smoke foot
-0x00400020  0 6182   300  200  400  300  xmessage.Xmessage     resolute-hypr-smoke xmessage
+0x6ad49d35  0 20997  200  200  800  600  foot.foot             hyprrec foot
+0x00400020  0 23515  600  400  400  300  xmessage.Xmessage     hyprrec xmessage
 ### rc=0
 ### wmctrl -lGpx
-0x00400020  0 0      600  400  400  300  xmessage.Xmessage     resolute-hypr-smoke xmessage
+0x00400020  0 0      600  400  400  300  xmessage.Xmessage     hyprrec xmessage
 ### rc=0
 ### pkill -x xmessage; true
 ### rc=0
 ### setsid nohup foot -- sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 3; true
 ### rc=0
 ### wdotool search --class foot
-1073743984
-1532647471
+1792318773
+1938225294
 ### rc=0
-### wdotool getwindowpid 1532647471
-6610
+### wdotool getwindowpid 1938225294
+23943
 ### rc=0
-### wdotool getwindowpid 1073743984
-3719
+### wdotool getwindowpid 1792318773
+20997
 ### rc=0
-### kill 3719 2>/dev/null; true
+### kill 20997 2>/dev/null; true
 ### rc=0
 ### wdotool search --class foot
-1532647471
+1938225294
 ### rc=0
 ### hyprctl dispatch alterzorder top
 alterZOrder: no window
 ### rc=0
-### kill 6610; true
+### kill 23943; true
 ### rc=0
 ### rm -f $HOME/w11-smoke.txt; setsid nohup foot -- sh -c 'cat >> $HOME/w11-smoke.txt' >/dev/null 2>&1 </dev/null &            sleep 3; true
 ### rc=0
 ### wdotool search --class foot | head -1
-1532647471
+1938225294
 ### rc=0
-### wdotool windowactivate --sync 1532647471; hyprctl dispatch setfloating
+### wdotool windowactivate --sync 1938225294; hyprctl dispatch setfloating
 ok
 ### rc=0

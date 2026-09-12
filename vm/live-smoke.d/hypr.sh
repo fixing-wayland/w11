@@ -235,8 +235,16 @@ phase_wm() {
     # rectangle, on every row [recon2/hyprland 3, recon2/arch 3.4].  All three are the backend's.
     want "wwmctl -l lists the terminal on desktop 0, not the floor's -1" "^0x[0-9a-f]+ +0 " \
          "$(guest 'wwmctl -l' || true)"
-    want "wwmctl -lGpx carries the real pid and the real rectangle" \
-         "^0x[0-9a-f]+ +0 +[1-9][0-9]* +100 +100 +800 +600 +foot\.foot" "$(guest 'wwmctl -lGpx' || true)"
+    # The -G column reproduces wmctrl 1.07's own doubling bug (`XTranslateCoordinates` fed the window's
+    # own x,y, so `absolute + parent-relative` and on a non-reparenting/native row that is 2x,2y):
+    # a NATIVE foot at 100,100 prints 200 200 on plain -lGpx, and the compositor's own rectangle is
+    # behind `--true-geometry`, a flag wmctrl never had [batch 17 §8, requests-batch-18.md 8; the same
+    # file's recording has the original printing 600 400 for an xmessage this clone read at 300,200].
+    want "wwmctl --true-geometry -lGpx carries the real pid and the real rectangle" \
+         "^0x[0-9a-f]+ +0 +[1-9][0-9]* +100 +100 +800 +600 +foot\.foot" \
+         "$(guest 'wwmctl --true-geometry -lGpx' || true)"
+    want "wwmctl -lGpx prints wmctrl's own doubled origin for the native row" \
+         "^0x[0-9a-f]+ +0 +[1-9][0-9]* +200 +200 +800 +600 +foot\.foot" "$(guest 'wwmctl -lGpx' || true)"
     want "wwmctl -d lists the workspaces with the current one starred" "^0 +\*" "$(guest 'wwmctl -d' || true)"
     note "wwmctl -m: $(guest 'wwmctl -m' | tr '\n' '|' || true)"
     hypr_xwayland

@@ -197,5 +197,66 @@ class BudgieIsNotGnome(unittest.TestCase):
         self.assertEqual(self.fake.connections, 1)
 
 
+class SessionRegistryRetries(unittest.TestCase):
+    """A2: a momentary connect/roundtrip failure or an empty registry is retried once before the
+    session is called unreachable.  Under CI load a single failure here reported COSMIC as "offers
+    neither wlr-foreign-toplevel nor the COSMIC toplevel protocols" on a golden whose backend is
+    fine by hand [arch-cosmic, CI run 34676441862]."""
+
+    def setUp(self):
+        backend_detect.reset()
+        self.addCleanup(backend_detect.reset)
+        # a socket the finder will name; the fake WlConn below never touches it
+        self.hit = (1000, "/run/user/1000", "/run/user/1000/wayland-1")
+        p = mock.patch.object(session, "find_wayland_socket", return_value=self.hit)
+        p.start(); self.addCleanup(p.stop)
+
+    def _install(self, sequence):
+        """`sequence` is a list of get_registry() outcomes, one per WlConn() built: an Exception
+        instance to raise from get_registry, or a {name: (iface, ver)} dict to return."""
+        self.built = 0
+        outer = self
+
+        class FakeConn:
+            def __init__(self, path):
+                outer.built += 1
+                self._outcome = sequence[outer.built - 1]
+
+            def get_registry(self):
+                if isinstance(self._outcome, Exception):
+                    raise self._outcome
+                return self._outcome
+
+            def close(self):
+                pass
+
+        import w11common.wayland_mini as wm
+        p = mock.patch.object(wm, "WlConn", FakeConn)
+        p.start(); self.addCleanup(p.stop)
+
+    def test_a_transient_connect_failure_is_retried_and_then_succeeds(self):
+        self._install([OSError("momentary"),
+                       {1: ("wl_compositor", 6), 2: ("ext_foreign_toplevel_list_v1", 1)}])
+        reg = backend_detect.session_registry()
+        self.assertEqual(self.built, 2, "it did not retry")
+        self.assertEqual(reg, {"wl_compositor": 6, "ext_foreign_toplevel_list_v1": 1})
+
+    def test_an_empty_registry_is_retried_and_then_succeeds(self):
+        self._install([{}, {1: ("wl_compositor", 6)}])
+        reg = backend_detect.session_registry()
+        self.assertEqual(self.built, 2, "an empty registry is an unfinished roundtrip, not an answer")
+        self.assertEqual(reg, {"wl_compositor": 6})
+
+    def test_two_failures_in_a_row_give_up_and_report_none(self):
+        self._install([OSError("one"), OSError("two")])
+        self.assertIsNone(backend_detect.session_registry())
+        self.assertEqual(self.built, 2, "exactly two attempts, no more")
+
+    def test_a_first_try_success_does_not_pay_the_backoff(self):
+        self._install([{1: ("wl_compositor", 6)}])
+        self.assertEqual(backend_detect.session_registry(), {"wl_compositor": 6})
+        self.assertEqual(self.built, 1, "a good first read is not retried")
+
+
 if __name__ == "__main__":
     unittest.main()

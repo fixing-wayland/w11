@@ -810,6 +810,28 @@ class RootAttachesAndStartsNothing(WrapCase):
             self.assertEqual(wrap.ensure_proxy(self.root_env()), got.name)
         self.assertEqual(self.spawns, [], "root started a proxy of its own")
 
+    def test_root_attaches_when_logind_calls_the_compositor_session_tty(self):
+        """A compositor launched from a tty greeter (greetd for sway/river, cosmic-greeter for COSMIC)
+        is recorded by logind as a TYPE=tty session, which `passthrough.logind_session` does not count as
+        graphical -- so `session_uid()` answered None and `_seated_uid()` with it, and root started a
+        proxy of its own (goal2 diagnosis §7). MEASURED 2026-09-12 on BOTH cosmic 1.8.0 goldens
+        (arch-cosmic instance acos-b18r and fedora44-cosmic instance fcos-b18): `/run/systemd/sessions/1`
+        was `UID=1000 CLASS=user SEAT=seat0 STATE=active TYPE=tty` on each, and as root `session_uid()`
+        answered None, `find_wayland_socket()` answered `(1000, ...)` and `_seated_uid()` answered 1000.
+        The fallback reads the seated uid off the graphical session's own wl socket (`find_wayland_socket`,
+        no second copy of logind's parse), so root finds the seated uid and attaches to the seated proxy
+        instead. ONLY None falls through: a `session_uid()` of 0 means root's own graphical session and
+        stays not-foreign."""
+        self.logind_file("1", TYPE="tty")   # the cosmic/greetd shape, over setUp's TYPE=wayland record
+        passthrough.reset_cache()
+        got = self.seated_proxy()
+        with self.as_root():
+            self.assertIsNone(passthrough.session_uid(self.root_env()),
+                              "a TYPE=tty session should not be graphical to session_uid")
+            self.assertEqual(wrap._seated_uid(self.root_env()), self.uid)
+            self.assertEqual(wrap.ensure_proxy(self.root_env()), got.name)
+        self.assertEqual(self.spawns, [], "root started a proxy of its own")
+
     def test_root_with_no_proxy_to_attach_to_starts_none(self):
         """A session that has never run one: the clone runs and says why under
         XW11_DEBUG. A proxy in root's runtime directory would be a process
@@ -1290,6 +1312,20 @@ class WhichArgvReachesTheHook(unittest.TestCase):
                                            ["xrandr", "--print-backend"]), 0)
         self.assertEqual(self.seen, [])
         self.assertIn("wdotool type 'a'", self.out.getvalue())
+
+    def test_wmctrls_true_geometry_never_reaches_the_hook(self):
+        """`wmctrl --true-geometry` is the clone's own flag (batch 17), so like `wxrandr --persistent` it
+        must never reach the handover: `wwmctl.cli.main` asks `own_flags_in` before BOTH handovers (the
+        `--persistent` shape), and a non-empty answer keeps our code and imports the hook not at all. So
+        `CLONE_ONLY["wmctrl"]` stays empty -- the flag is caught a screen above the hook, exactly as
+        `--print-backend` is -- and nothing rides on the frozenset entry (requests-batch-18.md 9). Under
+        `W11_PROXY=always`, where every other Wayland argv is handed over, this one still is not."""
+        from wwmctl import cli as wwmctl_cli
+        with support.env(W11_PROXY="always"):
+            # bare `--true-geometry` parses to no action, so main() returns 0 without a backend, but the
+            # own_flags_in guard has already been passed by the time it does
+            self.assertEqual(self.run_main(wwmctl_cli, ["wmctrl", "--true-geometry"]), 0)
+        self.assertEqual(self.seen, [])
 
 
 class TheUpstreamItFindsItself(unittest.TestCase):

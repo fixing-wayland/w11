@@ -444,16 +444,29 @@ phase_enablebridge() {
     # (fedora43/fedora44/arch-gnome, same run).  So the profile is named only
     # where the module puts the bridge in the shared database.
     local dprof=""; [ "$DISTRO" = nixos ] && dprof="DCONF_PROFILE=gdm"
-    dconf_out=$(root "t=\$(mktemp -d); chown gdm \"\$t\" 2>/dev/null;
-                      runuser -u gdm -- env HOME=$GDM_HOME XDG_RUNTIME_DIR=\$t $dprof \
-                          dconf read /org/gnome/shell/enabled-extensions 2>&1 \
-                              || echo dconf-read-failed;
-                      rm -rf \"\$t\"" || true)
+    # No gdm user at all -> nothing to read AS gdm.  Arch's gdm package leaves the
+    # `gdm` user to a sysusers.d rule that a golden built with autologin (no
+    # greeter ever shown) never triggers, so `runuser -u gdm` answers `user gdm
+    # does not exist` and the read-answered check trips on a box that has no
+    # greeter dconf to leak into in the first place (arch-gnome, CI run
+    # 34676441862).  The leak this phase guards against needs a greeter user; with
+    # none, the grep half over $GDM_HOME is the whole honest check.
+    local has_gdm; has_gdm=$(root 'id -u gdm >/dev/null 2>&1 && echo yes' | tr -d ' \n' || true)
     grep_out=$(root "grep -ras w11 $GDM_HOME/.config/dconf 2>/dev/null | head -2" || true)
-    wantnot "gdm's dconf read answered as gdm (rc 0, no dconf-CRITICAL, no permission error)" \
-        "dconf-CRITICAL|Permission denied|unable to create directory|dconf-read-failed" "$dconf_out"
-    wantnot "gdm's own dconf has no w11 in enabled-extensions" "w11" "$dconf_out
+    if [ "$has_gdm" != yes ]; then
+        note "no gdm user on this GDM (autologin, no greeter ever shown): nothing to read as gdm"
+        wantnot "gdm's own dconf carries no w11 (no greeter user to leak into here)" "w11" "$grep_out"
+    else
+        dconf_out=$(root "t=\$(mktemp -d); chown gdm \"\$t\" 2>/dev/null;
+                          runuser -u gdm -- env HOME=$GDM_HOME XDG_RUNTIME_DIR=\$t $dprof \
+                              dconf read /org/gnome/shell/enabled-extensions 2>&1 \
+                                  || echo dconf-read-failed;
+                          rm -rf \"\$t\"" || true)
+        wantnot "gdm's dconf read answered as gdm (rc 0, no dconf-CRITICAL, no permission error)" \
+            "dconf-CRITICAL|Permission denied|unable to create directory|dconf-read-failed" "$dconf_out"
+        wantnot "gdm's own dconf has no w11 in enabled-extensions" "w11" "$dconf_out
 $grep_out"
+    fi
     root "c=$GDM_CONF; sed -i 's/^AutomaticLoginEnable=.*/AutomaticLoginEnable=true/' \$c 2>/dev/null; true" \
         >/dev/null 2>&1 || true
     root "( sleep 1; reboot ) >/dev/null 2>&1 &" >/dev/null 2>&1 || true

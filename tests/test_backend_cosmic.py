@@ -44,7 +44,8 @@ from support import env, sh_block
 from test_backend_wlr import FakeXPlane, net_wm_state
 from wdotool import window_cmds
 from wdotool.backend import ID_BASE, mint_id
-from wdotool.backend_cosmic import ST_ACTIVATED, STATE_WAIT, CosmicBackend
+from wdotool.backend_cosmic import (INFO_MAX, MANAGER_MAX, ST_ACTIVATED, STATE_WAIT,
+                                    CosmicBackend)
 
 #: the head the nested cosmic-comp published [M recon2/cosmic.md §3: `outputs: WINIT-0 1920x1080+0+0`]
 OUT_W, OUT_H = 1920, 1080
@@ -122,6 +123,40 @@ class NoManager(Cosmic):
 
     def advertise(self):
         return [g for g in super().advertise() if g[0] != wl_fake.COSMIC_MGR]
+
+
+def _cosmic_globals_at(info_ver, mgr_ver):
+    """wl_fake.CosmicCompositor.GLOBALS with the two toplevel interfaces re-versioned, everything else
+    left alone -- so a fake can stand for a cosmic-comp that advertises the toplevel protocols at a
+    version other than the 1.8.0 golden's v3/v4."""
+    out = []
+    for iface, ver in wl_fake.CosmicCompositor.GLOBALS:
+        if iface == wl_fake.COSMIC_INFO:
+            out.append((iface, info_ver))
+        elif iface == wl_fake.COSMIC_MGR:
+            out.append((iface, mgr_ver))
+        else:
+            out.append((iface, ver))
+    return tuple(out)
+
+
+class CosmicNewer(Cosmic):
+    """A HYPOTHETICAL cosmic-comp advertising the toplevel protocols ABOVE what this backend knows -- the
+    shape a future build takes. No measured cosmic-comp does this yet (every one measured is v3/v4, see
+    VersionNegotiation), but it is the above-ceiling half of the clamp: the client must not bind higher
+    than it understands."""
+
+    GLOBALS = _cosmic_globals_at(INFO_MAX + 2, MANAGER_MAX + 2)
+
+
+class CosmicOlder(Cosmic):
+    """A HYPOTHETICAL below-ceiling cosmic-comp: the toplevel info and the manager at v1, below this
+    backend's ceiling, so the client binds exactly what the server has. No measured cosmic-comp advertises
+    v1/v1 -- every one dumped off the wire (the 1.0.0-binary/nixpkgs-1.6.0 nested session, 1.7.0 and the
+    1.8.0 goldens) advertises `zcosmic_toplevel_info_v1` v3 and `zcosmic_toplevel_manager_v1` v4
+    [M recon2/cosmic.md §4]. This is the below-ceiling half of the clamp, a shape not a measurement."""
+
+    GLOBALS = _cosmic_globals_at(1, 1)
 
 
 class ExtWorkspaceEnter(Cosmic):
@@ -627,6 +662,39 @@ class Capabilities(CosmicTest):
         self.assertIn("zcosmic_toplevel_manager_v1 is version 2 and set_sticky arrived in version 3", msg)
         self.assertIn("AGENTS.md route 1", msg)
         self.assertIn("not yet here", msg)
+
+
+class VersionNegotiation(CosmicTest):
+    """The bind negotiates the MIN of what the backend knows (INFO_MAX / MANAGER_MAX) and what the server
+    advertises, the way a real client does -- so a golden that moves the toplevel-protocol version is
+    bound at the version both sides agree on and not one hard-coded anywhere.
+
+    The ONLY measured globals set is v1/v3/v4: `ext_foreign_toplevel_list_v1` v1, `zcosmic_toplevel_info_v1`
+    v3, `zcosmic_toplevel_manager_v1` v4, off the wire on every cosmic-comp anyone dumped -- the
+    1.0.0-binary/nixpkgs-1.6.0 nested session [M recon2/cosmic.md §4, `globals.txt`], the 1.7.0 golden
+    [M vm/flavors/fedora44-cosmic.yaml:16], and the 1.8.0 goldens (arch-cosmic and fedora44-cosmic both went
+    to cosmic-comp 1:1.8.0-1 / 1.8.0-1.fc44). No cosmic-comp has ever advertised v1/v1 or v5/v6; CosmicOlder
+    and CosmicNewer are the below- and above-ceiling clamp shapes, not measurements. wl_fake's GLOBALS carry
+    the measured v3/v4, so the 1.8.0 case is the same shape the backend binds live."""
+
+    def test_the_measured_globals_agree_with_the_backend_ceiling(self):
+        # A constants-agreement pin, NOT a negotiation test: v3/v4 is measured (recon2/cosmic.md §4) and the
+        # backend's ceiling is INFO_MAX=3/MANAGER_MAX=4, so min(measured, ceiling) is invisible here -- this
+        # only goes red if wl_fake's GLOBALS and the backend's ceiling constants ever drift apart. The real
+        # min() behaviour is the newer/older cases below.
+        _comp, b = self.backend()
+        self.assertEqual((b.info_ver, b.mgr_ver), (3, 4))
+        self.assertEqual((b.info_ver, b.mgr_ver), (INFO_MAX, MANAGER_MAX))
+
+    def test_a_newer_cosmic_is_clamped_to_what_the_backend_understands(self):
+        # the above-ceiling clamp shape (v5/v6, hypothetical): a client must bind no higher than it knows
+        _comp, b = self.backend(cls=CosmicNewer)
+        self.assertEqual((b.info_ver, b.mgr_ver), (INFO_MAX, MANAGER_MAX))
+
+    def test_a_below_ceiling_cosmic_binds_at_the_version_it_advertised(self):
+        # the below-ceiling clamp shape (v1/v1, hypothetical): the client binds exactly what the server has
+        _comp, b = self.backend(cls=CosmicOlder)
+        self.assertEqual((b.info_ver, b.mgr_ver), (1, 1))
 
 
 class Geometry(CosmicTest):

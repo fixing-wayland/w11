@@ -282,6 +282,27 @@ def _seated_uid(env=None) -> int | None:
     if os.geteuid() != 0:
         return None
     uid = passthrough.session_uid(os.environ if env is None else env)
+    if uid is None:
+        # ONLY None falls through here, never 0: session_uid answering 0 means logind found root's OWN
+        # graphical session, which the docstring above keeps as not-foreign (return None, read /run/user/0
+        # as always). Folding 0 in would make root, logged in graphically on a box where another user also
+        # holds a wl socket, attach to THAT user's proxy -- a regression this gate avoids.
+        #
+        # None is the tty-greeter case: logind labels a compositor launched from a tty greeter (greetd for
+        # sway/river, cosmic-greeter for COSMIC) a TYPE=tty session, and passthrough.logind_session does not
+        # count that as graphical, so session_uid answers None and root would start a proxy of its own --
+        # MEASURED 2026-09-12 on the arch-cosmic 1.8.0 golden (instance acos-b18): /run/systemd/sessions/1 is
+        # UID=1000 CLASS=user SEAT=seat0 STATE=active TYPE=tty, _seated_uid was None while read_display(
+        # uid=1000) already found the seated proxy at :20 (goal2 diagnosis §7). The seated user is the owner
+        # of the graphical session's wl socket, which find_wayland_socket() reads off /run/user/*/ as root
+        # (it reads the process environment, which for `ssh root@box` -- the only caller that reaches here --
+        # is the same dict passed as `env`; no second copy of logind's parsing). The true fix is
+        # passthrough.logind_session counting a seated tty-class user session as graphical (requested of its
+        # owner, w11common/passthrough.py); this is the route until then.
+        from w11common import session
+        hit = session.find_wayland_socket()
+        if hit is not None:
+            uid = hit[0]
     return None if uid in (None, 0) else uid
 
 

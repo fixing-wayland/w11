@@ -536,17 +536,34 @@ class X11Conn:
         ints = self.get_prop_ints(win, "_NET_WM_PID")
         return ints[0] if ints else 0
 
-    def get_geometry(self, win: int) -> tuple[int, int, int, int]:
-        """Root-relative (x, y, w, h): size from GetGeometry, position by translating the window origin to root
-        coordinates (matches xwininfo and the compositor's idea of the rect — NOT wmctrl's doubled values under
-        non-reparenting WMs)."""
+    def get_geometry_raw(self, win: int) -> tuple[int, int, int, int, int, int]:
+        """(x, y, w, h, rel_x, rel_y): the first four as `get_geometry` (root-relative origin + size), the last
+        two the window's origin RELATIVE TO ITS X PARENT, straight off the GetGeometry reply's own x,y.
+
+        That relative pair is the second term wmctrl 1.07's `-G` adds to the absolute origin (`list_windows`
+        feeds XTranslateCoordinates the window's own x,y instead of 0,0). Under a REPARENTING/framing xwm the
+        parent is the server-side frame and the pair is the frame offset the clone cannot otherwise compute;
+        under a NON-reparenting one (`wlroots`, sway, hypr, this tree's own shadow plane) the parent is the
+        root and the pair equals the absolute origin, which is why that column doubles there. Framing is
+        MEASURED on Mutter (noble-gnome mutter 46.2: absolute 398,252, relative 14,49, the two originals both
+        printing 412,301 = absolute + relative [M goal2/recon/b17-review-measurements.md 1]) and on
+        cosmic-comp 1:1.8.0-1 (reparents, but its Xwayland reports a relative origin of 0,0, so the term adds
+        nothing). KWin, Muffin and Wayfire are NOT YET measured for reparenting (requests-batch-18.md item C);
+        the formula does not need the list -- `absolute + relative` is right whichever way the xwm goes."""
         seq = self._send(_OP_GET_GEOMETRY, 0, struct.pack("<I", win))
         pkt, _ = self._wait_reply(seq)
-        _x, _y, w, h = struct.unpack_from("<hhHH", pkt, 12)
+        rel_x, rel_y, w, h = struct.unpack_from("<hhHH", pkt, 12)
         seq = self._send(_OP_TRANSLATE_COORDS, 0,
                          struct.pack("<IIhh", win, self._root, 0, 0))
         pkt, _ = self._wait_reply(seq)
         x, y = struct.unpack_from("<hh", pkt, 12)
+        return x, y, w, h, rel_x, rel_y
+
+    def get_geometry(self, win: int) -> tuple[int, int, int, int]:
+        """Root-relative (x, y, w, h): size from GetGeometry, position by translating the window origin to root
+        coordinates (matches xwininfo and the compositor's idea of the rect — NOT wmctrl's doubled values under
+        non-reparenting WMs). The parent-relative origin `get_geometry_raw` also returns is dropped here."""
+        x, y, w, h, _rel_x, _rel_y = self.get_geometry_raw(win)
         return x, y, w, h
 
     def _new_rid(self) -> int:

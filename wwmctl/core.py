@@ -58,19 +58,24 @@ ACTIVE_WINDOW_MAGIC = ":ACTIVE:"
 #: original printing `600 400` for the xmessage our clone read at `300 200`; the same file for
 #: resolute-labwc/-budgie/-lxqt-wayland (all the `wlr` backend) has `1436 790` against `718 395` and the
 #: two other pairs. GNOME is measured the OTHER way and is deliberately not here (mutter frames every
-#: decorated X11 window on Wayland too). kwin, cinnamon, wayfire and cosmic are NOT YET measured and are
-#: out until they are: one `xwininfo -id <xterm> -tree` on each golden, rung 4, minutes apiece.
+#: decorated X11 window on Wayland too), and so is cosmic: measured 2026-09-12 on the arch-cosmic 1.8.0
+#: golden (instance acos-b18), an xterm's `xwininfo -tree` gave `Parent window id: 0x200020` against a
+#: root of `0x2f2` -- Smithay's X WM REPARENTS, so cosmic frames and stays out (item 8). kwin, cinnamon
+#: and wayfire are NOT YET measured and are out until they are: one `xwininfo -id <xterm> -tree` on each
+#: golden, rung 4, minutes apiece.
 NON_REPARENTING_XWM = frozenset(("wlr", "sway", "hypr"))
 
 #: Backends whose Xwayland window manager never puts `_NET_WM_DESKTOP` on the window, so the original
 #: falls back to `_WIN_WORKSPACE` and then to a flat 0 (`Core._desktop_column`). Measured 2026-09-12:
 #: muffin on both session kinds (the `resolute-cinnamon` golden and goal2/requests-batch-13.md), and
 #: sway 1.11 / labwc 0.9.3 headless on this guest, where `xprop _NET_WM_DESKTOP` on an xterm answers
-#: `no such atom on any window` -- the wlroots xwm does not even intern it. GNOME publishes
-#: 0xFFFFFFFF and is deliberately not here. kwin, hypr, wayfire and cosmic are NOT YET measured and are
-#: out until they are: one `xprop -id <xterm> _NET_WM_DESKTOP` after a `wmctrl -b add,sticky` on each
-#: golden, rung 4, minutes apiece.
-NO_NET_WM_DESKTOP_XWM = frozenset(("cinnamon", "wlr", "sway"))
+#: `no such atom on any window` -- the wlroots xwm does not even intern it. cosmic-comp 1:1.8.0-1 is
+#: the same: measured 2026-09-12 on the arch-cosmic 1.8.0 golden (instance acos-b18), an xterm made
+#: sticky with `wmctrl -b add,sticky` answered `_NET_WM_DESKTOP: no such atom on any window` and so did
+#: `_WIN_WORKSPACE` -- Smithay's X WM interns neither (item 8). GNOME publishes 0xFFFFFFFF and is
+#: deliberately not here. kwin, hypr and wayfire are NOT YET measured and are out until they are: one
+#: `xprop -id <xterm> _NET_WM_DESKTOP` after a `wmctrl -b add,sticky` on each golden, rung 4, minutes apiece.
+NO_NET_WM_DESKTOP_XWM = frozenset(("cinnamon", "cosmic", "wlr", "sway"))
 
 
 # -- injection seams (unit tests monkeypatch these) --------------------------
@@ -117,6 +122,10 @@ class UWindow:
     fy: int = 0
     fw: int = 0
     fh: int = 0
+    # the X-plane origin relative to its X parent (from GetGeometry): the frame offset wmctrl's -G adds to
+    # the absolute origin under a framing xwm; 0,0 for a native window or a fake without get_geometry_raw
+    rel_x: int = 0
+    rel_y: int = 0
 
 
 class Core:
@@ -299,7 +308,13 @@ class Core:
         except Exception:
             pass
         try:
-            w.x, w.y, w.w, w.h = x.get_geometry(w.id)
+            raw = getattr(x, "get_geometry_raw", None)
+            if raw is not None:
+                # keep the parent-relative origin the -G column needs on a framing xwm; get_geometry_raw
+                # exists on the real x11_mini and on this batch's GNOME fake, absent on the other fakes
+                w.x, w.y, w.w, w.h, w.rel_x, w.rel_y = raw(w.id)
+            else:
+                w.x, w.y, w.w, w.h = x.get_geometry(w.id)
         except XUnavailable:
             raise
         except Exception:
@@ -787,9 +802,11 @@ class Core:
         came back `_NET_WM_DESKTOP(CARDINAL) = 4294967295` and the original printed `0x00800020 -1
         gnome-dbg stickytest`, which is exactly what this column already said off the gnome backend's
         own -1 [M goal2/recon/b17-review-measurements.md 1]. So the fallback is confined to
-        `NO_NET_WM_DESKTOP_XWM`. kwin, hypr, wayfire and cosmic are NOT YET measured: one
-        `xprop -id <xterm> _NET_WM_DESKTOP` on each golden beside a `wmctrl -b add,sticky` settles it,
-        rung 4 (the X server beside the compositor) and about ten minutes of one VM apiece."""
+        `NO_NET_WM_DESKTOP_XWM`, which now also carries cosmic (measured 2026-09-12 on the arch-cosmic
+        1.8.0 golden: a sticky xterm has neither `_NET_WM_DESKTOP` nor `_WIN_WORKSPACE`). kwin, hypr and
+        wayfire are NOT YET measured: one `xprop -id <xterm> _NET_WM_DESKTOP` on each golden beside a
+        `wmctrl -b add,sticky` settles it, rung 4 (the X server beside the compositor) and about ten
+        minutes of one VM apiece."""
         if w.desktop >= 0 or not w.is_x:
             return w.desktop
         if self.backend().name not in NO_NET_WM_DESKTOP_XWM:
@@ -839,16 +856,26 @@ class Core:
         2026-09-12) the same xterm read `Parent window id: 0xa00004` against a root of `0x221`,
         `xwininfo` put it at absolute 398,252 with a relative origin of 14,49, and BOTH originals printed
         `412 301` -- `absolute + parent-relative`, not `796 504` [M goal2/recon/b17-review-measurements.md
-        1]. So this column gives back the absolute origin there, which is within 14,49 of the original and
-        is what it printed before this rule existed; kwin, cinnamon, wayfire and cosmic are the same NOT
-        YET. The exact term is one field away: `x11_mini.get_geometry` already reads the parent-relative
-        `x, y` off GetGeometry and throws it away, so returning it is rung 5 and a two-line change in a
-        file this batch does not own (`_NET_FRAME_EXTENTS` is NOT a substitute -- marco 6,6,27,7 for a
-        relative origin of 16,37; mutter 0,0,37,0 for 14,49)."""
+        1]. `x11_mini.get_geometry_raw` now returns that parent-relative `x, y` off GetGeometry
+        (`_read_x_props` stores it in `w.rel_x, w.rel_y`), so the exact term IS added here: the
+        `-G` column is `absolute + parent-relative`, which is wmctrl's OWN formula on ANY xwm and byte-parity
+        with the original. On a reparenting (framing) xwm the parent is the frame and the term is the frame
+        offset -- GNOME/mutter: 398,252 + 14,49 = 412,301 (rung 5, one field off the reply the geometry read
+        already makes); on a NON-reparenting xwm the parent is the root, so the parent-relative x equals the
+        absolute x and the same term gives 2x, the doubling. Framing is MEASURED on mutter (14,49) and on
+        cosmic-comp 1:1.8.0-1 (which reparents, but its Xwayland reports a parent-relative origin of 0,0, so
+        the term adds nothing and ours == the original: CI run 34667595059 r3 printed both at `4558 169`).
+        kwin, muffin and wayfire are NOT YET measured for reparenting -- requests-batch-18.md item C hands
+        them to B16 -- but the formula needs no per-xwm list: `absolute + parent-relative` is right on all of
+        them. `_NET_FRAME_EXTENTS` is NOT a substitute -- marco 6,6,27,7 for a relative origin of 16,37;
+        mutter 0,0,37,0 for 14,49. Where the relative origin was not read (a fake without get_geometry_raw) it
+        is 0,0, so the NON_REPARENTING_XWM branch below (which doubles explicitly) is what still serves those
+        fakes; on the real x11_mini it is redundant, since `w.x + w.rel_x` already equals 2*w.x there."""
         if self.true_geometry:
             return w.x, w.y
         if w.is_x and self.backend().name not in NON_REPARENTING_XWM:
-            return w.x, w.y
+            # a FRAMING xwm: the original prints absolute + parent-relative (the frame offset)
+            return w.x + w.rel_x, w.y + w.rel_y
         return w.x * 2, w.y * 2
 
     def list_one_window(self, w: UWindow, show_pid: bool, show_geometry: bool, show_class: bool) -> int:  # -L

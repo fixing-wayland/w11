@@ -206,27 +206,41 @@ def session_registry() -> "dict[str, int] | None":
     if _registry_probed:
         return _registry
     _registry_probed = True
+    import time
     from w11common.wayland_mini import WlConn
     hit = session.find_wayland_socket()
     if hit is None:
         return None
-    conn = None
-    try:
-        conn = WlConn(hit[2])
-        out: dict[str, int] = {}
-        for iface, ver in conn.get_registry().values():
-            out[iface] = max(ver, out.get(iface, 0))
-        _registry = out
-        _registry_conn = conn
-        conn = None                  # kept, not closed: session_conn() hands it to the backend
-    except (OSError, RuntimeError, ValueError):
-        _registry = None
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except OSError:
-                pass
+    # Two attempts, short backoff.  A connect or roundtrip that fails, or a
+    # registry that comes back EMPTY (a real compositor always advertises
+    # wl_compositor and friends, so {} means the roundtrip did not finish),
+    # is retried once before the session is declared unreachable: under CI
+    # load a momentary failure here reported COSMIC as "offers neither
+    # wlr-foreign-toplevel nor the COSMIC toplevel protocols" although the
+    # backend is fine on the same golden by hand [arch-cosmic, CI 34676441862].
+    for attempt in range(2):
+        conn = None
+        try:
+            conn = WlConn(hit[2])
+            out: dict[str, int] = {}
+            for iface, ver in conn.get_registry().values():
+                out[iface] = max(ver, out.get(iface, 0))
+            if out:
+                _registry = out
+                _registry_conn = conn
+                conn = None          # kept, not closed: session_conn() hands it to the backend
+                break
+            _registry = None         # empty: an unfinished roundtrip, retry
+        except (OSError, RuntimeError, ValueError):
+            _registry = None
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+        if attempt == 0:
+            time.sleep(0.25)
     return _registry
 
 

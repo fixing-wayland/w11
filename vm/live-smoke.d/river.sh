@@ -360,6 +360,10 @@ host-side screendump per head)"
          "$(printf '%s\n' "$outs" | grep -c .)" \
          "$(guest 'wxrandr --listmonitors' | sed -n 's/^Monitors: //p' | tr -d ' \r')"
     note "listmonitors order: $(guest 'wxrandr --listmonitors' | tr '\n' ' ' || true)"
+    # river 0.4.8's output manager will not re-enable a head it switched --off: wlr-randr --on answers
+    # `failed to apply configuration` (no IPC, riverctl gone from 0.4), so common_display_phase's three
+    # re-enable checks are route-6 xwants here [run 34667595059, diagnosis §4].
+    OFF_HEAD_STAYS_OFF="river 0.4.8's output manager answers 'failed to apply configuration' to wlr-randr --on"
     common_display_phase
 }
 

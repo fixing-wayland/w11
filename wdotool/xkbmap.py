@@ -178,7 +178,18 @@ def fetch(timeout: float = 2.0, mods_wait: float = 0.08, keymap: str | None = No
             # that already know the answer never open a socket or a bus.
             told = desktop_group(text)
             if told is not None:
-                return Snapshot(text, told[0], "wayland + " + told[1], True, mods_seen)
+                # Four of the five desktops `desktop_group` asks LOCK the group they report (the applet
+                # calls the compositor's own group-set), so their answer is the live group and known.
+                # Cinnamon's is not: muffin 6.4 exposes `lock_layout_group`/`set_keymap` and NO getter
+                # [M requests-batch-18.md 2, `get_keymap_layout_group` -> undefined over org.Cinnamon.Eval],
+                # so `org.cinnamon.desktop.input-sources current` can name a group muffin is NOT decoding
+                # under whenever `current` is written behind muffin's back -- silent garbage, the exact
+                # failure the "assuming '<name>'" notice exists for. So Cinnamon's answer is a GUESS and the
+                # notice fires. The true read is rung 5, Xwayland's XkbGetState `group` field (one
+                # QueryExtension + XkbUseExtension + a 16-byte reply in x11_mini), which would serve GNOME
+                # and KDE too; rung 2 is closed for reading (muffin has no getter on any Cinnamon bus).
+                known = told[1] not in GROUP_ASSUMED_DESKTOPS
+                return Snapshot(text, told[0], "wayland + " + told[1], known, mods_seen)
         return Snapshot(text, group, "wayland", known, mods_seen)
     return Snapshot(text, group, "wayland", True, mods_seen)
 
@@ -2056,6 +2067,12 @@ def cinnamon_group(text: str):
 
 # ---------------------------------------------------------------------------
 # the desktops, in turn
+
+
+#: The `who` strings from `desktop_group` whose group is a GUESS, not a verified live read: the reader
+#: names a group the compositor is not proven to be decoding under. Cinnamon is here because muffin 6.4 has
+#: no group getter [M requests-batch-18.md 2]; the other four lock the group they report.
+GROUP_ASSUMED_DESKTOPS = frozenset({"cinnamon input-sources"})
 
 
 def desktop_group(text: str):

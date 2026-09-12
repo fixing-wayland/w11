@@ -79,6 +79,14 @@ class FakeX11:
         return (d["x"], d["y"] + self.TITLEBAR, d["width"],
                 d["height"] - self.TITLEBAR)
 
+    def get_geometry_raw(self, win):
+        # abs (x,y,w,h) as get_geometry, plus the parent-relative origin: the client sits one SSD bar
+        # below its frame's top-left, so relative to the frame window it is (0, TITLEBAR). wmctrl's -G
+        # adds that pair to the absolute origin on a framing xwm like Mutter [M b17-review-measurements.md
+        # 1: real noble-gnome relative origin 14,49; here the fake models a bar-only frame, so 0,37].
+        x, y, w, h = self.get_geometry(win)
+        return (x, y, w, h, 0, self.TITLEBAR)
+
     def get_pid(self, win):
         return 1201 if win == XTERM_XID else 0
 
@@ -270,8 +278,11 @@ class ListingTests(GnomeCliBase):
         self.assertEqual(self.x_calls, [(":0", XAUTH)])
         lines = out.splitlines()
         # machine column: WM_CLIENT_MACHINE from X for the xterm, hostname
-        # for native windows; right-aligned to the LONGEST of the two
-        self.assertEqual(lines[-1], "0x00400005  0 100  117  640  443  "
+        # for native windows; right-aligned to the LONGEST of the two.
+        # -G on a framing xwm is absolute + parent-relative (item 6, rung 5): abs 100,117, relative
+        # 0,37 off get_geometry_raw -> 100 154, byte-parity with wmctrl's own XTranslateCoordinates
+        # -from-x,y column [M goal2/recon/b17-review-measurements.md 1: noble-gnome 398,252 + 14,49 = 412,301]
+        self.assertEqual(lines[-1], "0x00400005  0 100  154  640  443  "
                                     "xterm.XTerm             vmhost test@vm: ~")
         self.assertEqual(lines[0], "0x003ffffd  0 0    0    1920 1080 "
                                    "Gjs.Gjs               testhost Desktop")
