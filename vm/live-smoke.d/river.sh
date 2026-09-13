@@ -236,11 +236,22 @@ river_xwayland() {
     fi
     guest "setsid nohup xterm -T smokex -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 3; true" \
         >/dev/null || true
-    local list xid row bare
+    local list xid bare
     list=$(guest 'wxprop -root _NET_CLIENT_LIST' || true)
     want "wxprop -root _NET_CLIENT_LIST names the X client" "window id # 0x[0-9a-f]+" "$list"
     xid=$(xplane_id xterm || true)
-    row=$(guest 'wwmctl -lGpx' | grep -i xterm || true)
+    # poll for the X-plane join: the window can be in _NET_CLIENT_LIST before the wlr
+    # floor lists it, so a single fetch races empty (arch-river, CI run 34733966065).
+    # Driver-side retry keeps the recorded command `wwmctl -lGpx` unchanged, so the
+    # committed recording still replays (the recorded row answers the first poll) while
+    # a live run waits the join out, bounded ~10s.  LIVE_SMOKE_SLEEP=0 zeroes the sleep
+    # in replay, where the first call already matches.
+    local row=''; local _i
+    for _i in 1 2 3 4 5 6 7 8 9 10; do
+        row=$(guest 'wwmctl -lGpx' | grep -i xterm || true)
+        [ -n "$row" ] && break
+        sleep 1
+    done
     if [ -n "$xid" ]; then
         # The recon's own numbers for this exact join on river: the XTerm was 0x0040000c with
         # pid 51601 to the real wmctrl and 0x000f4243 with pid 0 and class XTerm.XTerm to us,
