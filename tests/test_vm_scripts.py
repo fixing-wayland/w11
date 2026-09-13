@@ -65,6 +65,7 @@ SELFTEST = os.path.join(VM, "selftest.sh")
 ISO_GOLDEN = os.path.join(VM, "build-iso-golden.sh")
 BUILD = os.path.join(VM, "build-image.sh")
 VMCTL = os.path.join(VM, "vmctl")
+LIVE_SMOKE = os.path.join(VM, "live-smoke.sh")
 FLAVORS = os.path.join(VM, "flavors")
 
 #: The five bash scripts under vm/.  vmctl is Python and is covered elsewhere.
@@ -2195,6 +2196,189 @@ class TheRigItself(unittest.TestCase):
                              capture_output=True, text=True, timeout=300)
         self.assertEqual(got.returncode, 0, got.stderr)
         self.assertIn("resolute-gnome", got.stdout)
+
+
+class TheLiveSmokeCosmicCrashProbe(unittest.TestCase):
+    """`cosmic_comp_crashed` in vm/live-smoke.sh, run offline against a fake
+    vmctl.
+
+    It is what decides whether a FAILED run exits 75 (retry me: an upstream
+    cosmic-comp SIGSEGV) or its plain FAILS count (a real w11 bug).  The three
+    exit codes were measured live on the fedora44-cosmic golden 2026-09-13
+    (crash->75, clean->0, w11-fail-no-crash->1, report-batch-24); this pins the
+    decision itself so a later edit cannot quietly widen it -- if the gate ever
+    said "true on any failing cosmic run" the retry would mask a w11 bug, which
+    is worse than a red.  The function is sliced out and sourced, so this runs
+    with no VM and no coredumpctl: the fake stands in for `vmctl ssh`."""
+
+    # a coredumpctl `list` row per signal; grep -iw SIGSEGV in the real script is
+    # what has to tell them apart, so the doubles carry a genuine SIGABRT beside the
+    # SIGSEGV rather than "a line" and "no line".
+    SEGV = "Sun 2026-09-13 00:52:15 UTC 1985 1000 1000 SIGSEGV present /usr/bin/cosmic-comp 31.1M"
+    ABRT = "Sun 2026-09-13 00:40:02 UTC 1727 1000 1000 SIGABRT present /usr/bin/cosmic-comp 22.4M"
+
+    def fn(self):
+        return support.sh_function(LIVE_SMOKE, "cosmic_comp_crashed")
+
+    def _boot_id(self):
+        """The guest-side script strips the dashes /proc keeps but the journal
+        drops; this is the same value the fake coredumpctl should be handed."""
+        with open("/proc/sys/kernel/random/boot_id", encoding="utf-8") as fh:
+            return fh.read().strip().replace("-", "")
+
+    def _fake_vmctl(self, tmp, name):
+        """A fake vmctl at <tmp>/<name>.  It logs its own name to $PROBE_LOG (so
+        "was it called at all" is an assertion, not an absence) and then -- unlike
+        a mock that prints a canned string and throws the guest command away --
+        actually RUNS the `sh -c` script cosmic_comp_crashed hands it, after the
+        `--`, with the fake coredumpctl first on PATH.  So the `_BOOT_ID=` filter,
+        the `cosmic-comp` COMM and the `grep -iw SIGSEGV` in that script are all
+        exercised for real here; only coredumpctl's own listing is a double."""
+        path = os.path.join(tmp, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(
+                '#!/bin/sh\n'
+                'echo "%s" >> "$PROBE_LOG"\n' % name +
+                'while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done\n'
+                '[ "$1" = -- ] && shift\n'
+                'PATH="$FAKE_BIN:$PATH" exec "$@"\n')
+        os.chmod(path, 0o755)
+        return path
+
+    def _fake_coredumpctl(self, tmp, rows):
+        """A fake `coredumpctl` on a private bin dir: append its whole argv to
+        $COREDUMPCTL_LOG and print `rows` (coredumpctl `list` lines, or none for a
+        boot with no matching core).  The real function pipes this through
+        `grep -iw SIGSEGV`, so what it prints is exactly what decides the verdict."""
+        binn = os.path.join(tmp, "bin")
+        os.makedirs(binn, exist_ok=True)
+        path = os.path.join(binn, "coredumpctl")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("#!/bin/sh\n")
+            fh.write('printf \'%s \' "$@" >> "$COREDUMPCTL_LOG"; printf \'\\n\' >> "$COREDUMPCTL_LOG"\n')
+            for row in rows:
+                fh.write("printf '%s\\n'\n" % row)
+        os.chmod(path, 0o755)
+        return binn
+
+    def run_probe(self, tmp, desktop, vm, rows, real=None, transcript=None):
+        log = os.path.join(tmp, "probe.log")
+        argv = os.path.join(tmp, "coredumpctl.argv")
+        open(log, "w").close()
+        open(argv, "w").close()
+        fakebin = self._fake_coredumpctl(tmp, rows)
+        env = dict(os.environ, DESKTOP=desktop, NAME="fake", VM=self._fake_vmctl(tmp, vm),
+                   PROBE_LOG=log, COREDUMPCTL_LOG=argv, FAKE_BIN=fakebin)
+        env.pop("FAKE_VMCTL_TRANSCRIPT", None)   # the host may carry one; the tests set it explicitly
+        if real is not None:
+            env["CAPTURE_REAL_VMCTL"] = self._fake_vmctl(tmp, real)
+        if transcript is not None:
+            env["FAKE_VMCTL_TRANSCRIPT"] = transcript
+        script = self.fn() + '\nif cosmic_comp_crashed; then echo CRASHED; else echo CLEAN; fi\n'
+        got = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                             timeout=60, env=env)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        with open(log, encoding="utf-8") as fh:
+            called = fh.read()
+        with open(argv, encoding="utf-8") as fh:
+            cd_argv = fh.read()
+        return got.stdout.strip(), called, cd_argv
+
+    def test_a_cosmic_comp_sigsegv_core_is_a_crash(self):
+        """A SIGSEGV row for cosmic-comp this boot -> CRASHED, and the guest command
+        really was `coredumpctl ... list _BOOT_ID=<this boot, dash-stripped> cosmic-comp`
+        -- the _BOOT_ID filter is the property that keeps a stale golden-build core, or
+        an earlier boot's, from turning a real w11 red into a retry."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        verdict, _, argv = self.run_probe(tmp, "cosmic", "vmctl", [self.SEGV])
+        self.assertEqual(verdict, "CRASHED")
+        self.assertIn("list", argv)
+        self.assertIn("_BOOT_ID=%s" % self._boot_id(), argv)
+        self.assertIn("cosmic-comp", argv)
+
+    def test_a_sigabrt_only_listing_is_not_a_crash(self):
+        """The grep really is `-iw SIGSEGV`, not "any core": a boot whose only
+        cosmic-comp core is a SIGABRT is CLEAN, so the retry rides the llvmpipe
+        SIGSEGV alone and not every way cosmic-comp can die."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        verdict, called, _ = self.run_probe(tmp, "cosmic", "vmctl", [self.ABRT])
+        self.assertEqual(verdict, "CLEAN")
+        self.assertIn("vmctl", called)   # it DID ask; SIGABRT just is not a SIGSEGV
+
+    def test_no_core_is_not_a_crash(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        # coredumpctl lists nothing: no cosmic-comp core at all this boot
+        verdict, called, _ = self.run_probe(tmp, "cosmic", "vmctl", [])
+        self.assertEqual(verdict, "CLEAN")
+        self.assertIn("vmctl", called)   # it DID ask -- the emptiness is the answer, not a skip
+
+    def test_a_non_cosmic_flavor_never_probes(self):
+        """The gate that keeps every other flavor's exit byte-for-byte
+        unchanged: `[ "$DESKTOP" = cosmic ] || return 1` returns before the
+        fake is ever called, so gnome/kde/sway never emit 75 and never grow a
+        coredumpctl round-trip."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        verdict, called, _ = self.run_probe(tmp, "gnome", "vmctl", [self.SEGV])
+        self.assertEqual(verdict, "CLEAN")
+        self.assertEqual(called, "", "a non-cosmic flavor must not invoke vmctl at all")
+
+    def test_a_replay_has_no_guest_to_probe(self):
+        """selftest-offline.sh / rig-recordings.sh drive live-smoke through the
+        strict-vmctl wrapper, which copies "nothing recorded for ..." to
+        $FAKE_VMCTL_MISSES before the probe's own 2>/dev/null can drop it.  So on
+        a FAILS>0 cosmic replay the probe must not run at all, or its coredumpctl
+        script counts as one unrecorded command and drifts the recording.
+        FAKE_VMCTL_TRANSCRIPT is the replay tell; with it set the fake is never
+        called (keeps both cosmic recordings replaying 70/0 and 68/0)."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        verdict, called, _ = self.run_probe(tmp, "cosmic", "vmctl", [self.SEGV],
+                                            transcript=os.path.join(tmp, "cap.txt"))
+        self.assertEqual(verdict, "CLEAN")
+        self.assertEqual(called, "", "a replay must not invoke vmctl -- there is no guest to ask")
+
+    def test_it_probes_through_the_real_vmctl_not_the_record_wrapper(self):
+        """Recording-neutral: under --record, VM is vm/live-smoke.d/capture-from-run
+        and CAPTURE_REAL_VMCTL is the true vmctl.  The probe must go through the
+        REAL one, so the teardown diagnostic enters no capture and no fixture --
+        here both fakes would run the SIGSEGV listing, yet only the real vmctl is
+        called, never the capture wrapper."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        verdict, called, _ = self.run_probe(tmp, "cosmic", "capture-from-run", [self.SEGV],
+                                            real="real-vmctl")
+        self.assertEqual(verdict, "CRASHED")
+        self.assertIn("real-vmctl", called)
+        self.assertNotIn("capture-from-run", called)
+
+
+class TheLiveSmokeCosmicExitWiring(unittest.TestCase):
+    """The tail of vm/live-smoke.sh that turns cosmic_comp_crashed into an exit
+    code, and the number the CI loop retries on.
+
+    cosmic_comp_crashed deciding "crash" is worth nothing unless a FAILED run
+    actually exits 75 for it, and unless ci.yml's `[ "$rc" = 75 ]` retries on the
+    SAME 75.  Change either number, or drop the `[ "$FAILS" -gt 0 ]` gate so a
+    clean cosmic run probes, and the crash->75 / clean->0 measurements
+    (report-batch-24) silently stop holding while every text pin stays green."""
+
+    def setUp(self):
+        with open(LIVE_SMOKE, encoding="utf-8") as fh:
+            self.src = fh.read()
+
+    def test_ex_tempfail_is_75(self):
+        self.assertRegex(self.src, r'(?m)^EX_COSMIC_SIGSEGV=75\s*$')
+
+    def test_a_failing_cosmic_crash_exits_ex_tempfail(self):
+        """The gate is FAILS>0 AND a crash (so a clean run never probes and never
+        emits 75), and the code it exits with is EX_COSMIC_SIGSEGV, not a literal
+        that could drift from the value ci.yml retries on."""
+        self.assertIn('if [ "$FAILS" -gt 0 ] && cosmic_comp_crashed; then', self.src)
+        self.assertRegex(self.src, r'(?m)^\s*exit "\$EX_COSMIC_SIGSEGV"\s*$')
 
 
 if __name__ == "__main__":

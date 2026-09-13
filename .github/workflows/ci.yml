@@ -841,15 +841,50 @@ jobs:
       # 2026-09-12: 134 s, 59 pass / 0 fail, a 24 KB capture beside the log -- so about
       # 1 MB across the 38 flavors. Without it every push measures 38 desktops and then
       # deletes the evidence, and tests/fixtures/live/NOT-YET-RUN can never empty.
-      - name: vm/live-smoke.sh --pkg --remove --record
+      - name: vm/live-smoke.sh --pkg --remove --record (retry ONLY a cosmic-comp SIGSEGV)
         # Heads default to 3; a flavor may pin fewer with `# vmctl-ci-heads:` in its yaml.
         # fedora44-cosmic pins 2: cosmic-comp SIGSEGVs intermittently in llvmpipe's
         # per-output render threads under headless software GL, and one fewer output is
         # one fewer such thread (rung 4, the GL stack; softpipe degrades fedora's cosmic
         # and LP_NUM_THREADS=0 only reduced it -- runs 34704305466/34709568224).
+        #
+        # live-smoke.sh exits 75 (EX_TEMPFAIL) ONLY when a run FAILED *and* a cosmic-comp
+        # SIGSEGV core landed in that boot (fedora44-cosmic/arch-cosmic): upstream Mesa
+        # llvmpipe lp_setup on GPU-less software GL, hit MID-WM-PHASE from cosmic-comp's
+        # per-surface KMS render thread on a full-output re-render, greetd self-heals
+        # (batches 22/23 measured 8/8 rounds at mesa 26.1.8; #0 lp_setup_alloc_triangle in
+        # libgallium-26.1.8.so). That is not a w11 defect, so retry the WHOLE fresh-boot
+        # smoke (--fresh is live-smoke.sh's default) up to 4 times. Any OTHER non-zero exit
+        # fails immediately: a real w11 bug fails deterministically with NO cosmic-comp core,
+        # so it is never a 75 and is never retried -- the retry cannot absorb a real red
+        # (measured on the fedora44-cosmic golden 2026-09-13: crash->75, clean->0,
+        # w11-fail-no-crash->1, report-batch-24). Route 2 on the AGENTS.md ladder, the
+        # compositor's own greetd recovery. `rm -rf vm/live-smoke.out` before each attempt
+        # discards a crashed attempt's --record capture, so the replay harvest only ever
+        # keeps the attempt that SUCCEEDED (rig-recordings.sh names a fixture from the log
+        # left in that directory). It discards that attempt's screenshots too, per the brief's
+        # literal "a crashed attempt's capture is discarded"; the transcript survives in this
+        # step's log (live-smoke.sh tees to stdout) so the crash is still evidenced there. Only
+        # cosmic flavors ever emit 75, so this is a no-op for the other 36 -- they run once and
+        # any non-zero fails on the first attempt. 75 could also be `exit "$FAILS"` for exactly
+        # 75 failures, but no cosmic phase list reaches that (70 checks on fedora44-cosmic, 68
+        # on arch-cosmic -- report-batch-24), so on the flavors that emit it, 75 is the crash.
         run: |
           H=$(sed -n 's/^#[[:space:]]*vmctl-ci-heads:[[:space:]]*\([0-9][0-9]*\).*/\1/p' vm/flavors/${{ matrix.flavor }}.yaml | head -1)
-          vm/live-smoke.sh ${{ matrix.flavor }} --pkg --remove --record --heads "${H:-3}" --cpus 2 --mem 3G
+          why="cosmic-comp SIGSEGV during the run (upstream Mesa llvmpipe lp_setup, greetd"
+          why="$why self-heals -- not a w11 failure); retrying the whole fresh-boot smoke"
+          rc=0
+          for attempt in 1 2 3 4; do
+            rm -rf vm/live-smoke.out
+            set +e
+            vm/live-smoke.sh ${{ matrix.flavor }} --pkg --remove --record --heads "${H:-3}" --cpus 2 --mem 3G
+            rc=$?
+            set -e
+            [ "$rc" = 0 ] && break
+            [ "$rc" = 75 ] || exit "$rc"
+            [ "$attempt" = 4 ] || echo "::warning::${{ matrix.flavor }} attempt $attempt: $why"
+          done
+          exit "$rc"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

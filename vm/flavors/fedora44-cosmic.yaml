@@ -132,16 +132,29 @@ write_files:
     content: "PermitRootLogin prohibit-password\n"
   - path: /etc/modules-load.d/uinput.conf
     content: "uinput\n"
-  # cosmic-comp renders through Mesa here (no GPU / render node on the CI runner).
-  # The llvmpipe SIGSEGV that hits arch-cosmic (Signal 11 in libgallium's per-output
-  # worker threads) is intermittent on Fedora's mesa too: fedora44-cosmic was green
-  # on CI runs 34688228778 and 34698985468 and crashed the same way on 34704305466
-  # (74 pass/9 fail, "no Wayland session found" -- the compositor gone).  Rung-4 GL
-  # fix, but NOT softpipe: softpipe degraded fedora's cosmic-comp to a wlr-only mode
-  # (detected as wlr, no zcosmic, 23 pass/10 fail on run 34707294939) where arch-cosmic
-  # tolerates it.  LP_NUM_THREADS=0 keeps full llvmpipe -- no degradation -- and
-  # rasterises on the calling thread, so the worker threads that fault are never
-  # spawned.  greetd's PAM reads /etc/environment; the service drop-in is the belt.
+  # cosmic-comp renders through Mesa here (no GPU / render node on the CI runner, so
+  # llvmpipe software GL).  Its intermittent SIGSEGV is an upstream Mesa bug in llvmpipe's
+  # tiled rasteriser (lp_setup), hit from cosmic-comp's per-surface KMS render thread on a
+  # FULL-OUTPUT re-render -- the maximize the wm phase issues.  It is op-triggered, not a
+  # startup race: batch 22 reproduced it at the SHIPPED mesa 26.1.8 on a quiet box, 8/8
+  # rounds (88 maximize toggles), captured #0 lp_setup_alloc_triangle <- ... <-
+  # SurfaceThreadState::redraw (probe/bt-wmops-2618-2h.txt).  It fires mid-wm-phase, minutes
+  # after the session is up and the windows phase passed: run 34704305466 (golden 9634f552,
+  # 3 heads, no LP knob) at the wm-phase start; 34709568224 (8f6d729f, 3 heads,
+  # LP_NUM_THREADS=0) at add,fullscreen; 34716677796 (cee7043c, 2 heads, LP_NUM_THREADS=0)
+  # at add,maximized; 34714395312 (same cee7043c/2h/LP=0) PASSED -- so LP_NUM_THREADS=0 is
+  # NOT the fix (baked in two crashers, and batch 22's golden crashed with it).  softpipe is
+  # worse: GALLIUM_DRIVER=softpipe kills cosmic-comp's renderer init on BOTH CI (run
+  # 34707294939: no first frame in 60s, --print-backend "wlr | available: no (cannot connect
+  # to the compositor)", wl-mirror Connection refused, empty oracle) and the rig (GBM/EGL
+  # init fails, exit 1) -- the old "wlr-only mode" note misread wxrandr's detection fallback.
+  # NOT YET eliminated: rung 6 (a fixed/pinned/downgraded Mesa; a 26.1.8 pin only forestalls
+  # the worse 26.2.2 regression, it does not fix this) or rung 4 (a GL render node the runner
+  # lacks; gl.md section 4 costs: the QMP screendump oracle and the -display dbus head
+  # control both die).  LP_NUM_THREADS=0 kept -- harmless, keeps full llvmpipe/zcosmic --
+  # though not the fix; the llvmpipe codegen knobs GALLIUM_NOSSE=1 + LP_NATIVE_VECTOR_WIDTH=128
+  # only REDUCE the rate (6/8, not 0), so they are not pushed either.  greetd's PAM reads
+  # /etc/environment; the service drop-in is the belt.
   - path: /etc/environment
     content: "LP_NUM_THREADS=0\n"
     append: true

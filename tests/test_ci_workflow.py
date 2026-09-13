@@ -30,6 +30,7 @@ reads first.
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -49,6 +50,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "ci.yml")
 CI_GOLDEN = os.path.join(ROOT, "scripts", "ci-golden.sh")
 FLAVORS = os.path.join(ROOT, "vm", "flavors")
+LIVE_SMOKE = os.path.join(ROOT, "vm", "live-smoke.sh")
 
 #: job -> (its `continue-on-error` expression, why that job is allowed to fail).
 #: EMPTY since 2026-09-12, and kept as a table rather than replaced by "no job
@@ -666,6 +668,176 @@ class TheRigJob(unittest.TestCase):
 
     def test_the_golden_comes_from_ci_golden_sh(self):
         self.assertIn("scripts/ci-golden.sh ${{ matrix.flavor }}", self.vm)
+
+
+class TheRigRetriesOnlyACosmicCompCrash(unittest.TestCase):
+    """The vm step retries the WHOLE fresh-boot smoke on exit 75 -- and on
+    NOTHING else.
+
+    fedora44-cosmic and arch-cosmic run cosmic-comp on Mesa llvmpipe with no
+    GPU, and it SIGSEGVs in lp_setup on a full-output re-render mid-WM-phase
+    (~1/3 of CI runs under scheduling contention; 8/8 rounds under load on the
+    rig at mesa 26.1.8; greetd self-heals -- batches 22/23).  live-smoke.sh
+    emits 75 (EX_TEMPFAIL) ONLY when a run FAILED *and* a cosmic-comp SIGSEGV
+    core landed in that boot, so the retry rides that upstream crash (route 2,
+    the compositor's own recovery) without ever absorbing a real w11 bug, which
+    fails deterministically with no such core and is therefore a different exit.
+
+    The three claims pinned here are the three the brief measured on the golden
+    (report-batch-24): crash -> 75 (retried), clean -> 0, w11-fail-no-crash ->
+    1 (NOT retried).  A push that dropped the `= 75` guard, or unbounded the
+    loop, or retried every non-zero, would let the retry mask a red -- worse
+    than the red -- so each is its own test."""
+
+    def setUp(self):
+        self.vm = jobs()["vm"]
+        # the one `run: |` block that invokes the smoke, sliced from its `- name:`
+        # to the next step (`- uses:`), so the assertions are about THAT step and
+        # not about some other line of the job that happens to carry the word.
+        after = self.vm.split("(retry ONLY a cosmic-comp SIGSEGV)", 1)
+        self.assertEqual(len(after), 2, "the smoke step's name no longer says it retries")
+        self.step = after[1].split("\n      - ", 1)[0]
+
+    def test_the_smoke_is_wrapped_in_a_retry_loop(self):
+        # the exact invocation is still one line (TheRigJob pins the flags); here
+        # the claim is only that a loop now surrounds it.
+        self.assertIn("for attempt in 1 2 3 4;", self.step)
+        self.assertIn("vm/live-smoke.sh ${{ matrix.flavor }} --pkg --remove --record", self.step)
+
+    def test_the_loop_is_bounded(self):
+        """An unbounded retry of a flaky external crash is an infinite job, not
+        a green: four attempts, then the last exit stands (four cosmic-comp
+        crashes in a row is a genuine failure the run must show)."""
+        self.assertIn("for attempt in 1 2 3 4;", self.step)
+        # no `while` / `until` open-ended loop, and the last rc is what the step exits on
+        self.assertNotIn("while ", self.step)
+        self.assertNotIn("until ", self.step)
+        self.assertRegex(self.step, r'(?m)^\s*exit "\$rc"\s*$')
+
+    def test_it_retries_only_on_exit_75(self):
+        """75 is EX_TEMPFAIL and is the ONLY code live-smoke.sh emits for a
+        cosmic-comp SIGSEGV during the run; the loop continues only for it."""
+        self.assertIn('[ "$rc" = 75 ] || exit "$rc"', self.step)
+        # a break on success, so a green attempt is not re-run
+        self.assertRegex(self.step, r'(?m)^\s*\[ "\$rc" = 0 \] && break\s*$')
+
+    def test_any_other_nonzero_exit_is_not_retried(self):
+        """The safety property: a w11 failure (any non-zero that is not 75)
+        leaves the loop immediately with that code, so the retry can never turn
+        a real red green.  The `|| exit "$rc"` sits BEFORE the retry warning,
+        so a non-75 code never reaches the `continue`/echo-and-loop path."""
+        gate = self.step.index('[ "$rc" = 75 ] || exit "$rc"')
+        warn = self.step.index("::warning::")
+        self.assertLess(gate, warn, "the non-75 exit must precede the retry warning")
+
+    def test_a_crashed_attempts_capture_is_discarded(self):
+        """--record writes a new capture per attempt; a crashed attempt's must
+        not survive next to the successful one, or the replay harvest could name
+        a fixture from the crash.  Clearing vm/live-smoke.out before each attempt
+        leaves only the attempt that SUCCEEDED (the one the loop breaks on)."""
+        self.assertRegex(self.step, r"(?m)^\s*rm -rf vm/live-smoke\.out\s*$")
+        # ...and it is inside the loop (after the `for`), not a one-time pre-clean
+        for_at = self.step.index("for attempt in 1 2 3 4;")
+        self.assertIn("rm -rf vm/live-smoke.out", self.step[for_at:])
+
+    def test_the_retry_reason_names_the_upstream_crash_not_a_w11_bug(self):
+        """AGENTS.md's one rule reaches the CI log too: the retry line says the
+        cosmic-comp SIGSEGV is upstream Mesa llvmpipe and NOT a w11 failure, so
+        nobody reads the retry as w11 papering over its own bug."""
+        self.assertIn("cosmic-comp SIGSEGV", self.step)
+        self.assertIn("not a w11 failure", self.step)
+        self.assertIn("retrying the whole fresh-boot smoke", self.step)
+
+    def test_the_75_it_retries_on_is_live_smokes_ex_tempfail(self):
+        """The retry guard `[ "$rc" = 75 ]` and live-smoke.sh's EX_COSMIC_SIGSEGV
+        are two copies of the one number; if they drift the retry stops firing
+        (a higher live-smoke code is never caught) or fires on the wrong code.
+        Read the value out of live-smoke.sh so this test breaks the day it moves,
+        not the day CI does."""
+        with open(LIVE_SMOKE, encoding="utf-8") as fh:
+            m = re.search(r"(?m)^EX_COSMIC_SIGSEGV=(\d+)\s*$", fh.read())
+        self.assertIsNotNone(m, "vm/live-smoke.sh no longer defines EX_COSMIC_SIGSEGV")
+        self.assertIn('[ "$rc" = %s ] || exit "$rc"' % m.group(1), self.step)
+
+    # -- the loop's SEMANTICS, not its text ----------------------------------
+    #
+    # Every pin above is a substring/regex over the step; a rewrite that keeps the
+    # literals but breaks the control flow (moving the `|| exit "$rc"` below the
+    # echo, losing `set +e` so `bash -e` kills the step before rc is read) passes
+    # them all.  So the loop is sliced out and RUN, with a fake live-smoke.sh that
+    # exits a scripted sequence and drops a marker, under the same shell the step
+    # runs under.  These five sequences are exactly the ones the reviewer ran by
+    # hand to accept the loop (report-batch-24): the retry is green over up to four
+    # cosmic-comp SIGSEGVs and can never turn a non-75 red green.
+
+    FAKE_SMOKE = (
+        "#!/bin/sh\n"
+        "n=$(cat .attempt 2>/dev/null || echo 0); n=$((n + 1)); echo \"$n\" > .attempt\n"
+        "code=$(sed -n \"${n}p\" .codes)\n"
+        "mkdir -p vm/live-smoke.out; echo \"attempt $n\" > vm/live-smoke.out/marker\n"
+        "exit \"${code:-0}\"\n"
+    )
+
+    def _loop_script(self):
+        """The `run: |` block of the step, dedented and with the flavor bound, so
+        it can run outside GitHub."""
+        body = self.step.split("run: |\n", 1)[1]
+        lines = []
+        for ln in body.splitlines():
+            if ln.strip() == "":
+                lines.append("")
+            else:
+                self.assertTrue(ln.startswith("          "), "run-block line not at 10 spaces: %r" % ln)
+                lines.append(ln[10:])
+        return "\n".join(lines).replace("${{ matrix.flavor }}", "fedora44-cosmic")
+
+    def _run_loop(self, codes):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        os.makedirs(os.path.join(tmp, "vm", "flavors"))
+        with open(os.path.join(tmp, "vm", "flavors", "fedora44-cosmic.yaml"), "w") as fh:
+            fh.write("# vmctl-ci-heads: 2\n")
+        smoke = os.path.join(tmp, "vm", "live-smoke.sh")
+        with open(smoke, "w") as fh:
+            fh.write(self.FAKE_SMOKE)
+        os.chmod(smoke, 0o755)
+        with open(os.path.join(tmp, ".codes"), "w") as fh:
+            fh.write("".join("%s\n" % c for c in codes))
+        got = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
+                              self._loop_script()], cwd=tmp, capture_output=True, text=True, timeout=60)
+        with open(os.path.join(tmp, ".attempt"), encoding="utf-8") as fh:
+            calls = int(fh.read().strip())
+        markers = len(os.listdir(os.path.join(tmp, "vm", "live-smoke.out")))
+        warnings = (got.stdout + got.stderr).count("::warning::")
+        return got.returncode, calls, warnings, markers
+
+    def test_a_clean_run_is_not_retried(self):
+        rc, calls, warnings, markers = self._run_loop([0])
+        self.assertEqual((rc, calls, warnings), (0, 1, 0))
+        self.assertEqual(markers, 1)
+
+    def test_crashes_then_green_ends_green_after_retrying(self):
+        rc, calls, warnings, markers = self._run_loop([75, 75, 0])
+        self.assertEqual((rc, calls, warnings), (0, 3, 2))
+        self.assertEqual(markers, 1, "only the succeeding attempt's capture survives")
+
+    def test_a_w11_bug_is_never_retried_and_stays_red(self):
+        rc, calls, warnings, markers = self._run_loop([1])
+        self.assertEqual((rc, calls, warnings), (1, 1, 0))
+        self.assertEqual(markers, 1)
+
+    def test_four_crashes_in_a_row_fails_red_and_is_bounded(self):
+        rc, calls, warnings, markers = self._run_loop([75, 75, 75, 75])
+        self.assertEqual((rc, calls, warnings), (75, 4, 3))
+        self.assertEqual(markers, 1)
+
+    def test_a_w11_bug_after_a_crash_is_not_masked(self):
+        """The dangerous case: a cosmic-comp crash on attempt 1, then a real w11
+        red on attempt 2.  The loop must exit 1 (the red), not keep retrying and
+        not report the green -- one crash does not buy a later bug a free pass."""
+        rc, calls, warnings, markers = self._run_loop([75, 1])
+        self.assertEqual((rc, calls, warnings), (1, 2, 1))
+        self.assertEqual(markers, 1)
 
 
 class TheRecordingsJob(unittest.TestCase):
