@@ -204,7 +204,7 @@ and the bytes are named wherever a number is.
   `_NET_CLIENT_LIST`, `_NET_WM_STATE_SHADED`, and the `--vkbd` refusal naming Muffin). `wmctrl
   --true-geometry` — a flag wmctrl never had — prints the compositor's own rectangle instead of
   wmctrl's doubled `absolute + parent-relative` origin.
-- **5444 tests**, up from 4146, the new ones being the four new window and display
+- **5464 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and
