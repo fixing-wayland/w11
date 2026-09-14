@@ -35,11 +35,11 @@ look at what it is up against.
 
 ## Philosophy
 
-One rule decides what goes in here, and it is written down in
-[AGENTS.md](AGENTS.md): **if X supports it, we support it.** What Wayland forbids is
-a cost to be paid, never a reason. Where a compositor will not do a thing the X
-tools did, that is a gap in this tree with a route beside it, not a policy, and the
-[per-tool tables](docs/WDOTOOL.md#what-differs-from-x-on-kde-plasma) say which.
+One rule decides what goes in here: **if X supports it, we support it.**
+[AGENTS.md](AGENTS.md) states that rule in full. A missing Wayland capability is a
+cost to be paid, never a reason to drop the feature. Where a compositor will not do
+a thing the X tools did, that is a gap in this tree with a route beside it, not a
+policy, and the [per-tool tables](docs/WDOTOOL.md#what-differs-from-x-on-kde-plasma) say which.
 
 ## Install
 
