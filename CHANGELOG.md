@@ -221,10 +221,27 @@ and the bytes are named wherever a number is.
   a new enough aquamarine — arch-hypr's 0.56.2 (aquamarine 0.15.0) grows `Virtual-1` back to
   1920x1080 on the same QEMU `virtio-vga` line where resolute-hypr's 0.53.3 (aquamarine 0.9.x)
   fails the atomic KMS plane test; that one row is **route 6**, an aquamarine Ubuntu 26.04 does
-  not ship, and `wxrandr` itself needs no change. A native (non-XWayland) toplevel's real
-  rectangle on the bare wlr floor stays the one surviving geometry **not yet**, route 1, a
-  foreign-toplevel protocol that carries a rect — none exists yet.
-- **5578 tests**, up from 4146, the new ones being the four new window and display
+  not ship, and `wxrandr` itself needs no change.
+- **Native toplevel geometry on the labwc floor, filled at route 6 with a patched
+  compositor.** An XWayland window on labwc, Budgie, Xfce-on-Wayland and LXQt-on-Wayland
+  already answered its real rectangle over the X plane, but a native (non-XWayland)
+  toplevel answered `0,0 out_w x out_h`, because `zwlr_foreign_toplevel_management_v1`
+  and `ext_foreign_toplevel_list_v1` carry a title and an app id and no rectangle, and no
+  X server had heard of the window. All five wlr-floor goldens were probed and none
+  exposes an IPC that carries a per-toplevel rect (labwc has no query socket or bus;
+  river's `river_window_manager_v1` and status protocols carry tags and focus, not
+  rects), so the lowest reachable rung is 6 for the labwc family and 3 on river. w11 now
+  ships the labwc patch (`packaging/labwc/0001-w11-native-toplevel-geometry.patch`): the
+  patched `labwc_0.9.3-1w11.1` writes each view's `view->current` box — pid, x, y, w, h,
+  app_id, title — to `$XDG_RUNTIME_DIR/w11-labwc-geometry` on map, move/resize, unmap and
+  title/app_id change, and `WlrBackend._labwc_geometry` folds it onto the native rows by
+  (app_id, title). Measured on the resolute-labwc golden 2026-09-14: a native `foot` labwc
+  placed at `612,306 696x494` read `0,0 1920x1080` with stock labwc and `612,306 696x494`
+  with the .deb installed, and `getwindowpid` went from no pid to the client's. One package
+  covers the four labwc goldens (same labwc 0.9.3 and libwlroots-0.19, no wlroots rebuild).
+  An unpatched compositor writes no file and its native rows keep the honest floor. river
+  stays a route-3 row (a `river_window_manager_v1` WM client), not landed this pass.
+- **5587 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and

@@ -950,6 +950,130 @@ class XPlanePid(FakeXPlane, WlrTest):
         self.assertEqual([w.pid for w in b.list()], [0, 0])
 
 
+class RouteSixNativeGeometry(FakeXPlane, WlrTest):
+    """AGENTS.md route 6: the native-toplevel rectangle the wire does not carry, read from the file a
+    patched labwc writes.
+
+    `zwlr_foreign_toplevel_management_v1` and `ext_foreign_toplevel_list_v1` carry no rectangle, and the X
+    plane (route 5) reaches XWayland windows only, so before this a NATIVE toplevel answered `0,0 out_w x
+    out_h`. Measured on the resolute-labwc golden 2026-09-14: a native `foot` whose true frame the
+    screendump diff put at 612,306 696x494 read `0,0 1920x1080` out of `wdotool getwindowgeometry`. The
+    shipped `labwc_0.9.3-1w11.1` .deb emits each view's `view->current` box to
+    `$XDG_RUNTIME_DIR/w11-labwc-geometry`, one `pid\tx\ty\tw\th\tapp_id\ttitle` line per foreign-toplevel
+    view; `_labwc_geometry` joins it onto the native rows by `(app_id, title)`. The fixture is that file:
+    the foot at its measured rectangle, joined to the `footwin`/`foot` toplevel.
+
+    Every assertion here failed before the fold existed (the native row was the floor)."""
+
+    XTERM = 0x40000C
+    CLIENTS = ((0x40000C, "xterm", "XTerm", "xtermwin", 2045, (718, 395, 484, 316)),)
+    TOPLEVELS = (top("xtermwin", "xterm"), top("footwin", "foot"))
+    XRECT = (718, 395, 484, 316)
+    FLOOR = (0, 0, 1920, 1080)
+    #: the measured native foot rectangle on the golden, pid and box
+    FOOT = (2051, 612, 306, 696, 494)
+
+    def write_geometry(self, comp, rows):
+        """Write the route-6 file the way a patched labwc would, into the session's runtime dir."""
+        path = os.path.join(comp.dir, "w11-labwc-geometry")
+        with open(path, "w", encoding="utf-8") as fh:
+            for pid, x, y, w, h, app_id, title in rows:
+                fh.write("%d\t%d\t%d\t%d\t%d\t%s\t%s\n" % (pid, x, y, w, h, app_id, title))
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+
+    def test_a_native_toplevel_answers_the_route6_rectangle(self):
+        self.x_server()
+        comp, b = self.backend()
+        self.write_geometry(comp, [(2051, 612, 306, 696, 494, "foot", "footwin")])
+        self.assertEqual([(w.x, w.y, w.w, w.h) for w in b.list()],
+                         [self.XRECT, (612, 306, 696, 494)])
+
+    def test_a_listing_all_of_whose_rows_have_a_rectangle_does_not_claim_the_floor(self):
+        self.x_server()
+        comp, b = self.backend()
+        self.write_geometry(comp, [(2051, 612, 306, 696, 494, "foot", "footwin")])
+        b.list()
+        self.assertFalse(b.geometry_is_floor, "the native row took the file's rectangle, not the floor")
+
+    def test_getwindowgeometry_prints_the_route6_rectangle_for_a_native_toplevel(self):
+        """The user-visible line, through the real command: `getwindowgeometry` goes through `find()`, and
+        the native foot is the second toplevel (BASE_ID + 1)."""
+        self.x_server()
+        comp, b = self.backend()
+        self.write_geometry(comp, [(2051, 612, 306, 696, 494, "foot", "footwin")])
+        ctx = Context()
+        ctx._backend = b
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = cli.run_chain(ctx, "wdotool", ["getwindowgeometry", str(BASE_ID + 1)])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.getvalue(),
+                         "Window %d\n  Position: 612,306 (screen: 0)\n  Geometry: 696x494\n" % (BASE_ID + 1))
+
+    def test_the_file_pid_folds_onto_the_native_row(self):
+        """The emit carries the client pid too, so `getwindowpid`/`windowkill` reach a native toplevel the
+        same way the X-plane join reaches an XWayland one; a pid of -1 in the file is left as no pid."""
+        self.x_server()
+        comp, b = self.backend()
+        self.write_geometry(comp, [(2051, 612, 306, 696, 494, "foot", "footwin")])
+        self.assertEqual([w.pid for w in b.list()], [2045, 2051])
+
+    def test_the_x_plane_wins_over_the_file_for_an_xwayland_row(self):
+        """A patched labwc writes a line for its XWayland views too, but the X server is the oracle for
+        those: the join runs first and the file fold only touches rows it left on the floor, so the xterm
+        keeps 718,395 484x316 even when the file names a different box for the same class and title."""
+        self.x_server()
+        comp, b = self.backend()
+        self.write_geometry(comp, [(2051, 612, 306, 696, 494, "foot", "footwin"),
+                                    (2045, 1, 1, 9, 9, "xterm", "xtermwin")])
+        wins = b.list()
+        self.assertEqual((wins[0].x, wins[0].y, wins[0].w, wins[0].h), self.XRECT)
+
+    def test_a_rectangle_two_native_toplevels_share_is_dropped_and_keeps_the_floor(self):
+        """The X-plane tie rule, from the file side: two toplevels under one app id and title cannot be told
+        apart, so the shared key is dropped and both keep the floor rather than take one box for both."""
+        comp, b = self.backend(toplevels=(top("same", "foot"), top("same", "foot")))
+        self.write_geometry(comp, [(10, 1, 2, 3, 4, "foot", "same"),
+                                   (11, 5, 6, 7, 8, "foot", "same")])
+        self.assertEqual([(w.x, w.y, w.w, w.h) for w in b.list()], [self.FLOOR, self.FLOOR])
+        self.assertTrue(b.geometry_is_floor)
+
+    def test_no_file_keeps_the_native_row_on_the_floor(self):
+        """An unpatched compositor (or river, whose rung is 3) writes no file, so the native row is the
+        output box exactly as before -- the honest floor, not a guess."""
+        self.x_server()
+        _comp, b = self.backend()
+        wins = b.list()
+        self.assertEqual((wins[1].x, wins[1].y, wins[1].w, wins[1].h), self.FLOOR)
+        self.assertTrue(b.geometry_is_floor)
+
+    def test_root_attaching_reads_the_sessions_dir_and_not_its_own(self):
+        """The conn-path/root case. Detection hands the connection in and leaves `self.uid` None; a root
+        `wwmctl` attaching to the seated user's session must read that user's `/run/user/<uid>` -- where
+        `find_wayland_socket` found the socket -- and not root's own `$XDG_RUNTIME_DIR`. Here the process
+        runtime dir is pointed at an empty directory, so only the session-dir fallback finds the file; the
+        earlier `runtime_dir(uid=self.uid)` read the empty dir and kept the floor for every root call."""
+        self.x_server()
+        comp, b = self.backend()
+        self.write_geometry(comp, [(2051, 612, 306, 696, 494, "foot", "footwin")])
+        b.uid = None
+        empty = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, empty, ignore_errors=True)
+        with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": empty}), \
+             mock.patch.object(session, "find_wayland_socket",
+                               lambda: (1000, comp.dir, os.path.join(comp.dir, "wayland-0"))):
+            wins = b.list()
+        self.assertEqual((wins[1].x, wins[1].y, wins[1].w, wins[1].h), (612, 306, 696, 494))
+
+    def test_a_native_only_session_reads_the_file_with_no_x_plane(self):
+        """No Xwayland at all (sway/Wayfire before theirs, or a pure-native labwc): the join is None and the
+        file is the only rectangle source, so the native rows still answer true."""
+        comp, b = self.backend(toplevels=(top("footwin", "foot"),))
+        self.write_geometry(comp, [(2051, 612, 306, 696, 494, "foot", "footwin")])
+        self.assertEqual([(w.x, w.y, w.w, w.h) for w in b.list()], [(612, 306, 696, 494)])
+        self.assertFalse(b.geometry_is_floor)
+
+
 class ViewFlags(FakeXPlane, WlrTest):
     """The state bits the join must not drop.
 

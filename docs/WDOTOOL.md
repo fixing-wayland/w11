@@ -1736,8 +1736,23 @@ do is `zwlr_foreign_toplevel_management_v1`'s shape and is stated as such:
   borrowing sway's tiling excuse, which is wrong for labwc, a stacking compositor. **Not
   yet** for the native half, route 6, a patched compositor (`wlroots xwayland/xwm.c` drops
   `XCB_CONFIG_WINDOW_STACK_MODE`, so even the XWayland `windowraise` needs it to restack).
-* Native-window geometry is `0,0` plus the output rectangle, for the same reason the native
-  half of move/resize refuses: no foreign-toplevel protocol carries a rectangle (route 1).
+* Native-window geometry was `0,0` plus the output rectangle — no foreign-toplevel protocol
+  carries a rectangle — and is now the compositor's on-screen rectangle wherever the compositor
+  emits one. On the **labwc family** (labwc, Budgie, Xfce-on-Wayland, LXQt-on-Wayland, all of
+  which run labwc) this is **route 6, landed and shipped**: the `labwc_0.9.3-1w11.1` .deb
+  (`src/foreign-toplevel/foreign.c`) writes each mapped view's `view->current` box to
+  `$XDG_RUNTIME_DIR/w11-labwc-geometry` on map, move/resize, unmap and title/app_id change (the
+  join key, so a window that renames itself keeps its rect) and `WlrBackend._labwc_geometry` folds
+  it onto the native rows by (app_id, title), the pair `match_xids` pairs the X plane on. Measured
+  on the resolute-labwc golden 2026-09-14: a native `foot` labwc placed at `612,306 696x494` read
+  `0,0 1920x1080` out of `wdotool getwindowgeometry` with stock labwc 0.9.3 and `612,306 696x494`
+  with the .deb installed (`getwindowpid` went from no pid to the client's `2546` on the same
+  join). On **river** the lowest reachable rung is **3** — a `river_window_manager_v1` WM client
+  that reads `river_window_v1.dimensions` for the size and the position it set with
+  `river_node_v1.set_position`, route 6 the fallback — not landed this pass. An unpatched
+  compositor writes no file and every native row stays the honest floor with `geometry_is_floor`
+  set. Upstreaming the labwc emit into a foreign-toplevel protocol that carries a rect (which
+  wlroots would have to write and ship) is what turns the labwc row into route 1 later.
 * Desktops work where the compositor publishes `ext_workspace_manager_v1` (labwc, Budgie
   10.10, Xfce 4.20 on Wayland) and the refusal stands where it does not (sway 1.11,
   Wayfire 0.10), route 1 where the compositor grows the protocol, else route 2, the

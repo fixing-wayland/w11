@@ -1,0 +1,70 @@
+w11 patched labwc -- native-toplevel geometry (AGENTS.md route 6)
+================================================================
+
+Why this exists
+---------------
+On the wlr floor (labwc, and the labwc-backed Budgie / Xfce-on-Wayland /
+LXQt-on-Wayland sessions) w11's window backend answers an XWayland window's real
+rectangle over the X plane (route 5), but a NATIVE Wayland toplevel had no
+rectangle at all: zwlr_foreign_toplevel_management_v1 and
+ext_foreign_toplevel_list_v1 carry a title and an app id and no geometry, and no
+X server has heard of the window. So `wdotool getwindowgeometry` on a native
+window answered `0,0 out_w x out_h` -- the whole output.
+
+The lowest reachable rung for the labwc family is route 6: patch the compositor,
+ship it as a package. This patch makes labwc publish each view's rectangle.
+
+The runtime contract
+--------------------
+The patched labwc writes $XDG_RUNTIME_DIR/w11-labwc-geometry, rewritten
+atomically (temp + rename) on every view map, move/resize, unmap and
+title/app_id change (the join key below: a first cut without the title hook
+let a foot that renamed itself after map fall back to the floor). One line
+per view that carries a foreign-toplevel handle -- exactly the set the
+foreign-toplevel protocols advertise -- tab-separated:
+
+    <pid>\t<x>\t<y>\t<w>\t<h>\t<app_id>\t<title>
+
+x/y/w/h are the view's current content rectangle (view->current), the same
+rectangle getwindowgeometry prints for an XWayland view on this floor. Tabs,
+newlines and carriage returns in app_id/title are replaced with spaces so the
+line format is stable; title is the last field.
+
+w11 reads it in hacks/window/backend_wlr.py (WlrBackend._labwc_geometry): when a
+native row has no X client to join, its rectangle and pid are folded in by
+(app_id, title), the same pair match_xids pairs the X plane on. A key two
+windows share is dropped, so a tie keeps the floor rather than guess.
+
+Build (Ubuntu 26.04 "resolute", labwc 0.9.3-1)
+----------------------------------------------
+    sudo sed -i 's/^Types: deb$/Types: deb deb-src/' \
+        /etc/apt/sources.list.d/ubuntu.sources    # or add a deb-src stanza
+    sudo apt-get update
+    sudo apt-get build-dep -y labwc
+    apt-get source labwc                            # labwc-0.9.3
+    cd labwc-0.9.3
+    mkdir -p debian/patches
+    cp .../packaging/labwc/0001-w11-native-toplevel-geometry.patch debian/patches/
+    echo 0001-w11-native-toplevel-geometry.patch >> debian/patches/series
+    # bump debian/changelog to 0.9.3-1w11.1 (see the stanza in build-deb notes)
+    dpkg-buildpackage -b -uc -us
+    # -> ../labwc_0.9.3-1w11.1_amd64.deb
+
+The .deb depends only on libwlroots-0.19 (0.19.2-1), which resolute already
+ships -- no wlroots rebuild. One package covers all four labwc goldens.
+
+Install / measure
+-----------------
+    sudo apt-get install -y --allow-downgrades ./labwc_0.9.3-1w11.1_amd64.deb
+    systemctl restart greetd     # restart the session so patched labwc runs
+
+Measured on the resolute-labwc golden 2026-09-14: a native foot the compositor
+placed at 612,306 696x494 read `0,0 1920x1080` out of wdotool getwindowgeometry
+with stock labwc and `612,306 696x494` with this .deb installed.
+
+Upstreaming
+-----------
+The upstreamable form of the same emit is a foreign-toplevel protocol event
+carrying the rectangle (labwc already ships cosmic-workspace; cosmic's
+zcosmic_toplevel_handle_v1.geometry is the matching shape). That would make the
+row AGENTS.md route 1 in a later Ubuntu, with no runtime file.

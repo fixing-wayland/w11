@@ -1789,27 +1789,32 @@ accepted. What each group does here:
   6.4.1), whose `wmirror --check` `outputs:` line went from `this compositor does not
   advertise zwlr_output_manager_v1` to the three Muffin heads, matching `wxrandr --query`.
 * **A mode that GROWS a head back after a shrink** — xrandr grows a head as readily as it
-  shrinks one — is **not yet** what every Hyprland golden does, and it was never the render
-  node. Measured on both goldens with `drm.debug=0x1e` and the exact request
-  `hacks/display/hypr.py` sends (`hyprctl keyword monitor Virtual-1,<mode>,0x0,1`) on
-  `-device virtio-vga` + `-display dbus`. On **resolute-hypr** (Hyprland 0.53.3, aquamarine
-  0.9.x) `--output <h> --mode 1280x1024` shrinks and lands, then `--mode 1920x1080` to grow
-  it back does not, and the kernel says why in two lines: aquamarine tests the growing
-  modeset with the stale 1280x1024 buffer still on the primary plane —
+  shrinks one — is **not yet** what one Hyprland golden does, and the boundary is exact:
+  aquamarine **below 0.13.0** driving a **non-positionable primary plane**, which is what
+  virtio-gpu (and qxl, bochs-display, vmwgfx) give a VM. Every current Hyprland release
+  builds on an aquamarine that already carries the fix, so this is a stale dependency on
+  one golden and not a compositor gap; the rung is **route 6** only in the narrow sense
+  that closing it on **resolute-hypr** means shipping an aquamarine ≥ 0.13.0 — a rebuilt or
+  patched package — that Ubuntu 26.04 does not carry (it pins 0.9.x). Measured on both
+  goldens with `drm.debug=0x1e` and the exact request `hacks/display/hypr.py` sends
+  (`hyprctl keyword monitor Virtual-1,<mode>,0x0,1`) on `-device virtio-vga` + `-display
+  dbus`. On resolute-hypr (Hyprland 0.53.3, aquamarine 0.9.x) `--output <h> --mode
+  1280x1024` shrinks and lands, then `--mode 1920x1080` to grow it back does not, and the
+  kernel says why in two lines: aquamarine 0.9.x tests the growing modeset with the stale
+  1280x1024 buffer still on the primary plane —
   `[drm:drm_atomic_helper_check_plane_state] Plane must cover entire CRTC / dst:
-  1280x1024+0+0 / clip: 1920x1080+0+0 / failed: -22` — and virtio-gpu's primary is
-  non-positionable (`can_position=false`, and so are qxl, bochs-display and vmwgfx), so a
-  shrink clips to fit and a grow cannot. On **arch-hypr** (Hyprland 0.56.2, aquamarine
-  0.15.0, the *same* QEMU device line) the identical grow lands — `drm: Modesetting
-  Virtual-1 with 1920x1080@75.00Hz` — so the rig can grow; the fix is in aquamarine, which
-  since 0.13.0 reconfigures the swapchain and attaches a mode-sized framebuffer *before* the
-  `ATOMIC_TEST_ONLY` commit (`src/backend/drm/DRM.cpp`, `CDRMOutput::commitState`), where
-  0.9.x reconfigures only after each failed test. The route is therefore a newer or patched
-  aquamarine in the golden — **route 6**, a patched compositor — that Ubuntu 26.04 does not
-  ship (it carries 0.9.x). `wxrandr` needs no change: it sends the grow, and on 0.9.x
+  1280x1024+0+0 / clip: 1920x1080+0+0 / failed: -22` — and a primary with
+  `can_position=false` clips a shrink to fit and cannot clip a grow. On **arch-hypr**
+  (Hyprland 0.56.2, aquamarine 0.15.0, the *same* QEMU device line) the identical grow
+  lands — `drm: Modesetting Virtual-1 with 1920x1080@75.00Hz` — because aquamarine 0.13.0
+  moved the swapchain reconfigure ahead of the `ATOMIC_TEST_ONLY` commit and attaches a
+  mode-sized framebuffer before it (`src/backend/drm/DRM.cpp`, `CDRMOutput::commitState`),
+  where 0.9.x reconfigures only after each failed test — so on a positionable primary (real
+  hardware) 0.9.x should grow, since it is the plane check that fails, but that case is not measured here.
+  `wxrandr` needs no change: it sends the grow, and on 0.9.x
   `HyprOutputs._first_mismatch` already says the compositor accepted the mode and did not
-  apply it. arch-hypr grows it for real (the live check below); resolute-hypr keeps the
-  xwant until its aquamarine reaches 0.13.0.
+  apply it. arch-hypr grows it for real and the live check below is a `want` there;
+  resolute-hypr keeps the xwant until its aquamarine reaches 0.13.0.
 
 ## Known limitations
 

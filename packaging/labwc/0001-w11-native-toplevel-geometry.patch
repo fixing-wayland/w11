@@ -1,0 +1,189 @@
+From: w11 <emo@yans.me>
+Subject: [PATCH] w11 route-6 native-toplevel geometry emit
+
+zwlr_foreign_toplevel_management_v1 and ext_foreign_toplevel_list_v1 carry a
+title, an app id and (for wlr) four state bits, but no rectangle -- so a native
+Wayland client's on-screen geometry never reaches a foreign-toplevel reader,
+and w11's wlr window backend answers the whole output for a native toplevel
+(AGENTS.md route 6: patch the compositor, ship it as a package).
+
+labwc writes each mapped view's current rectangle -- pid, x, y, w, h, app_id,
+title, tab-separated, one line per view that carries a foreign-toplevel handle
+-- to $XDG_RUNTIME_DIR/w11-labwc-geometry on map, move/resize and unmap, written
+atomically (temp + rename).  w11's WlrBackend._labwc_geometry joins it onto the
+native rows by (app_id, title).  The upstreamable form of the same emit is a
+foreign-toplevel protocol event carrying the rectangle (e.g. cosmic's
+zcosmic_toplevel_handle_v1.geometry), which would make it AGENTS.md route 1.
+--- a/src/foreign-toplevel/foreign.c
++++ b/src/foreign-toplevel/foreign.c
+@@ -1,6 +1,12 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ #include "foreign-toplevel/foreign.h"
+ #include <assert.h>
++#include <limits.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++#include "labwc.h"
+ #include "common/mem.h"
+ #include "foreign-toplevel/ext-foreign.h"
+ #include "foreign-toplevel/wlr-foreign.h"
+@@ -42,3 +48,86 @@
+ 	ext_foreign_toplevel_finish(&toplevel->ext_toplevel);
+ 	free(toplevel);
+ }
++
++
++/*
++ * w11 route-6 native-toplevel geometry emit.
++ *
++ * zwlr_foreign_toplevel_management_v1 and ext_foreign_toplevel_list_v1 carry a
++ * title, an app id and (for wlr) four state bits, but no rectangle -- so a
++ * native Wayland client's on-screen geometry never reaches a foreign-toplevel
++ * reader, which is why getwindowgeometry over that protocol answers the whole
++ * output.  This writes the current per-view rectangle (the same view->current
++ * box getwindowgeometry prints for an XWayland view) to a runtime file, one
++ * line per view that carries a foreign-toplevel handle -- exactly the set the
++ * wlr/ext protocols advertise -- so a client can join a rectangle onto each
++ * toplevel by app id and title.  Written atomically (temp + rename).
++ */
++
++static void
++w11_sanitize(char *dst, const char *src, size_t n)
++{
++	size_t i = 0;
++	if (src) {
++		for (; src[i] && i + 1 < n; i++) {
++			char c = src[i];
++			dst[i] = (c == '\t' || c == '\n' || c == '\r') ? ' ' : c;
++		}
++	}
++	dst[i] = '\0';
++}
++
++void
++foreign_toplevel_geometry_publish(struct server *server)
++{
++	if (!server) {
++		return;
++	}
++	const char *dir = getenv("XDG_RUNTIME_DIR");
++	if (!dir || !dir[0]) {
++		return;
++	}
++
++	char path[PATH_MAX];
++	char tmp[PATH_MAX];
++	if (snprintf(path, sizeof(path), "%s/w11-labwc-geometry", dir)
++			>= (int)sizeof(path)) {
++		return;
++	}
++	if (snprintf(tmp, sizeof(tmp), "%s.tmp.%d", path, (int)getpid())
++			>= (int)sizeof(tmp)) {
++		return;
++	}
++
++	FILE *f = fopen(tmp, "we");
++	if (!f) {
++		return;
++	}
++
++	struct view *view;
++	wl_list_for_each(view, &server->views, link) {
++		if (!view->foreign_toplevel) {
++			continue;
++		}
++		pid_t pid = -1;
++		if (view->impl && view->impl->get_pid) {
++			pid = view->impl->get_pid(view);
++		}
++		char app_id[256];
++		char title[512];
++		w11_sanitize(app_id, view->app_id, sizeof(app_id));
++		w11_sanitize(title, view->title, sizeof(title));
++		fprintf(f, "%d\t%d\t%d\t%d\t%d\t%s\t%s\n",
++			(int)pid, view->current.x, view->current.y,
++			view->current.width, view->current.height,
++			app_id, title);
++	}
++
++	if (fclose(f) != 0) {
++		unlink(tmp);
++		return;
++	}
++	if (rename(tmp, path) != 0) {
++		unlink(tmp);
++	}
++}
+--- a/include/foreign-toplevel/foreign.h
++++ b/include/foreign-toplevel/foreign.h
+@@ -3,6 +3,7 @@
+ #define LABWC_FOREIGN_TOPLEVEL_H
+ 
+ struct view;
++struct server;
+ struct foreign_toplevel;
+ 
+ struct foreign_toplevel *foreign_toplevel_create(struct view *view);
+@@ -10,4 +11,12 @@
+ 	struct foreign_toplevel *parent);
+ void foreign_toplevel_destroy(struct foreign_toplevel *toplevel);
+ 
++/*
++ * w11 route-6 native-toplevel geometry emit: rewrite the per-view rectangle
++ * file so a foreign-toplevel client can read the geometry the wlr/ext
++ * foreign-toplevel protocols do not carry.  Called on map, unmap, move and
++ * title/app_id change (the reader joins by app_id and title).
++ */
++void foreign_toplevel_geometry_publish(struct server *server);
++
+ #endif /* LABWC_FOREIGN_TOPLEVEL_H */
+--- a/src/view.c
++++ b/src/view.c
+@@ -579,6 +579,7 @@
+ 	if (rc.resize_indicator && view->server->grabbed_view == view) {
+ 		resize_indicator_update(view);
+ 	}
++	foreign_toplevel_geometry_publish(view->server);
+ }
+ 
+ void
+@@ -2329,6 +2330,8 @@
+ 	xstrdup_replace(view->title, title);
+ 
+ 	ssd_update_title(view->ssd);
++	/* w11: the geometry file is joined by (app_id, title); keep it current */
++	foreign_toplevel_geometry_publish(view->server);
+ 	wl_signal_emit_mutable(&view->events.new_title, NULL);
+ }
+ 
+@@ -2345,6 +2348,8 @@
+ 	}
+ 	xstrdup_replace(view->app_id, app_id);
+ 
++	/* w11: the geometry file is joined by (app_id, title); keep it current */
++	foreign_toplevel_geometry_publish(view->server);
+ 	wl_signal_emit_mutable(&view->events.new_app_id, NULL);
+ }
+ 
+--- a/src/view-impl-common.c
++++ b/src/view-impl-common.c
+@@ -34,6 +34,8 @@
+ 
+ 	wlr_log(WLR_DEBUG, "[map] identifier=%s, title=%s",
+ 		view->app_id, view->title);
++
++	foreign_toplevel_geometry_publish(view->server);
+ }
+ 
+ void
+@@ -49,6 +51,8 @@
+ 		foreign_toplevel_destroy(view->foreign_toplevel);
+ 		view->foreign_toplevel = NULL;
+ 	}
++
++	foreign_toplevel_geometry_publish(view->server);
+ }
+ 
+ static bool
