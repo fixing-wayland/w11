@@ -9,7 +9,7 @@ import sys
 import time
 
 from w11common.errors import CmdError
-from wdotool import backend as _backend
+from hacks.window import backend as _backend
 from wdotool import commands
 from wdotool.cli import ChainAbort, _opts
 from wdotool.cnum import atoi as _atoi, strtol as _strtonum

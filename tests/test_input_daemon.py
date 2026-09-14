@@ -22,7 +22,8 @@ from w11common import session
 from w11common.errors import CmdError
 from support import (FakeEvdev, RecorderDev, abs_report, env, key_bitmap,
                      stop_daemons_under)
-from wdotool import daemon, keymap, keystate, uinput
+from wdotool import daemon
+from hacks.input import keymap, keystate, uinput
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.

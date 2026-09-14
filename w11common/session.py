@@ -50,7 +50,7 @@ TMP_DIR = "/tmp"
 FALLBACK_RUNTIME_DIR = "/tmp/wdotool-%d"
 
 
-def runtime_dir() -> str:
+def runtime_dir(*, uid: int | None = None) -> str:
     """The directory these tools keep session-lifetime files in -- the input daemon's socket, the KWin script
     lock, the per-compositor state files: $XDG_RUNTIME_DIR when the session gave us one, else a private
     `/tmp/wdotool-<uid>`, created 0700 and then verified.
@@ -64,7 +64,17 @@ def runtime_dir() -> str:
     attacker may have created it first.
 
     Raises CmdError when that directory cannot be made, or is not ours. Callers for which a runtime path is a
-    convenience rather than a contract catch it and fall back to their own name under /tmp."""
+    convenience rather than a contract catch it and fall back to their own name under /tmp.
+
+    `uid` (keyword-only, default None = every answer above, unchanged) names ANOTHER user's session: root
+    looking for the seated user's proxy. `ssh root@box` gets its own XDG_RUNTIME_DIR=/run/user/0 from
+    pam_systemd and `os.getuid()` is 0, so the unqualified answer is /run/user/0 or /tmp/wdotool-0 and the
+    seated user's files are never found [M goal2/recon/gaps.md §3d: with XDG_RUNTIME_DIR unset this answers
+    /tmp/wdotool-1000 for uid 1000, and /tmp/wdotool-0 for root]. The uid'd answer is `_foreign_runtime_dir`
+    below; xw11/display.py:display_file_path() is the caller that needs it (xw11/wrap.py hands it
+    `passthrough.session_uid`)."""
+    if uid is not None and uid != os.getuid():
+        return _foreign_runtime_dir(uid)
     rd = os.environ.get("XDG_RUNTIME_DIR")
     if rd and os.path.isdir(rd):
         return rd
@@ -83,6 +93,35 @@ def runtime_dir() -> str:
         raise CmdError(
             f"{d} is not a private directory owned by uid {os.getuid()}; "
             "refusing to put the wdotool socket there")
+    return d
+
+
+def _foreign_runtime_dir(uid: int) -> str:
+    """The runtime directory of the session belonging to `uid`, for a process that is not that uid -- root
+    attaching to the seated user's proxy.
+
+    `runtime_dir_candidates()` already returns `(uid, dir)` best-first and prefers a directory that holds a
+    `wayland-*` socket, so the graphical session's own dir is picked out of it by uid; the /tmp fallback is
+    checked the same way `runtime_dir()` checks its own, and the same refusal applies (anyone may create
+    /tmp/wdotool-<uid> first).
+
+    Nothing is ever CREATED here, which is the one rule that differs from `runtime_dir()`: a root-owned
+    /tmp/wdotool-1000 made on the user's behalf is a directory their own `runtime_dir()` would then refuse
+    for the rest of the box's uptime ("not a private directory owned by uid 1000"). With no directory there
+    the path is returned as it is, the lookup above it finds no display file, and xw11/wrap.py's guard
+    declines to start a proxy as root rather than starting a second one nobody can reach."""
+    for u, d in runtime_dir_candidates():
+        if u == uid:
+            return d
+    d = FALLBACK_RUNTIME_DIR % uid
+    try:
+        st = os.lstat(d)
+    except OSError:
+        return d
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != uid or st.st_mode & 0o077:
+        raise CmdError(
+            f"{d} is not a private directory owned by uid {uid}; "
+            "refusing to look for that session's files there")
     return d
 
 

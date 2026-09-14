@@ -1,0 +1,1058 @@
+# live-smoke recording: flavor=resolute-wayfire desktop=wayfire distro=ubuntu mode=pkg remove=1 heads=3 stamp=20260912-144248
+# replay: 89 pass, 0 fail (mode pkg, remove 1, phases busrec,install,windows,wm,proxy,input,desktops,display,mirror,root,nodialog, 2026-09-12)
+### true
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### printf 'w11-desktop-version: '; wayfire --version
+w11-desktop-version: 0.10.0-unknown (Nov 16 2025) branch unknown wlroots-0.19.1
+### rc=0
+### pkill -x dbus-monitor >/dev/null 2>&1; rm -f $HOME/w11-bus.log; true
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### pgrep -x dbus-monitor | head -1
+2218
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+4
+### rc=0
+### dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus            org.freedesktop.DBus.ListNames >/dev/null 2>&1; sleep 1; true
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+38
+### rc=0
+### for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \           systemctl stop unattended-upgrades.service 2>/dev/null; true
+### rc=0
+### cd /tmp && DEBIAN_FRONTEND=noninteractive apt-get install -y ./w11.deb 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following additional packages will be installed:
+  gir1.2-atk-1.0 gir1.2-freedesktop gir1.2-gdkpixbuf-2.0 gir1.2-gtk-3.0
+  gir1.2-harfbuzz-0.0 gir1.2-pango-1.0 libharfbuzz-gobject0 libpangoxft-1.0-0
+The following NEW packages will be installed:
+  gir1.2-atk-1.0 gir1.2-freedesktop gir1.2-gdkpixbuf-2.0 gir1.2-gtk-3.0
+  gir1.2-harfbuzz-0.0 gir1.2-pango-1.0 libharfbuzz-gobject0 libpangoxft-1.0-0
+  w11
+0 upgraded, 9 newly installed, 0 to remove and 96 not upgraded.
+Need to get 472 kB/1149 kB of archives.
+After this operation, 4823 kB of additional disk space will be used.
+Get:1 /tmp/w11.deb w11 all 0.4.0 [677 kB]
+Get:2 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 gir1.2-atk-1.0 amd64 2.60.4-0ubuntu0.1 [23.2 kB]
+Get:3 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-freedesktop amd64 1.86.0-6build1 [66.0 kB]
+Get:4 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-gdkpixbuf-2.0 amd64 2.44.5+dfsg-4ubuntu1 [9312 B]
+Get:5 http://archive.ubuntu.com/ubuntu resolute/main amd64 libharfbuzz-gobject0 amd64 12.3.2-2 [33.3 kB]
+Get:6 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-harfbuzz-0.0 amd64 12.3.2-2 [44.6 kB]
+Get:7 http://archive.ubuntu.com/ubuntu resolute/main amd64 libpangoxft-1.0-0 amd64 1.57.0-1 [20.6 kB]
+Get:8 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-pango-1.0 amd64 1.57.0-1 [34.8 kB]
+Get:9 http://archive.ubuntu.com/ubuntu resolute/main amd64 gir1.2-gtk-3.0 amd64 3.24.52-0ubuntu1 [240 kB]
+Fetched 472 kB in 1s (335 kB/s)
+Selecting previously unselected package gir1.2-atk-1.0:amd64.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 97552 files and directories currently installed.)
+Preparing to unpack .../0-gir1.2-atk-1.0_2.60.4-0ubuntu0.1_amd64.deb ...
+Unpacking gir1.2-atk-1.0:amd64 (2.60.4-0ubuntu0.1) ...
+Selecting previously unselected package gir1.2-freedesktop:amd64.
+Preparing to unpack .../1-gir1.2-freedesktop_1.86.0-6build1_amd64.deb ...
+Unpacking gir1.2-freedesktop:amd64 (1.86.0-6build1) ...
+Selecting previously unselected package gir1.2-gdkpixbuf-2.0:amd64.
+Preparing to unpack .../2-gir1.2-gdkpixbuf-2.0_2.44.5+dfsg-4ubuntu1_amd64.deb ...
+Unpacking gir1.2-gdkpixbuf-2.0:amd64 (2.44.5+dfsg-4ubuntu1) ...
+Selecting previously unselected package libharfbuzz-gobject0:amd64.
+Preparing to unpack .../3-libharfbuzz-gobject0_12.3.2-2_amd64.deb ...
+Unpacking libharfbuzz-gobject0:amd64 (12.3.2-2) ...
+Selecting previously unselected package gir1.2-harfbuzz-0.0:amd64.
+Preparing to unpack .../4-gir1.2-harfbuzz-0.0_12.3.2-2_amd64.deb ...
+Unpacking gir1.2-harfbuzz-0.0:amd64 (12.3.2-2) ...
+Selecting previously unselected package libpangoxft-1.0-0:amd64.
+Preparing to unpack .../5-libpangoxft-1.0-0_1.57.0-1_amd64.deb ...
+Unpacking libpangoxft-1.0-0:amd64 (1.57.0-1) ...
+Selecting previously unselected package gir1.2-pango-1.0:amd64.
+Preparing to unpack .../6-gir1.2-pango-1.0_1.57.0-1_amd64.deb ...
+Unpacking gir1.2-pango-1.0:amd64 (1.57.0-1) ...
+Selecting previously unselected package gir1.2-gtk-3.0:amd64.
+Preparing to unpack .../7-gir1.2-gtk-3.0_3.24.52-0ubuntu1_amd64.deb ...
+Unpacking gir1.2-gtk-3.0:amd64 (3.24.52-0ubuntu1) ...
+Selecting previously unselected package w11.
+Preparing to unpack .../8-w11.deb ...
+Unpacking w11 (0.4.0) ...
+Setting up gir1.2-freedesktop:amd64 (1.86.0-6build1) ...
+Setting up libpangoxft-1.0-0:amd64 (1.57.0-1) ...
+Setting up gir1.2-gdkpixbuf-2.0:amd64 (2.44.5+dfsg-4ubuntu1) ...
+Setting up gir1.2-atk-1.0:amd64 (2.60.4-0ubuntu0.1) ...
+Setting up libharfbuzz-gobject0:amd64 (12.3.2-2) ...
+Setting up gir1.2-harfbuzz-0.0:amd64 (12.3.2-2) ...
+Setting up gir1.2-pango-1.0:amd64 (1.57.0-1) ...
+Setting up gir1.2-gtk-3.0:amd64 (3.24.52-0ubuntu1) ...
+Setting up w11 (0.4.0) ...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.  The
+    extension is installed and is enabled for you automatically in that first
+    session.  wxrandr and warandr work already; until the relogin the window
+    commands say the bridge is not running and name gnome/install-bridge.sh,
+    which is the from-a-clone route -- this package has done that part.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules), which is what lets wdotool type and click
+    without root.  Anyone who can open it can type as you -- see the threat
+    model in /usr/share/doc/w11/README.md.gz.
+  * On an X11 session the tools hand over to the real ones; install those
+    with: apt install xdotool wmctrl
+
+Processing triggers for libc-bin (2.43-2ubuntu2.3) ...
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+### rc=0
+### ( sleep 1; reboot ) >/dev/null 2>&1 &
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### rm -f $HOME/w11-smoke.txt; touch $HOME/w11-smoke.txt
+### rc=0
+### rm -f $HOME/w11-smoke.txt; setsid nohup foot -- sh -c 'cat >> $HOME/w11-smoke.txt' >/dev/null 2>&1 </dev/null &            sleep 3; true
+### rc=0
+### wdotool search --class foot | head -1
+13
+### rc=0
+### wdotool getwindowname 13
+foot
+### rc=0
+### wdotool getwindowclassname 13
+foot
+### rc=0
+### wdotool windowmove 13 100 100; wdotool windowsize 13 800 600
+### rc=0
+### wdotool getwindowgeometry 13
+Window 13
+  Position: 100,100 (screen: 0)
+  Geometry: 798x598
+### rc=0
+### wdotool getwindowpid 13
+2063
+### rc=0
+### test -d /proc/2063
+### rc=0
+### wdotool windowactivate --sync 13
+### rc=0
+### wdotool getactivewindow
+13
+### rc=0
+### wdotool windowminimize 13
+### rc=0
+### wdotool getactivewindow 2>&1
+xdo_get_active_window reported an error
+### rc=1
+### wdotool windowmap 13; wdotool windowactivate --sync 13
+### rc=0
+### python3 -c 'import json,os,socket,struct,sys,glob;r=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/1000";p=os.environ.get("WAYFIRE_SOCKET") or (sorted(glob.glob(r+"/wayfire-*.socket")) or [""])[0];sys.exit("no wayfire socket: is plugins = ... ipc ipc-rules in wayfire.ini?") if not p else None;s=socket.socket(socket.AF_UNIX);s.connect(p);f=s.makefile("rb");b=json.dumps({"method":sys.argv[1],"data":json.loads(sys.argv[2])}).encode();s.sendall(struct.pack("=i",len(b))+b);n=struct.unpack("=i",f.read(4))[0];a=json.loads(f.read(n));v=a if isinstance(a,list) else (a.get("outputs") or []);print("\n".join("%s %d,%d"%(o["name"],o["geometry"]["x"],o["geometry"]["y"]) for o in v) if len(sys.argv)>3 else json.dumps(a))' window-rules/get_cursor_position '{}'
+{"result": "ok", "pos": {"x": 960.0, "y": 540.0}}
+### rc=0
+### wdotool getmouselocation
+x:960 y:540 screen:0 window:0
+### rc=0
+### wdotool mousemove 300 300
+### rc=0
+### wdotool getmouselocation
+x:300 y:300 screen:0 window:13
+### rc=0
+### python3 -c 'import json,os,socket,struct,sys,glob;r=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/1000";p=os.environ.get("WAYFIRE_SOCKET") or (sorted(glob.glob(r+"/wayfire-*.socket")) or [""])[0];sys.exit("no wayfire socket: is plugins = ... ipc ipc-rules in wayfire.ini?") if not p else None;s=socket.socket(socket.AF_UNIX);s.connect(p);f=s.makefile("rb");b=json.dumps({"method":sys.argv[1],"data":json.loads(sys.argv[2])}).encode();s.sendall(struct.pack("=i",len(b))+b);n=struct.unpack("=i",f.read(4))[0];a=json.loads(f.read(n));v=a if isinstance(a,list) else (a.get("outputs") or []);print("\n".join("%s %d,%d"%(o["name"],o["geometry"]["x"],o["geometry"]["y"]) for o in v) if len(sys.argv)>3 else json.dumps(a))' window-rules/get_cursor_position '{}'
+{"result": "ok", "pos": {"x": 300.05859375, "y": 300.025634765625}}
+### rc=0
+### wdotool mousemove 300 300 click 1
+### rc=0
+### setsid nohup xterm -T smokex -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 3; true
+### rc=0
+### wwmctl -l -x
+0x0000000d  0 foot.foot             resolute-wayfire-smoke foot
+0x0040000c  0 xterm.XTerm           resolute-wayfire-smoke smokex
+### rc=0
+### wmctrl -l -x
+0x0040000c  0 xterm.XTerm           resolute-wayfire-smoke smokex
+### rc=0
+### wwmctl -l -p
+0x0000000d  0 2063   resolute-wayfire-smoke foot
+0x0040000c  0 3232   resolute-wayfire-smoke smokex
+### rc=0
+### wwmctl -m
+Name: wlroots wm
+Class: N/A
+PID: N/A
+Window manager's "showing the desktop" mode: N/A
+### rc=0
+### wdotool windowactivate --sync 13
+### rc=0
+### wdotool getwindowgeometry 13
+Window 13
+  Position: 100,100 (screen: 0)
+  Geometry: 798x598
+### rc=0
+### wwmctl -r :ACTIVE: -b add,maximized_vert,maximized_horz
+### rc=0
+### wdotool getwindowgeometry 13
+Window 13
+  Position: 0,52 (screen: 0)
+  Geometry: 1920x1028
+### rc=0
+### wxprop -id 13 _NET_WM_STATE
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_FOCUSED
+### rc=0
+### wwmctl -r :ACTIVE: -b remove,maximized_vert,maximized_horz
+### rc=0
+### wdotool getwindowgeometry 13
+Window 13
+  Position: 100,100 (screen: 0)
+  Geometry: 798x598
+### rc=0
+### wxprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x40000c, 0xd
+### rc=0
+### pkill -x xterm; true
+### rc=0
+### command -v xw11
+/usr/bin/xw11
+### rc=0
+### xprop -root >/dev/null 2>&1
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null
+:20 4196 :0
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l
+1
+### rc=0
+### DISPLAY=:20 xdotool getdisplaygeometry
+1920 1080
+### rc=0
+### DISPLAY=:20 xdotool search --class foot | head -1
+4194305
+### rc=0
+### wdotool getwindowname 13
+foot
+### rc=0
+### DISPLAY=:20 xdotool getwindowname 4194305
+foot
+### rc=0
+### wdotool getwindowgeometry 13
+Window 13
+  Position: 100,100 (screen: 0)
+  Geometry: 798x598
+### rc=0
+### DISPLAY=:20 xdotool getwindowgeometry 4194305
+Window 4194305
+  Position: 100,100 (screen: 0)
+  Geometry: 798x598
+### rc=0
+### DISPLAY=:20 xprop -id 4194305
+_NET_WM_NAME(UTF8_STRING) = "foot"
+WM_NAME(STRING) = "foot"
+WM_CLASS(STRING) = "foot", "foot"
+_NET_WM_PID(CARDINAL) = 2063
+WM_CLIENT_MACHINE(STRING) = "resolute-wayfire-smoke"
+_NET_WM_DESKTOP(CARDINAL) = 0
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_FOCUSED
+_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_NORMAL
+WM_STATE(WM_STATE):
+		window state: Normal
+		icon window: 0x0
+_NET_FRAME_EXTENTS(CARDINAL) = 0, 0, 0, 0
+WM_PROTOCOLS(ATOM): protocols  WM_DELETE_WINDOW
+### rc=0
+### wwmctl -l
+0x0000000d  0 resolute-wayfire-smoke foot
+### rc=0
+### DISPLAY=:20 wmctrl -l
+0x00400001  0 resolute-wayfire-smoke foot
+### rc=0
+### DISPLAY=:20 xdotool get_desktop
+0
+### rc=0
+### DISPLAY=:20 wmctrl -d
+0  * DG: 5760x1080  VP: 0,0  WA: N/A  0
+1  - DG: 5760x1080  VP: 0,0  WA: N/A  1
+2  - DG: 5760x1080  VP: 0,0  WA: N/A  2
+3  - DG: 5760x1080  VP: 0,0  WA: N/A  3
+4  - DG: 5760x1080  VP: 0,0  WA: N/A  4
+5  - DG: 5760x1080  VP: 0,0  WA: N/A  5
+6  - DG: 5760x1080  VP: 0,0  WA: N/A  6
+7  - DG: 5760x1080  VP: 0,0  WA: N/A  7
+8  - DG: 5760x1080  VP: 0,0  WA: N/A  8
+### rc=0
+### DISPLAY=:20 xprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x400001
+### rc=0
+### W11_PROXY=always wdotool search --class foot | head -1
+4194305
+### rc=0
+### W11_PROXY=never wdotool search --class foot | head -1
+13
+### rc=0
+### wdotool --version
+xdotool version 4.20260303.1
+### rc=0
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x200
+### rc=0
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,200
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x0
+### rc=0
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### DISPLAY=:20 xrandr -q
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### tail -4 ${XW11_LOG:-/tmp/xw11-$(id -u).log}
+1789224280.999 xw11[4196] own connection to :0: root 0x2f4, ids 0x400000|n, 70 atoms, 7 extensions
+1789224289.874 xw11[4196] xw11: RandR writes apply through the wlr backend (detection), state keyed by /run/user/1000/wayland-1
+1789224289.978 xw11[4196] xw11: applied a RandR batch of 1 crtc(s) in 117 ms through wlr (Virtual-3 on)
+1789224292.904 xw11[4196] xw11: applied a RandR batch of 1 crtc(s) in 96 ms through wlr (Virtual-3 on)
+### rc=0
+### xw11 --stop
+### rc=0
+### printf "%s %s" "$(pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l)" \                   "$(test -e $XDG_RUNTIME_DIR/xw11/display && echo 1 || echo 0)"
+0 0
+### rc=0
+### wdotool windowactivate --sync 13
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool type --delay 30 -- 'us: yz@'
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+us: yz@
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool type --delay 30 -- abc; wdotool key Return; wdotool type --delay 30 -- def
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+abc
+def
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool --vkbd on type --delay 30 -- 'vkbd: yz@'
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+vkbd: yz@
+### rc=0
+### wdotool keys explain --chars z
+layout: English (US) -- group 1 of 2, from wayland + wayfire
+level keys: shift = key 42 <LFSH>   level3 = none   level5 = none   (what wdotool presses)
+note: this layout is plain US: wdotool uses its built-in table and never reads the keymap
+'z' -- 1 press on English (US)
+    press key 44 <AB01> -> 'z'
+    wdotool key 52                             (keycodes)
+    wdotool type 'z'                           (characters)
+### rc=0
+### python3 -c 'import json,os,socket,struct,sys,glob;r=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/1000";p=os.environ.get("WAYFIRE_SOCKET") or (sorted(glob.glob(r+"/wayfire-*.socket")) or [""])[0];sys.exit("no wayfire socket: is plugins = ... ipc ipc-rules in wayfire.ini?") if not p else None;s=socket.socket(socket.AF_UNIX);s.connect(p);f=s.makefile("rb");b=json.dumps({"method":sys.argv[1],"data":json.loads(sys.argv[2])}).encode();s.sendall(struct.pack("=i",len(b))+b);n=struct.unpack("=i",f.read(4))[0];a=json.loads(f.read(n));v=a if isinstance(a,list) else (a.get("outputs") or []);print("\n".join("%s %d,%d"%(o["name"],o["geometry"]["x"],o["geometry"]["y"]) for o in v) if len(sys.argv)>3 else json.dumps(a))' wayfire/get-keyboard-state '{}'
+{"possible-layouts": ["English (US)", "German"], "layout": "English (US)", "layout-index": 0}
+### rc=0
+### wdotool get_num_desktops
+9
+### rc=0
+### wwmctl -d
+0  * DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  0
+1  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  1
+2  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  2
+3  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  3
+4  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  4
+5  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  5
+6  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  6
+7  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  7
+8  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  8
+### rc=0
+### wdotool set_desktop 4
+### rc=0
+### wdotool get_desktop
+4
+### rc=0
+### wwmctl -d
+0  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  0
+1  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  1
+2  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  2
+3  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  3
+4  * DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  4
+5  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  5
+6  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  6
+7  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  7
+8  - DG: 5760x1080  VP: 0,0  WA: 0,52 1920x1028  8
+### rc=0
+### python3 -c 'import json,os,socket,struct,sys,glob;r=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/1000";p=os.environ.get("WAYFIRE_SOCKET") or (sorted(glob.glob(r+"/wayfire-*.socket")) or [""])[0];sys.exit("no wayfire socket: is plugins = ... ipc ipc-rules in wayfire.ini?") if not p else None;s=socket.socket(socket.AF_UNIX);s.connect(p);f=s.makefile("rb");b=json.dumps({"method":sys.argv[1],"data":json.loads(sys.argv[2])}).encode();s.sendall(struct.pack("=i",len(b))+b);n=struct.unpack("=i",f.read(4))[0];a=json.loads(f.read(n));v=a if isinstance(a,list) else (a.get("outputs") or []);print("\n".join("%s %d,%d"%(o["name"],o["geometry"]["x"],o["geometry"]["y"]) for o in v) if len(sys.argv)>3 else json.dumps(a))' window-rules/get-focused-output '{}'
+{"result": "ok", "info": {"id": 1, "name": "Virtual-1", "geometry": {"x": 0, "y": 0, "width": 1920, "height": 1080}, "workarea": {"x": 0, "y": 52, "width": 1920, "height": 1028}, "wset-index": 1, "workspace": {"x": 1, "y": 1, "grid_width": 3, "grid_height": 3}}}
+### rc=0
+### wdotool set_desktop 0
+### rc=0
+### wdotool get_desktop
+0
+### rc=0
+### wdotool set_desktop 9 2>&1
+wayfire: desktop 9 does not exist (this output's viewport grid is 3x3)
+### rc=1
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --listmonitors
+Monitors: 3
+ 0: +Virtual-1 1920/480x1080/270+0+0  Virtual-1
+ 1: +Virtual-2 1920/480x1080/270+1920+0  Virtual-2
+ 2: +Virtual-3 1920/480x1080/270+3840+0  Virtual-3
+### rc=0
+### wxrandr --output Virtual-3 --off
+### rc=0
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+### rc=0
+### wxrandr --output Virtual-3 --auto
+### rc=0
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 0,0
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --output Virtual-3 --below Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,1080
+### rc=0
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,1080
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### wlr-randr | awk '/^[A-Za-z]/ { n = $1 } /Position:/ { print n, $2 }'
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 -c 'import json,os,socket,struct,sys,glob;r=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/1000";p=os.environ.get("WAYFIRE_SOCKET") or (sorted(glob.glob(r+"/wayfire-*.socket")) or [""])[0];sys.exit("no wayfire socket: is plugins = ... ipc ipc-rules in wayfire.ini?") if not p else None;s=socket.socket(socket.AF_UNIX);s.connect(p);f=s.makefile("rb");b=json.dumps({"method":sys.argv[1],"data":json.loads(sys.argv[2])}).encode();s.sendall(struct.pack("=i",len(b))+b);n=struct.unpack("=i",f.read(4))[0];a=json.loads(f.read(n));v=a if isinstance(a,list) else (a.get("outputs") or []);print("\n".join("%s %d,%d"%(o["name"],o["geometry"]["x"],o["geometry"]["y"]) for o in v) if len(sys.argv)>3 else json.dumps(a))' window-rules/list-outputs '{}'
+[{"id": 1, "name": "Virtual-1", "geometry": {"x": 0, "y": 0, "width": 1920, "height": 1080}, "workarea": {"x": 0, "y": 0, "width": 1920, "height": 1080}, "wset-index": 1, "workspace": {"x": 0, "y": 0, "grid_width": 3, "grid_height": 3}}, {"id": 3, "name": "Virtual-2", "geometry": {"x": 1920, "y": 0, "width": 1920, "height": 1080}, "workarea": {"x": 0, "y": 0, "width": 1920, "height": 1080}, "wset-index": 2, "workspace": {"x": 0, "y": 0, "grid_width": 3, "grid_height": 3}}, {"id": 17, "name": "Virtual-3", "geometry": {"x": 3840, "y": 0, "width": 1920, "height": 1080}, "workarea": {"x": 0, "y": 0, "width": 1920, "height": 1080}, "wset-index": 3, "workspace": {"x": 0, "y": 0, "grid_width": 3, "grid_height": 3}}]
+### rc=0
+### python3 -c 'import json,os,socket,struct,sys,glob;r=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/1000";p=os.environ.get("WAYFIRE_SOCKET") or (sorted(glob.glob(r+"/wayfire-*.socket")) or [""])[0];sys.exit("no wayfire socket: is plugins = ... ipc ipc-rules in wayfire.ini?") if not p else None;s=socket.socket(socket.AF_UNIX);s.connect(p);f=s.makefile("rb");b=json.dumps({"method":sys.argv[1],"data":json.loads(sys.argv[2])}).encode();s.sendall(struct.pack("=i",len(b))+b);n=struct.unpack("=i",f.read(4))[0];a=json.loads(f.read(n));v=a if isinstance(a,list) else (a.get("outputs") or []);print("\n".join("%s %d,%d"%(o["name"],o["geometry"]["x"],o["geometry"]["y"]) for o in v) if len(sys.argv)>3 else json.dumps(a))' window-rules/list-outputs '{}' outputs
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wlr-randr | awk '/^[A-Za-z]/ { n = $1 } /Position:/ { print n, $2 }'
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wmirror --check
+helper:   /usr/bin/wl-mirror (wl-mirror v0.18.5)
+wayland:  /run/user/1000/wayland-1
+capture:  zwlr_screencopy_manager_v1 v3
+outputs:  Virtual-1 1920x1080+0+0, Virtual-2 1920x1080+1920+0, Virtual-3 1920x1080+3840+0
+mirrors:  none
+### rc=0
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py wayfire
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### grim -o Virtual-3 - 2>/dev/null | wc -c
+3486439
+### rc=0
+### wmirror Virtual-2 --to Virtual-3 --region 400x300+2020+100
+Virtual-3 <- Virtual-2  region 400x300+2020+100  scaling fit  wl-mirror pid 8770
+### rc=0
+### wmirror --list
+Virtual-3 <- Virtual-2  region 400x300+2020+100  scaling fit  wl-mirror pid 8770
+### rc=0
+### grim -o Virtual-3 - 2>/dev/null | wc -c
+1420780
+### rc=0
+### wmirror --stop Virtual-3
+stopped  Virtual-3 <- Virtual-2  region 400x300+2020+100  scaling fit  wl-mirror pid 8770
+### rc=0
+### wmirror --list
+### rc=0
+### wwmctl -l | wc -l
+1
+### rc=0
+### wwmctl -l | wc -l
+1
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-1
+Virtual-2
+Virtual-3
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-1
+Virtual-2
+Virtual-3
+### rc=0
+### wmirror --list
+### rc=0
+### wxrandr --persistent --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+### rc=0
+### wwmctl -l
+0x00400001  0 resolute-wayfire-smoke foot
+### rc=0
+### wwmctl -l
+0x00400001  0 resolute-wayfire-smoke foot
+### rc=0
+### wxrandr --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### wxrandr --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### ls /run/user/0/xw11/display /tmp/wdotool-0/xw11/display 2>/dev/null
+### rc=2
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+2075
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep -c 'interface=org.freedesktop.portal\.'
+2
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal.Inhibit' | sed -n 's/.*sender=\([^ ]*\).*/\1/p' | sort -u
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal\.'                  | grep -vE 'interface=org.freedesktop.portal.(Settings|Request|Session)'                  | grep -v 'interface=org.freedesktop.portal.Documents; member=GetMountPoint'                   | head -5
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.PolicyKit1' | head -3
+### rc=0
+### grep -Ec '^signal ' $HOME/w11-bus.log
+288
+### rc=0
+### grep -o 'org.freedesktop.portal.[A-Za-z]*' $HOME/w11-bus.log | sort | uniq -c | sort -rn | head
+      4 org.freedesktop.portal.Desktop
+      2 org/freedesktop/portal/desktop
+      2 org.freedesktop.portal.Settings
+### rc=0
+### for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \           systemctl stop unattended-upgrades.service 2>/dev/null; true
+### rc=0
+### DEBIAN_FRONTEND=noninteractive apt-get remove -y w11 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following packages were automatically installed and are no longer required:
+  gir1.2-atk-1.0 gir1.2-freedesktop gir1.2-gdkpixbuf-2.0 gir1.2-gtk-3.0
+  gir1.2-harfbuzz-0.0 gir1.2-pango-1.0 libharfbuzz-gobject0 libpangoxft-1.0-0
+Use 'apt autoremove' to remove them.
+The following packages will be REMOVED:
+  w11
+0 upgraded, 0 newly installed, 1 to remove and 96 not upgraded.
+After this operation, 2851 kB disk space will be freed.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 97749 files and directories currently installed.)
+Removing w11 (0.4.0) ...
+### rc=0
+### ls -d /usr/lib/w11 /var/lib/w11 /etc/xdg/autostart/w11-enable-bridge.desktop /usr/share/gnome-shell/extensions/w11-bridge@w11 /usr/share/gnome-shell/extensions/w11-overlap@w11  2>/dev/null | tr '\n' ' '
+### rc=0
+### for t in wdotool wwmctl wxprop wxrandr warandr wmirror; do command -v $t; done 2>/dev/null
+### rc=127
+### stat -c '%U:%G %a' /dev/uinput 2>/dev/null
+root:root 600
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+### rc=127
+### grep -l uinput /run/udev/tags/uaccess/* 2>/dev/null
+### rc=1
+### find /usr/lib/w11 /usr/bin -name __pycache__ 2>/dev/null
+### rc=1
+### cd /tmp && DEBIAN_FRONTEND=noninteractive apt-get install -y ./w11.deb 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following NEW packages will be installed:
+  w11
+0 upgraded, 1 newly installed, 0 to remove and 96 not upgraded.
+Need to get 0 B/677 kB of archives.
+After this operation, 2851 kB of additional disk space will be used.
+Get:1 /tmp/w11.deb w11 all 0.4.0 [677 kB]
+Selecting previously unselected package w11.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 97605 files and directories currently installed.)
+Preparing to unpack /tmp/w11.deb ...
+Unpacking w11 (0.4.0) ...
+Setting up w11 (0.4.0) ...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.  The
+    extension is installed and is enabled for you automatically in that first
+    session.  wxrandr and warandr work already; until the relogin the window
+    commands say the bridge is not running and name gnome/install-bridge.sh,
+    which is the from-a-clone route -- this package has done that part.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules), which is what lets wdotool type and click
+    without root.  Anyone who can open it can type as you -- see the threat
+    model in /usr/share/doc/w11/README.md.gz.
+  * On an X11 session the tools hand over to the real ones; install those
+    with: apt install xdotool wmctrl
+
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+User sessions running outdated binaries:
+ root @ session #133: xw11[9453]
+ root @ session #26: wdotool[2920]
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+### rc=0

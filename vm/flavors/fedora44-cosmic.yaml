@@ -1,5 +1,8 @@
 #cloud-config
-# vmctl flavor fedora44-cosmic: Fedora 44 Cloud + COSMIC (cosmic-comp 1.6.0-3.fc44, Smithay)
+# vmctl flavor fedora44-cosmic: Fedora 44 Cloud + COSMIC (cosmic-comp 1.8.0-1.fc44 as `rpm -q`
+# read it in the rebuilt golden on 2026-09-11; 1.6.0-3.fc44 on the first build of 2026-09-09, and
+# the version moves with Fedora's package -- the date is part of the fact.  Nothing in the backend
+# depends on it: the rate-limited refresh it waits for is the same code in 1.6.0 and 1.8.0), Smithay
 # with Xwayland, foot and cosmic-randr; greetd autologin ([initial_session], `start-cosmic`)
 # of user test (uid 1000, password test, NOPASSWD sudo) on vt 1.  Native display tool:
 # `cosmic-randr list --kdl`, which is what vm/live-smoke.d/oracle.py reads here.
@@ -50,8 +53,8 @@
 #     (`mode 1280 800 74994 current=#true preferred=#true`; every other line is bare).
 #     vm/live-smoke.d/oracle.py's cosmic branch reads that document correctly.
 #
-# WHAT STILL BLOCKS THIS FLAVOR, and it is not COSMIC.  `vmctl build fedora44-cosmic` fails in
-# vm/build-image.sh's dm_greetd, on its `systemctl enable greetd.service`, with
+# WHAT ONCE BLOCKED THIS FLAVOR, and it was not COSMIC.  `vmctl build fedora44-cosmic` used to fail
+# in vm/build-image.sh's dm_greetd, on its `systemctl enable greetd.service`, with
 #
 #   Failed to enable unit: File '/etc/systemd/system/display-manager.service' already exists
 #   and is a symlink to /usr/lib/systemd/system/cosmic-greeter.service
@@ -59,13 +62,12 @@
 # because `cosmic-desktop-environment` installs cosmic-greeter, whose unit self-enables as
 # display-manager.service during the group transaction -- and Fedora's greetd.service carries
 # `[Install] Alias=display-manager.service` and NO `WantedBy=`, so enabling it is exactly and
-# only that one symlink.  Measured fix, run by hand in the built guest and verified:
-# `systemctl disable cosmic-greeter.service` first, then `systemctl enable greetd.service`
-# creates the link and greetd comes up as the display manager (that is the boot the paint
-# numbers above were taken on).  The one-line change belongs in vm/build-image.sh's dm_greetd
-# (batch 2's file, requested there); it is the same class of bug as Debian's gdm3 having no
-# [Install] section, which dm_enable already handles.  That, and not the compositor, is why
-# this flavor stays `# vmctl-ci: on-demand` until the fix lands.
+# only that one symlink.  THAT IS FIXED and the flavor builds on every push: vm/build-image.sh's
+# dm_enable reads whatever already owns /etc/systemd/system/display-manager.service, disables
+# that unit by name and then enables ours -- the same class of bug as Debian's gdm3 having no
+# [Install] section, handled in the same function.  Both COSMIC goldens (this one and
+# arch-cosmic) have been built and cached with it since [goal2/recon/flavors.md 5, 2026-09-11],
+# which is the boot the paint numbers above were taken on.
 #
 # greetd is COSMIC's own shape, not a rig convenience: `dnf repoquery --requires cosmic-greeter`
 # names greetd, greetd-selinux and cosmic-comp >= 1.6.0, so greetd-selinux is installed beside
@@ -99,7 +101,10 @@
 # vmctl-base-sha256: 28680fe5b371a5a82ebf43a31926e086a168e59949d03969c5093e7071f90b7f
 # vmctl-desktop: cosmic
 # vmctl-distro: fedora
-# vmctl-ci: on-demand
+# vmctl-ci: push
+# cosmic-comp SIGSEGVs in llvmpipe's per-output render threads under headless software
+# GL; one fewer output is one fewer such thread, so this flavor runs two heads:
+# vmctl-ci-heads: 2
 hostname: fedora44-cosmic
 manage_etc_hosts: true
 disable_root: false
@@ -127,6 +132,36 @@ write_files:
     content: "PermitRootLogin prohibit-password\n"
   - path: /etc/modules-load.d/uinput.conf
     content: "uinput\n"
+  # cosmic-comp renders through Mesa here (no GPU / render node on the CI runner, so
+  # llvmpipe software GL).  Its intermittent SIGSEGV is an upstream Mesa bug in llvmpipe's
+  # tiled rasteriser (lp_setup), hit from cosmic-comp's per-surface KMS render thread on a
+  # FULL-OUTPUT re-render -- the maximize the wm phase issues.  It is op-triggered, not a
+  # startup race: batch 22 reproduced it at the SHIPPED mesa 26.1.8 on a quiet box, 8/8
+  # rounds (88 maximize toggles), captured #0 lp_setup_alloc_triangle <- ... <-
+  # SurfaceThreadState::redraw (probe/bt-wmops-2618-2h.txt).  It fires mid-wm-phase, minutes
+  # after the session is up and the windows phase passed: run 34704305466 (golden 9634f552,
+  # 3 heads, no LP knob) at the wm-phase start; 34709568224 (8f6d729f, 3 heads,
+  # LP_NUM_THREADS=0) at add,fullscreen; 34716677796 (cee7043c, 2 heads, LP_NUM_THREADS=0)
+  # at add,maximized; 34714395312 (same cee7043c/2h/LP=0) PASSED -- so LP_NUM_THREADS=0 is
+  # NOT the fix (baked in two crashers, and batch 22's golden crashed with it).  softpipe is
+  # worse: GALLIUM_DRIVER=softpipe kills cosmic-comp's renderer init on BOTH CI (run
+  # 34707294939: no first frame in 60s, --print-backend "wlr | available: no (cannot connect
+  # to the compositor)", wl-mirror Connection refused, empty oracle) and the rig (GBM/EGL
+  # init fails, exit 1) -- the old "wlr-only mode" note misread wxrandr's detection fallback.
+  # NOT YET eliminated: rung 6 (a fixed/pinned/downgraded Mesa; a 26.1.8 pin only forestalls
+  # the worse 26.2.2 regression, it does not fix this) or rung 4 (a GL render node the runner
+  # lacks; gl.md section 4 costs: the QMP screendump oracle and the -display dbus head
+  # control both die).  LP_NUM_THREADS=0 kept -- harmless, keeps full llvmpipe/zcosmic --
+  # though not the fix; the llvmpipe codegen knobs GALLIUM_NOSSE=1 + LP_NATIVE_VECTOR_WIDTH=128
+  # only REDUCE the rate (6/8, not 0), so they are not pushed either.  greetd's PAM reads
+  # /etc/environment; the service drop-in is the belt.
+  - path: /etc/environment
+    content: "LP_NUM_THREADS=0\n"
+    append: true
+  - path: /etc/systemd/system/greetd.service.d/vmctl-cosmic-llvmpipe.conf
+    content: |
+      [Service]
+      Environment=LP_NUM_THREADS=0
   - path: /etc/vmctl-build.env
     content: |
       FLAVOR=fedora44-cosmic

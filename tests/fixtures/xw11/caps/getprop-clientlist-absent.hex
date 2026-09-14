@@ -1,0 +1,19 @@
+# The two GetProperty replies recon/env.md 2.7 read off the live sway root with
+# one `foot` toplevel focused and NO X client anywhere (env/getprop.py, headless
+# sway + Xwayland 24.1.10, 2026-09-10). They are the gap the read side exists to
+# close, in bytes:
+#
+#   GetProperty(root=0x234, _NET_CLIENT_LIST=307, long_length=0xffffffff)
+#     -> type None(0)  format 0  bytes_after 0  nitems 0  value b''
+#      sway DELETES the property when no X client is mapped; it does not empty
+#      it, so the proxy has to synthesize a name upstream says does not exist.
+#
+#   GetProperty(root=0x234, _NET_ACTIVE_WINDOW=247)
+#     -> type WINDOW(33) format 32 bytes_after 0 nitems 1 value 00000000
+#      and this one it KEEPS, set to None. The asymmetry is the reason
+#      xw11/req_read.py's root path answers from the registry either way.
+#
+# The recon report printed the first twenty bytes of each and the rest is the
+# reply's zero padding: a reply is 32 bytes plus 4 * the length word.
+0100020000000000000000000000000000000000000000000000000000000000  # absent
+012004000100000021000000000000000100000000000000000000000000000000000000  # None

@@ -3,24 +3,28 @@
 # the one shell generation between the rig's 46 and 50 that nothing in this project has ever
 # run.  GDM autologin, Mutter's DisplayConfig as the oracle, everything else as fedora44-gnome.
 #
-# On demand, and the honest expectation is a REFUSAL: gnome/w11-overlap@w11/
-# generations.json carries records for 46, 50 and 51 and none for 49, and the extension refuses
-# any generation it has no measurement for.  That refusal is the thing worth seeing once per
-# release -- it is the difference between "the overlap route declines politely on an unmeasured
-# GNOME" and "it does something on one".  The bridge and every ordinary tool are expected to
+# Built on every push (`# vmctl-ci: push` below), and the honest expectation is a REFUSAL:
+# gnome/w11-overlap@w11/generations.json carries records for 46, 50 and 51 and none for 49, and
+# the extension refuses any generation it has no measurement for.  That refusal is the thing worth
+# seeing once per release -- it is the difference between "the overlap route declines politely on
+# an unmeasured GNOME" and "it does something on one".  The bridge and every ordinary tool are expected to
 # work; only the overlap phase is expected to decline.
 #
-# The base image's checksum is NOT pinned here.  Fedora 43-1.6 is the name read off the release
-# index and this host has never downloaded it [recon2/cosmic]; scripts/ci-golden.sh checks a
-# download against the published CHECKSUM file, and `# vmctl-base-sha256:` goes in the day
-# somebody has the bytes.
+# The base image's checksum IS pinned now.  It was not when this flavor was written -- 43-1.6 was a
+# name read off the release index and nothing here had downloaded it [recon2/cosmic] -- so this was
+# the one base image in the rig whose 556 MB download nothing verified (scripts/ci-golden.sh:175
+# only checks when the header is there).  The digest below is Fedora's own, fetched from
+# .../Fedora-Cloud-43-1.6-x86_64-CHECKSUM on 2026-09-11 [goal2/recon/flavors.md 1] and read again
+# off that same file on 2026-09-12 (`583335936 bytes`, same digest), and the image itself downloaded
+# and built off that URL in CI in 4 min.
 #
 # vmctl fills in the two @@...@@ placeholders at build time (root ssh public key; the
 # contents of vm/build-image.sh). The base image lives in $VMIMAGES:
 # vmctl-base: Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2
+# vmctl-base-sha256: 846574c8a97cd2d8dc1f231062d73107cc85cbbbda56335e264a46e3a6c8ab2f
 # vmctl-desktop: gnome
 # vmctl-distro: fedora
-# vmctl-ci: on-demand
+# vmctl-ci: push
 hostname: fedora43-gnome
 manage_etc_hosts: true
 disable_root: false

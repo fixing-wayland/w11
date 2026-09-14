@@ -233,17 +233,17 @@ class ThePackagesInDist(RpmCase):
         with open(os.path.join(ROOT, "gnome", OVERLAP_UUID, "generations.json"),
                   encoding="utf-8") as f:
             names = [g["namespace"] for g in json.load(f)["generations"]]
-        self.assertEqual(len(names), 3, names)
+        self.assertEqual(len(names), 4, names)
         for ns in names:
             with self.subTest(ns):
                 self.assertTrue(os.path.exists(os.path.join(
                     tmp, EXT, OVERLAP_UUID, "typelib", "%s-1.0.typelib" % ns)), ns)
 
-    def test_usr_bin_is_the_six_commands(self):
+    def test_usr_bin_is_the_seven_commands(self):
         got = self.q(self.main[0], "-l")
         names = sorted(re.findall(r"^/usr/bin/(\w+)$", got, re.M))
         self.assertEqual(names, ["warandr", "wdotool", "wmirror", "wwmctl",
-                                 "wxprop", "wxrandr"])
+                                 "wxprop", "wxrandr", "xw11"])
 
 
 class WhatDnfWillDo(RpmCase):
@@ -261,12 +261,17 @@ class WhatDnfWillDo(RpmCase):
         arrives for everyone who has not turned weak deps off, and
         `dnf install w11` on a sway box pulls in no toolkit."""
         recommends = self.q(self.main[0], "--recommends").split()
-        self.assertEqual(sorted(recommends), ["gtk3", "python3-gobject"])
+        self.assertEqual(sorted(recommends),
+                         ["gtk3", "python3-gobject", "wmctrl", "xdotool", "xprop", "xrandr"])
         self.assertNotIn("gtk3", self.q(self.main[0], "--requires").split())
 
-    def test_the_handover_tools_are_suggested(self):
+    def test_the_originals_are_recommended_and_the_mirror_helper_suggested(self):
+        """The four originals moved from Suggests to Recommends with the proxy
+        (design section 8.5): on a Wayland session the wrapper execs them
+        through xw11, so a default install gets the real tools; wl-mirror stays
+        a suggestion."""
         suggests = sorted(self.q(self.main[0], "--suggests").split())
-        self.assertEqual(suggests, ["wl-mirror", "wmctrl", "xdotool", "xprop", "xrandr"])
+        self.assertEqual(suggests, ["wl-mirror"])
 
     def test_the_bridge_supplements_both_halves_and_the_overlap_supplements_nothing(self):
         """The whole reason the extensions are subpackages: dnf installs the

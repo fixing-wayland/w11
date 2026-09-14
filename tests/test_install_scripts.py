@@ -36,6 +36,7 @@ Everything here runs in a temporary HOME.  The only files outside it any of
 these tests read are the shipped scripts themselves.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -443,7 +444,14 @@ class InstallOverlapWhole(ShellCase):
             before = fh.read()
         got = self.go(FAKE_SHELL_VERSION="52.0")
         self.assertEqual(got.returncode, 1, (got.stdout, got.stderr))
-        self.assertIn("measured on 46 50 51 only", got.stderr)
+        # the list is generations.json's own, in its order: install-overlap.sh
+        # builds `$MAJORS` out of that file (install-overlap.sh:332), so a
+        # generation added to the table is not a reason for this test to move
+        with open(os.path.join(ROOT, "gnome", OVERLAP_UUID, "generations.json"),
+                  encoding="utf-8") as fh:
+            majors = [str(g["shell_major"]) for g in json.load(fh)["generations"]]
+        self.assertNotIn("52", majors, "52 is measured now; pick another major")
+        self.assertIn("measured on %s only" % " ".join(majors), got.stderr)
         with open(self.dest("metadata.json"), encoding="utf-8") as fh:
             installed = fh.read()
         self.assertIn('"52"', installed)
@@ -740,19 +748,121 @@ class InstallBridgeUdev(ShellCase):
         self.assertIn("from the package", got["udev rule"])
         self.assertTrue(got["modules-load"].startswith("no ("), got["modules-load"])
 
-    @unittest.expectedFailure
+    def uninstall(self, pkg_rule=True, os_release="ID=ubuntu\nID_LIKE=debian\n"):
+        """`--udev --uninstall`'s branch, run.
+
+        Sliced like `status()` above -- the whole script escalates with sudo and
+        reloads real udev -- but this is the branch itself and not a read of its
+        source: the two /etc paths are in the case's tmp dir, $UDEV_PKG points at
+        a file that is or is not there, and $OS_RELEASE at a planted os-release.
+        udevadm is stubbed present because `have udevadm && ...` is the last
+        command of an AND-OR list under `set -e`; the node work
+        (forget_uinput_tags, restore_uinput_node) is stubbed because it edits
+        /dev/uinput."""
+        etc, usr = self.p("etc"), self.p("usr")
+        for d in (etc, usr):
+            os.makedirs(d, exist_ok=True)
+        dest = os.path.join(etc, "60-w11-uinput.rules")
+        mod = os.path.join(etc, "w11-uinput.conf")
+        pkg = os.path.join(usr, "60-w11-uinput.rules")
+        for path in (dest, mod):
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("# rule\n")
+        if pkg_rule:
+            with open(pkg, "w", encoding="utf-8") as fh:
+                fh.write("# the package's own\n")
+        rel = self.p("os-release")
+        # every call plants its own, and `os_release=None` means "no such file":
+        # the tmp dir is shared by every call in one test, so a leftover from the
+        # previous one would answer for the box that has none
+        if os.path.exists(rel):
+            os.unlink(rel)
+        if os_release is not None:
+            with open(rel, "w", encoding="utf-8") as fh:
+                fh.write(os_release)
+        body = ("set -eu\n"
+                "have() { return 0; }\n"
+                "udevadm() { :; }\n"
+                "node_has_acl() { return 1; }\n"
+                "forget_uinput_tags() { :; }\n"
+                "restore_uinput_node() { :; }\n"
+                "ME=0\nMODE=uninstall\n"
+                "UDEV_DEST='%s'\nMODLOAD_DEST='%s'\n"
+                "UDEV_PKG='%s'\nMODLOAD_PKG='%s'\n"
+                "OS_RELEASE='%s'\n" % (dest, mod, pkg,
+                                       os.path.join(usr, "w11-uinput.conf"), rel)
+                + support.sh_function(INSTALL_BRIDGE, "restored_note")
+                + support.sh_function(INSTALL_BRIDGE, "pm_remove_w11")
+                + support.sh_function(INSTALL_BRIDGE, "do_udev")
+                + "do_udev\n")
+        got = self.run_sh([self.script(body)], env=self.base_env())
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertFalse(os.path.exists(dest), "the /etc rule is still there")
+        return got.stdout
+
     def test_the_uninstall_branch_tells_the_truth_about_the_packages_rule(self):
-        """Fix 9 (deferred: the author's call), finding F0.6.  `--udev
-        --uninstall` removes /etc/udev/rules.d/60-w11-uinput.rules and
-        prints "removed ... ACL cleared" -- but on a machine that has the .deb
-        the package's own copy in /usr/lib/udev/rules.d is still there, so the
-        rule re-applies at the node's next udev event and the ACL comes back.
-        The branch has to look at $UDEV_PKG and name `apt remove w11`.
-        Read out of the source: running it needs root and real udev."""
-        src = support.sh_function(INSTALL_BRIDGE, "do_udev")
-        uninstall = src.split('if [ "$MODE" = uninstall ]; then')[1].split("fi\n")[0]
-        self.assertIn("UDEV_PKG", uninstall)
-        self.assertIn("apt remove w11", uninstall)
+        """Fix 9 / T11, finding F0.6.  `--udev --uninstall` removes
+        /etc/udev/rules.d/60-w11-uinput.rules and printed "removed ... ACL
+        cleared" and nothing else -- but on a machine that has the package its
+        own copy in /usr/lib/udev/rules.d is still there, udev reads that
+        directory too, and the ACL is back at the node's next uevent.  The rig
+        measured exactly that: after this branch ran, one `udevadm trigger
+        --name-match=uinput` put the user's ACL back on five GNOME flavors --
+        the gnome golden's check "F0.6: the ACL comes back at the next trigger
+        -- --udev --uninstall does not undo the .deb's rule"
+        [goal2/recon/gaps.md 1b #10].  So the branch owes the package-manager
+        line that finishes the job."""
+        text = self.uninstall()
+        self.assertIn("apt remove w11", text)
+        self.assertIn(self.p("usr", "60-w11-uinput.rules"), text)
+        self.assertIn("ACL cleared", text)
+
+    def test_the_remove_line_is_the_distributions_own_word_for_it(self):
+        """`apt` on every distribution is the bug w11common/distro.py exists to
+        fix: Fedora 44 has no apt and Arch has no apt.
+
+        The nixos case is reached only through the OS_RELEASE seam this helper
+        sets -- a real NixOS box has no /usr/lib/udev/rules.d for the guard to
+        find, because the module hands the rule to services.udev.packages and
+        udev reads it out of the store.  It is pinned so that the one thing the
+        arm must never do -- call a NixOS box Debian and tell its owner to run
+        apt -- stays impossible if the guard ever widens."""
+        self.assertIn("dnf remove w11", self.uninstall(os_release="ID=fedora\n"))
+        self.assertIn("pacman -R w11",
+                      self.uninstall(os_release='ID=arch\nID_LIKE="archlinux"\n'))
+        self.assertIn("programs.w11.uinput.enable = false",
+                      self.uninstall(os_release="ID=nixos\n"))
+        # a family nobody named, and a box with no os-release at all: Debian's
+        # bytes, which is what every message in this project used to print
+        self.assertIn("apt remove w11", self.uninstall(os_release="ID=solus\n"))
+        self.assertIn("apt remove w11", self.uninstall(os_release=None))
+
+    def test_the_family_walk_is_the_one_distro_py_does(self):
+        """`family()` takes ID first and then each word of ID_LIKE in the order
+        the file gives them, first known name wins (w11common/distro.py:115).
+        Two cases separate that from a substring match over the joined fields,
+        and the shell port has to get both right or a Rocky box is told to run
+        pacman: Ubuntu's ID is not a family but its ID_LIKE is, and Rocky's
+        ID_LIKE names three families at once with the right one first."""
+        self.assertIn("apt remove w11",
+                      self.uninstall(os_release="ID=ubuntu\nID_LIKE=debian\n"))
+        self.assertIn("dnf remove w11",
+                      self.uninstall(os_release='ID=rocky\n'
+                                                'ID_LIKE="rhel centos fedora"\n'))
+        # ID_LIKE naming two families: the first word wins, not the first arm
+        self.assertIn("pacman -R w11",
+                      self.uninstall(os_release='ID=xx\nID_LIKE="arch fedora"\n'))
+        self.assertIn("dnf remove w11",
+                      self.uninstall(os_release='ID=xx\nID_LIKE="fedora arch"\n'))
+
+    def test_without_the_packages_copy_there_is_no_remove_line(self):
+        """The by-hand route on a box with no package: this branch really did
+        undo everything there is to undo, and a line telling that user to
+        remove a package they never installed would be an invented problem."""
+        text = self.uninstall(pkg_rule=False)
+        self.assertIn("ACL cleared", text)
+        self.assertNotIn("remove w11", text)
+        self.assertNotIn("still owns", text)
 
 
 # -- the enabler's home ------------------------------------------------------

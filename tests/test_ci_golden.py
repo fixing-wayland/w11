@@ -464,26 +464,47 @@ class TheThreeBuilders(unittest.TestCase):
                   encoding="utf-8") as fh:
             self.assertIn("keys/id_ed25519.pub", fh.read())
 
-    def test_the_flavors_that_pin_a_base_sha256_are_the_fedora_44_ones(self):
-        """The four fedora44-* flavors carry the digest measured against the
-        published CHECKSUM [recon2/fedora.md 2].  fedora43-gnome carries none:
-        the recon downloaded and checked the 44-1.7 image and nothing else, and
-        a digest nobody has measured is worse than no digest.  The Arch flavors
-        deliberately carry none either, and say why in their own yaml -- their
-        pin is the mirror's `.SHA256`, fetched and checked at download time."""
-        pinned = {}
+    def test_every_fedora_flavor_pins_the_digest_of_the_image_it_names(self):
+        """Every Fedora flavor carries the digest of ITS OWN base image, read
+        off that release's published CHECKSUM.  The four fedora44-* ones share
+        one image and one digest [recon2/fedora.md 2]; fedora43-gnome names a
+        different image and had no digest at all until 2026-09-11, which made
+        its 556 MB download the one base in the rig nothing verified -- the
+        value below is Fedora's own, from
+        `.../Fedora-Cloud-43-1.6-x86_64-CHECKSUM` [goal2/recon/flavors.md 1],
+        re-read off that file on 2026-09-12.  The Arch flavors deliberately
+        carry none and say why in their own yaml -- their pin is the mirror's
+        `.SHA256`, fetched and checked at download time -- and the Ubuntu
+        cloud images are `current/` names that move under one URL.
+
+        Keyed off the image name and not off a hand-written list, so a fifth
+        Fedora flavor on a fifth image cannot slip in unpinned."""
+        pinned, bases = {}, {}
         for name in sorted(os.listdir(FLAVORS)):
             if not name.endswith(".yaml"):
                 continue
             with open(os.path.join(FLAVORS, name), encoding="utf-8") as fh:
-                m = re.search(r"^#\s*vmctl-base-sha256:\s*([0-9a-f]{64})$",
-                              fh.read(), re.M)
+                text = fh.read()
+            m = re.search(r"^#\s*vmctl-base-sha256:\s*([0-9a-f]{64})$", text, re.M)
+            b = re.search(r"^#\s*vmctl-base:\s*(\S+)$", text, re.M)
+            if b:
+                bases[name[:-5]] = b.group(1)
             if m:
                 pinned[name[:-5]] = m.group(1)
-        self.assertEqual(sorted(pinned), ["fedora44-cosmic", "fedora44-gnome",
-                                          "fedora44-kde", "fedora44-sway"])
-        self.assertEqual(set(pinned.values()),
-                         {"28680fe5b371a5a82ebf43a31926e086a168e59949d03969c5093e7071f90b7f"})
+        fedora = sorted(f for f, b in bases.items() if b.startswith("Fedora-"))
+        self.assertEqual(sorted(pinned), fedora)
+        self.assertEqual(sorted(pinned), ["fedora43-gnome", "fedora44-cosmic",
+                                          "fedora44-gnome", "fedora44-kde", "fedora44-sway"])
+        # one digest per image, and the two images are not the same image
+        by_image = {}
+        for flavor, digest in pinned.items():
+            by_image.setdefault(bases[flavor], set()).add(digest)
+        self.assertEqual(
+            {k: sorted(v) for k, v in sorted(by_image.items())},
+            {"Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2":
+                ["846574c8a97cd2d8dc1f231062d73107cc85cbbbda56335e264a46e3a6c8ab2f"],
+             "Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2":
+                ["28680fe5b371a5a82ebf43a31926e086a168e59949d03969c5093e7071f90b7f"]})
 
 
 if __name__ == "__main__":

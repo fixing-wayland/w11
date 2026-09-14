@@ -1,8 +1,14 @@
 # live-smoke.d/cosmic.sh -- COSMIC (cosmic-comp, Smithay), on its own protocols.
 #
-# Two flavors run this file: fedora44-cosmic (Fedora 44, cosmic-comp 1.6.0-3.fc44) and
-# arch-cosmic (Arch 20260901, 1:1.7.0-1).  The driver appends `selinux` and `pkgverify` on
-# Fedora and `pkgverify` on Arch, so no branch on the distro is needed anywhere below.
+# Two flavors run this file: fedora44-cosmic (Fedora 44; the flavor was written at cosmic-comp
+# 1.6.0-3.fc44 and the golden as rebuilt on 2026-09-11 carries 1.8.0-1.fc44, `rpm -q` in the guest)
+# and arch-cosmic (Arch 20260901; the golden rebuilt 2026-09-12 carries cosmic-comp 1:1.8.0-1,
+# `pacman -Q` in the guest -- MEASURED on instance acos-b18r; note its own `cosmic-comp --version`
+# still prints "1.0.0", a stale internal string, so the package version is the fact and both git to
+# a55785993e).  Both goldens run the SAME cosmic-comp 1.8.0 build now, so they no longer bracket a
+# version; the v1/v3/v4 toplevel set below is measured identical on every cosmic-comp anyone dumped
+# (1.0.0-binary/1.6.0, 1.7.0 and 1.8.0) [M recon2/cosmic.md §4].  The driver appends `selinux` and
+# `pkgverify` on Fedora and `pkgverify` on Arch, so no branch on the distro is needed anywhere below.
 #
 # COSMIC is the one desktop in this tree where a window backend had to be written from
 # nothing.  cosmic-comp publishes NO zwlr_foreign_toplevel_manager_v1 at all, so before
@@ -54,7 +60,7 @@
 # both), and `cosmic-randr list --kdl` on a real head reads `transform "normal"` -- NOT the
 # `flipped180` of the winit document in tests/fixtures/vm -- with only the current mode carrying
 # any flag at all.  See vm/flavors/fedora44-cosmic.yaml for the whole reading.
-SMOKE_PHASES="busrec install windows wm input display mirror root nodialog"
+SMOKE_PHASES="busrec install windows wm proxy input display mirror root nodialog"
 EDITOR_CLASS=foot
 
 # The editor is a terminal running `cat`, sway.sh's hook including the `cat >>`: see the
@@ -74,10 +80,36 @@ editor_clear() { guest "wdotool key ctrl+u; : > $SMOKE_FILE" >/dev/null 2>&1 || 
 # `transform "flipped270"`) [recon2/cosmic 6].  The KDL is parsed on the HOST, which is why
 # every one of these is `guest ... | python3` and not `guest 'python3'`.
 
+# cosmic-randr's raw KDL, but POLLED past the empty-document settle.  cosmic-randr answers zero
+# `output` rows for a second or so right after a modeset -- MEASURED on the arch-cosmic golden, up to
+# ~4 s once (oracle_outputs' paragraph, which polls the same transient for the output count).  A `mode`
+# or `transform` read taken in that window comes back empty and the `same "$t0"` after `--rotate
+# normal` fails against it: that reddened CI run 34682383044 fedora44-cosmic (`--rotate normal ... want
+# 'normal' got ''`, with `mode of Virtual-2 per cosmic-randr:` empty on the SAME read -- the whole
+# document was empty, not one field).  The empty window is load-dependent, like the count one: on the
+# quiet fcos-b19 golden (cosmic-comp 1.8.0-1.fc44 git a55785, three heads, 2026-09-12) `cosmic-randr list
+# --kdl` answered three rows and `normal` on the first read after `--rotate normal` in every one of 15
+# samples and under 3 `yes` workers, so it did not reproduce there -- the fix is against the measured
+# window, not a fresh reproduction.  So the document is polled until it carries an `output` row, bounded
+# (10 x 1 s), the same wait oracle_outputs uses -- an enabled head always answers a row once cosmic-comp
+# has settled (a head that is really --off still answers the other rows), so the poll waits the empty
+# window out without masking anything, and returns on the first read when the oracle is healthy
+# (verified: a healthy read returns immediately, a forced empty-first-read retries once and returns
+# `normal`, an always-empty oracle gives up bounded at ~10 s).
+cosmic_kdl() {
+    local out i
+    for i in $(seq 1 10); do
+        out=$(guest 'cosmic-randr list --kdl' 2>/dev/null || true)
+        printf '%s\n' "$out" | grep -q '^output ' && { printf '%s\n' "$out"; return 0; }
+        sleep 1
+    done
+    printf '%s\n' "$out"
+}
+
 # "<w>x<h>" for output $1, from cosmic-randr's own current mode -- where oracle.py reads the
 # position, this reads the mode, so the two never assert the same field.
 cosmic_mode() {
-    guest 'cosmic-randr list --kdl' | python3 -c '
+    cosmic_kdl | python3 -c '
 import re, sys
 doc, want, cur = sys.stdin.read(), sys.argv[1], None
 for block in re.split(r"(?m)^output ", doc):
@@ -91,7 +123,7 @@ for block in re.split(r"(?m)^output ", doc):
 
 # cosmic-randr's own transform word for output $1 -- "normal", "flipped270" and so on.
 cosmic_transform() {
-    guest 'cosmic-randr list --kdl' | python3 -c '
+    cosmic_kdl | python3 -c '
 import re, sys
 doc, want = sys.stdin.read(), sys.argv[1]
 for block in re.split(r"(?m)^output ", doc):
@@ -99,6 +131,28 @@ for block in re.split(r"(?m)^output ", doc):
         m = re.search(r"transform\s+\"([a-z0-9]+)\"", block)
         print(m.group(1) if m else "")
         break' "$1" 2>/dev/null || true
+}
+
+# cosmic-randr returns an EMPTY KDL document (zero `output` rows) for a second or so right after a
+# modeset, while cosmic-comp settles the new layout -- so oracle.py, which reads that document, emits
+# nothing and a single read taken in that window counts 0 outputs.  MEASURED on the arch-cosmic 1.8.0
+# golden (instance acos-b18r, 2026-09-12): after `wxrandr --output Virtual-3 --auto` the KDL had zero
+# rows for up to ~4 s once, then all three came back enabled=#true; three later off/auto cycles read
+# 3 rows immediately, so the empty window is intermittent -- which is exactly what reddened CI run
+# 34667595059 r3 on a loaded runner (`--off leaves 0 enabled outputs`, `--auto want 3 got 2`: the
+# oracle read once during the settle).  So this desktop's oracle_outputs POLLS until cosmic-randr
+# answers with rows, bounded (10 x 1 s).  An --off head that is really gone still answers rows (n-1 of
+# them, its own line dropped by enabled=#false), so the poll waits out the empty transient without
+# masking a genuine disable; and the head DOES re-enable here (measured 2->3 across three cycles), so
+# there is no OFF_HEAD_STAYS_OFF on cosmic -- the plain re-enable checks pass once the oracle has settled.
+oracle_outputs() {
+    local out i
+    for i in $(seq 1 10); do
+        out=$(guest "python3 $ORACLE $DESKTOP" | grep -E '^[A-Za-z]' || true)
+        [ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+        sleep 1
+    done
+    printf '%s\n' "$out"
 }
 
 # ---------------------------------------------------------------- windows
@@ -109,48 +163,70 @@ phase_windows() {
     out=$(await 30 '[0-9]' "wdotool search --class $EDITOR_CLASS | head -1" || true)
     WIN=$(printf '%s\n' "$out" | grep -E '^[0-9]+$' | head -1)
     if [ -z "$WIN" ]; then
-        fail "wdotool search --class $EDITOR_CLASS found no window (the whole backend is this line) [$(ev "$out")]"
+        fail "wdotool search --class $EDITOR_CLASS found no window (the whole backend is this \
+line) [$(ev "$out")]"
         return 1
     fi
     pass "wdotool search --class $EDITOR_CLASS -> $WIN"
-    # Ids are 30 bits of blake2b over the 32-character `identifier`, under 0x40000000 and out
-    # of Xwayland's range -- NOT 1000000 + arrival order, which is the wlr floor's and which
-    # renames the survivor when another window closes.  A floor-shaped id here would mean
+    # Ids are `ID_BASE | 30 bits of blake2b` over the 32-character `identifier`, so a minted id
+    # is at or ABOVE 0x40000000 (wdotool/backend.py:48-71) -- the whole point of the base being
+    # that Xwayland hands its own clients ids of the shape (client << 21) | serial, far below
+    # 2^30, so the two ranges cannot overlap in the listing views() joins them in.  And NOT
+    # 1000000 + arrival order, which is the wlr floor's and which renames the survivor when
+    # another window closes.  A floor-shaped id, or one down in X's own range, would mean
     # detection took the wrong branch, and that is worth catching before anything else does.
+    # This check read the other way round until 2026-09-11 and failed on every correct id:
+    # the measured 1081277706 = 0x40730C0A is exactly ID_BASE | blake2b [goal2/recon/flavors.md
+    # §5, CI rig-fedora44-cosmic.log].
     if [ "$WIN" -ge 1000000 ] && [ "$WIN" -le 1000099 ]; then
         fail "the id $WIN is in the wlr floor's 1000000+arrival range: this is not the cosmic backend"
-    elif [ "$WIN" -ge 1073741824 ]; then
-        # 0x40000000.  backend.mint_id keeps 30 bits so that a minted id can never collide with
-        # an Xwayland window's, which views() puts in the same listing.
-        fail "the id $WIN is at or above 0x40000000, where an XWayland id could collide with it"
+    elif [ "$WIN" -lt 1073741824 ]; then
+        # 0x40000000.  An id below the base is one an Xwayland client could also be given, and
+        # views() puts both planes in one listing.
+        fail "the id $WIN is below 0x40000000, in the range Xwayland gives its own clients"
     else
-        pass "the id $WIN is minted from the toplevel identifier: outside the floor's arrival \
-range and below 0x40000000"
+        pass "the id $WIN is minted from the toplevel identifier: at or above 0x40000000 and \
+outside the floor's arrival range"
     fi
     want "getwindowname is not empty" "." "$(guest "wdotool getwindowname $WIN" || true)"
-    # Geometry, sometimes.  zcosmic_toplevel_handle_v1.geometry arrives only alongside
-    # output_enter or on a change, and in the nested rig it never arrived at all -- not in 4 s
-    # and not after a maximize [recon2/cosmic 4].  So this is a `want` on a real rectangle and
-    # a note beside it: a run where the rectangle is the whole output is the backend falling
-    # back to the floor, and this line is where that shows.
+    # Geometry.  zcosmic_toplevel_handle_v1.geometry arrives alongside output_enter or on a
+    # change [recon2/cosmic 4], out of the same rate-limited refresh as `state`, and in the
+    # nested rig nobody waited for it -- not in 4 s and not after a maximize -- so this was an
+    # xwant "until a run on a KMS cosmic-comp says whether the geometry event arrives there at
+    # all".  That run happened: on the fedora44-cosmic golden (cosmic-comp 1.8.0-1.fc44, two
+    # heads, 2026-09-11) the event lands 152 ms after get_cosmic_toplevel and `wdotool
+    # getwindowgeometry` read 762,201 696x532 where it used to read 0,0 1920x1080, once
+    # CosmicBackend._await_state waited the STATE_WAIT out
+    # [goal2/recon/cosmic-state-probe.txt, vm/live-smoke.out/fedora44-cosmic-20260911-213252.log].
+    # So it is a plain want now: a rectangle that IS the whole output is the backend falling back
+    # to the floor, and this line is where that shows.
+    # MEASURED on arch-cosmic too now: the golden is cosmic-comp 1:1.8.0-1 (not the 1.7.0 the flavor
+    # header once named), and `wdotool getwindowgeometry` on a foot reads 612,153 696x532 -- the
+    # window's own rectangle, not 0,0 + a head's mode -- on instance acos-b18r (2026-09-12) and again
+    # in CI run 34667595059 r3 (PASS at that same reading, rig_arch-cosmic.log). So the geometry wait
+    # lands on both goldens and this is a plain want on both; the rate-limited refresh it is written
+    # against is version-independent [R src/lib.rs:340-367] and both goldens run the same 1.8.0 build.
     # The fallback is a STRING we can build -- 0,0 plus some head's mode, and cosmic-randr
     # prints every head's mode -- so the reading is compared against it rather than against a
-    # rectangle shape, which the fallback satisfies too.  No mode from cosmic-randr means the
-    # comparison could not be made, and that is an XFAIL and never an XPASS.
+    # rectangle shape, which the fallback satisfies too.  A FAIL here has TWO distinct causes and
+    # the verdict must name which, or the next reader of an arch-cosmic red chases the wrong oracle
+    # (CI run 34682383044 read the floors fine -- 0,0 1920x1080 x3 in the note -- and it was
+    # `win_geom` that came back empty, yet the old single NO-HEAD-MODE label pointed at the mode
+    # oracle): NO-HEAD-MODE means cosmic-randr gave no head mode (the fallback string can't be
+    # built), NO-GEOMETRY means `wdotool getwindowgeometry` itself returned no rectangle.
     local g floors verdict o
     g=$(win_geom "$WIN")
     floors=$(for o in $(oracle_outputs | awk '{print $1}'); do
                  printf '0,0 %s\n' "$(cosmic_mode "$o")"
              done | grep -E '^0,0 [0-9]+x[0-9]+$' || true)
-    verdict="NO-HEAD-MODE"
-    if [ -n "$floors" ] && printf '%s\n' "$g" | grep -Eq '^[0-9]+,[0-9]+ [0-9]+x[0-9]+$'; then
-        if printf '%s\n' "$floors" | grep -Fxq "$g"; then verdict="FLOOR-FALLBACK"
-        else verdict="OWN-RECTANGLE"; fi
+    verdict="OWN-RECTANGLE"
+    if [ -z "$floors" ]; then verdict="NO-HEAD-MODE"
+    elif ! printf '%s\n' "$g" | grep -Eq '^[0-9]+,[0-9]+ [0-9]+x[0-9]+$'; then verdict="NO-GEOMETRY"
+    elif printf '%s\n' "$floors" | grep -Fxq "$g"; then verdict="FLOOR-FALLBACK"
     fi
     note "getwindowgeometry: $g (the floor's fallbacks on this session: $(ev "$floors"))"
-    xwant "getwindowgeometry is the window's own rectangle and not 0,0 + a head's mode (until \
-a run on a KMS cosmic-comp says whether the geometry event arrives there at all)" \
-          "^OWN-RECTANGLE" "$verdict $g"
+    want "getwindowgeometry is the window's own rectangle and not 0,0 + a head's mode" \
+         "^OWN-RECTANGLE" "$verdict $g"
     # The four with no request behind them.  set_rectangle is a minimise-animation hint, so
     # NOT YET on move and resize: the lowest route on the AGENTS.md ladder that would give
     # them is 6, a patched cosmic-comp, and nobody has costed carrying that package.
@@ -166,7 +242,12 @@ prefix; the reason after it is batch 8's wording and is deliberately not pinned 
     same "windowactivate --sync then getactivewindow is that window" "$WIN" \
          "$(guest 'wdotool getactivewindow' | tr -d ' \n' || true)"
     # Workspaces, over ext_workspace_manager_v1: the recon's session had two, named `1` and `2`
-    # with coordinates [1] and [2] [recon2/cosmic 4].  The count is read and not assumed.
+    # with coordinates [1] and [2] [recon2/cosmic 4].  The count is read and not assumed --
+    # and on a MULTI-HEAD session it is not two: cosmic-comp publishes one workspace group per
+    # output, and the fedora44-cosmic golden with two heads had three (`1`, `2` on the first
+    # head and `1` on the second, both ones active), measured 2026-09-11.  Desktop numbers run
+    # group by group (CosmicBackend._ws_rows), so desktop 1 is the FIRST head's second
+    # workspace and this pair moves a head that is looking at it.
     local nd; nd=$(guest 'wwmctl -d' | grep -c '^[0-9]' || true)
     if [ "${nd:-0}" -lt 2 ]; then
         note "$nd workspace(s): the set_desktop pair needs two, skipped"
@@ -337,6 +418,14 @@ phase_display() {
     local pair first
     pair=$(display_pair); first=${pair%% *}
     if [ -z "$first" ]; then fail "no enabled output in the oracle [$(ev "$outs")]"; return 1; fi
+    # An --off head DOES come back on cosmic-comp 1.8.0 (both goldens): MEASURED on arch-cosmic
+    # (instance acos-b18r, cosmic-comp 1:1.8.0-1, three off/auto cycles -> 3 enabled=#true each) and on
+    # fedora44-cosmic (instance fcos-b18, cosmic-comp 1.8.0-1.fc44, two cycles -> 3 each), 2026-09-12.
+    # So no OFF_HEAD_STAYS_OFF here and
+    # common_display_phase's three re-enable checks are plain.  What reddened CI run 34667595059 r3
+    # (`--off leaves 0 enabled`, `--auto want 3 got 2`) was NOT the head staying off -- it was
+    # cosmic-randr answering an empty document during the post-modeset settle, which this file's
+    # polling oracle_outputs (above) now waits out before any count is taken.
     common_display_phase
     # The rotate the recon watched cosmic-randr track, read back through the KDL's own
     # `transform` word -- a field oracle.py never touches, so this is a second reading and not

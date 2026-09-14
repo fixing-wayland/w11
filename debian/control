@@ -17,12 +17,14 @@ Depends: ${python3:Depends},
          ${misc:Depends},
          gir1.2-gtk-3.0,
          python3-gi
-Suggests: wl-mirror,
-          wmctrl,
-          xdotool
+Recommends: xdotool,
+            wmctrl,
+            x11-utils,
+            x11-xserver-utils
+Suggests: wl-mirror
 Description: X11 power tools as drop-in clones for Wayland
- Six commands that behave like the X11 tools they clone -- same commands, same
- flags, same output bytes -- on a Wayland session:
+ Seven commands that behave like the X11 tools they clone -- same commands,
+ same flags, same output bytes -- on a Wayland session:
  .
    * wdotool  - xdotool: key/type/click/mousemove and the window commands
    * wwmctl   - wmctrl: list and act on windows, desktops and workspaces
@@ -30,12 +32,19 @@ Description: X11 power tools as drop-in clones for Wayland
    * wxrandr  - xrandr: query and reshape the monitor layout
    * warandr  - arandr: the drag-your-monitors GUI, on Wayland and on X11
    * wmirror  - mirror a region or an odd-shaped output on wlroots (wl-mirror)
+   * xw11     - an X11 display in front of the session's X server, so the
+     ORIGINAL xdotool, wmctrl, xprop, xrandr and every other X client answer
+     about the whole desktop
  .
  On an X11 session the first four hand over to the real xdotool, wmctrl, xprop
  and xrandr with execve, argv untouched, so one script runs on both session
- types.  The originals are never replaced: these commands are installed under
- their own names only, and nothing in this package overwrites a file owned by
- xdotool, wmctrl, x11-utils or x11-xserver-utils.
+ types.  On a Wayland session with those four installed they hand over as well,
+ to the original running against xw11's display -- which is why they are
+ Recommends and not Suggests: with them present the tools you already know are
+ what runs, and W11_PROXY=never asks for the clones instead.  The originals are
+ never replaced: these commands are installed under their own names only, and
+ nothing in this package overwrites a file owned by xdotool, wmctrl, x11-utils
+ or x11-xserver-utils.
  .
  Also installed: the GNOME Shell bridge extension that the window commands
  need on GNOME (system-wide, enabled for each user at their next login), a

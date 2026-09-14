@@ -36,6 +36,12 @@ Environment:
   developers on an X11 laptop); `always` = hand over whatever the session.
   Both are about the *handover*, so a caller that never hands over ignores
   them (`warandr`: `session_kind(respect_override=False)`).
+* `W11_PROXY=auto|never|always` (per-tool: `WDOTOOL_PROXY`, `WWMCTL_PROXY`,
+  `WXPROP_PROXY`, `WXRANDR_PROXY`) — the *other* direction, read by
+  `xw11.wrap.maybe_exec_through_proxy`: on a Wayland session, whether the
+  original runs against the proxy's display instead of our own code.
+  `proxy_mode()` is the reader; nothing in this file acts on it, because the
+  handover it describes is the proxy's and not this module's.
 * `WDOTOOL_REAL_XDOTOOL`, `WWMCTL_REAL_WMCTRL`, `WXPROP_REAL_XPROP`,
   `WXRANDR_REAL_XRANDR` — the original's path, skipping the PATH walk.
 * `_W11_PASSTHROUGH` (private) — the recursion stop. It carries the
@@ -55,8 +61,14 @@ _X11_SOCK_DIR = "/tmp/.X11-unix"
 _LOGIND_DIR = "/run/systemd/sessions"
 _RUN_USER_DIR = "/run/user"
 
-#: names our own executables can carry (`realpath` of an installed symlink)
-OUR_NAMES = ("wdotool", "wwmctl", "wxprop", "wxrandr", "warandr")
+#: names our own executables can carry (`realpath` of an installed symlink).
+#: `xw11` is one of them although it clones nothing: the proxy wrapper asks
+#: `real_tool()` for the original it is about to run *through* the proxy, and a
+#: PATH walk that took the proxy's own script for an `xdotool` would exec the
+#: proxy under xdotool's argv. Guard 2 (the name the candidate resolves to) and
+#: `_OUR_MODULES` (the generated console script imports `xw11.cli`) both read
+#: this tuple.
+OUR_NAMES = ("wdotool", "wwmctl", "wxprop", "wxrandr", "warandr", "xw11")
 
 #: our name -> the original we replace
 REAL_NAME = {
@@ -87,6 +99,20 @@ _MODE_VAR = {
     "wmctrl": "WWMCTL_PASSTHROUGH",
     "xprop": "WXPROP_PASSTHROUGH",
     "xrandr": "WXRANDR_PASSTHROUGH",
+}
+#: the same shape for the *proxy* hook (`xw11.wrap.maybe_exec_through_proxy`),
+#: which is a second question about the same handover: `W11_PASSTHROUGH` says
+#: whether our own code may be replaced at all, `W11_PROXY` says whether a
+#: Wayland session replaces it with the original running on `xw11`'s display.
+#: Two variables and not one because the two answers are independent -- a box
+#: that wants the clone on Wayland (`W11_PROXY=never`) still wants the original
+#: on X11 -- and because `W11_PASSTHROUGH=never` is this suite's escape hatch
+#: and has to keep meaning "our own code, no handover to anything".
+PROXY_MODE_VAR = {
+    "xdotool": "WDOTOOL_PROXY",
+    "wmctrl": "WWMCTL_PROXY",
+    "xprop": "WXPROP_PROXY",
+    "xrandr": "WXRANDR_PROXY",
 }
 
 #: private recursion stop, set in the exec'd environment
@@ -191,9 +217,21 @@ def passthrough_mode(tool: str | None = None, env=None) -> str:
     return _mode(real_name(tool) if tool else None, e)
 
 
-def _mode(tool, e) -> str:
-    names = ([_MODE_VAR[tool]] if tool in _MODE_VAR else []) + \
-        ["W11_PASSTHROUGH"]
+def proxy_mode(tool: str | None = None, env=None) -> str:
+    """"never", "always" or "auto" -- what `$W11_PROXY` (or the per-tool `$WDOTOOL_PROXY`) asks for.
+
+    API note, this file being frozen: added for the X11 proxy (design section 8.3).  `always` says the original
+    must run through the proxy or not at all -- a missing original or a proxy that will not start is exit 127,
+    never a quiet fall back to our own code, because a script that asks for the original's bytes gets them or
+    an error.  The spellings are `_NEVER`/`_ALWAYS`'s, the same ones `W11_PASSTHROUGH` takes."""
+    e = os.environ if env is None else env
+    return _mode(real_name(tool) if tool else None, e, PROXY_MODE_VAR, "W11_PROXY")
+
+
+def _mode(tool, e, table=None, fallback="W11_PASSTHROUGH") -> str:
+    table = _MODE_VAR if table is None else table
+    names = ([table[tool]] if tool in table else []) + \
+        [fallback]
     for var in names:
         v = (e.get(var) or "").strip().lower()
         if v in _NEVER:

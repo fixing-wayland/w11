@@ -16,8 +16,8 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from wxprop import fmt as fmtmod
-from wxprop.fmt import FatalError, Formatter
+from hacks.property import fmt as fmtmod
+from hacks.property.fmt import FatalError, Formatter
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.

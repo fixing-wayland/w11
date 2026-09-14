@@ -1,0 +1,28 @@
+# xrandr --output HEADLESS-1 --auto, captured 2026-09-10 THROUGH the proxy: sway (headless, one HEADLESS-1 at
+# 1280x720) -> Xwayland 24.1.10 -> `python3 -m xw11 --foreground` -> the
+# recording forwarder scratchpad/b7/rec.py -> xrandr 1.5.3. RANDR major 139,
+# root 0x234, crtc 0x20, output 0x21.
+#
+# run while the output was OFF: Xwayland no longer lists it at all, so xrandr warns `output HEADLESS-1 not found; ignoring` and writes nothing. Sixteen requests and no grab.
+#
+# Exit status 0, and sway's own outputs afterwards: HEADLESS-1 still inactive.
+# Captured through the proxy rather than against Xwayland directly because
+# these are the streams a write path sends when nothing REFUSES it: against
+# Xwayland alone, the output is still listed, so this path never runs at all
+# 16 requests, one per line.
+620005000c0000004249472d5245515545535453
+85000100
+37000500000060003402000008000000ffffff00
+1400060034020000170000001f0000000000000000e1f505
+6200050009006000584b4559424f415244000000
+8700020001000000
+620004000500000052414e4452000000
+620008001700000047656e65726963204576656e7420457874656e73696f6e00
+8000020001000000
+8b0003000100000006000000
+8b06020034020000
+8b19020034020000
+24000100
+8b07050034020000100010000000008000000080
+25000100
+2b000100

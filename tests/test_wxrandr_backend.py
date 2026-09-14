@@ -34,7 +34,8 @@ from w11common import dbus_mini, distro, passthrough, session
 import wl_fake
 from support import env as support_env
 from test_dbus_mini import MockBus
-from wxrandr import cli, gnome_overlap, mutter as mutter_mod
+from wxrandr import cli
+from hacks.display import gnome_overlap, mutter as mutter_mod
 
 #: a GNOME session, as the probes would find it
 GNOME = {
@@ -133,7 +134,7 @@ class Names(unittest.TestCase):
 
         Read off wdotool's own table rather than a second copy of this one, so that adding a backend on one
         side and forgetting the other is what fails here."""
-        from wdotool import backend_detect
+        from hacks.window import backend_detect
         # wdotool spells Mutter's backend `gnome` and KWin's `kwin`; both are names this side accepts too, so
         # the comparison is on canonical tokens and the two that stay unknown here are the finding.
         window_side = {cli.canonical_backend(n) or n
@@ -987,7 +988,7 @@ class HyprProbe(unittest.TestCase):
             self.assertEqual(session.find_hypr_socket(), sock)
             p = cli.probe_backend("hypr")          # must not raise
         try:
-            import wxrandr.hypr                     # noqa: F401
+            import hacks.display.hypr                     # noqa: F401
         except ImportError:
             self.assertFalse(p.available)
             self.assertEqual(p.reason,

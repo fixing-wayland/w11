@@ -1,0 +1,13 @@
+# `xrandr --output HEADLESS-1 --primary`, measured 2026-09-10 (cap1.log
+# connection 5, requests 18-21). Four requests: the grab, a SetCrtcConfig that
+# re-asserts the identical config, SetOutputPrimary(root, output 0x21), and the
+# ungrab. No SetScreenSize -- the framebuffer does not change, and
+# screen_apply() skips it entirely then [xrandr.c].
+#
+# This is the one write path that already succeeds on today's Xwayland (exit 0,
+# and `xrandr -q` then prints `HEADLESS-1 connected primary` [recon/env.md 2.4]),
+# which is why SetOutputPrimary PASSes here as well as being recorded.
+24000100
+8b1508002000000000000000d0df633100000000410000000100000021000000
+8b1e03003402000021000000
+25000100

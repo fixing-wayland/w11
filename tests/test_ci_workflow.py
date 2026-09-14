@@ -14,7 +14,13 @@ file pins has happened to this project at least once --
   built -- every rig result before run 34340513060 measured the last release
   and nobody could tell from the log;
 * `continue-on-error` spreading: one job whose distro really is rolling is a
-  reason, five jobs that are merely flaky is a suite nobody reads.
+  reason, five jobs that are merely flaky is a suite nobody reads.  On
+  2026-09-12 the count went to ZERO and the table below is empty, which makes
+  this the file that keeps it empty: every one of the nine was replaced by a
+  pin (a digest-pinned base, a frozen pacman snapshot) or by a measurement
+  somebody finally took (Arch's `wmctrl --help` is 6801 bytes, the same as
+  nixpkgs' 1.07; the headless-sway probe passed in all four installer jobs on
+  run 34628777544).
 
 So the header comment at the top of the file is treated as the index it looks
 like: every name it lists is a job, and every job is listed.  Somebody adding a
@@ -24,7 +30,10 @@ reads first.
 
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 
 # The suite never hands a tool over to the real X11 one: see tests/conftest.py
@@ -41,26 +50,41 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "ci.yml")
 CI_GOLDEN = os.path.join(ROOT, "scripts", "ci-golden.sh")
 FLAVORS = os.path.join(ROOT, "vm", "flavors")
+LIVE_SMOKE = os.path.join(ROOT, "vm", "live-smoke.sh")
 
 #: job -> (its `continue-on-error` expression, why that job is allowed to fail).
-#: Keyed by JOB and not by expression: two of these are the literal `true`, so a
-#: set of expressions would swallow a third job carrying `continue-on-error:
-#: true` without changing, and "nothing else in the file may carry it" would be
-#: a claim this file does not make.
-#: 26.10 is a development Ubuntu; Arch and the arch-* goldens are rolling, so
-#: `pacman -Syu` at build time pins nothing [recon2/pkg-arch.md]; Fedora
-#: rawhide is Fedora's development branch.  Fedora 43 and 44 and NixOS 26.05
-#: are released and are NOT in here.
-ROLLING = {
-    "unit-2610": ("true", "the development Ubuntu"),
-    "deb-install": ("${{ matrix.distro == '26.10' }}", "the development Ubuntu"),
-    "unit-distro": ("${{ matrix.distro == 'arch' }}", "rolling Arch, the fedora row is not"),
-    "parity-arch": ("true", "wholly Arch, and its wmctrl help size is uncounted"),
-    "pkgbuild": ("true", "wholly Arch"),
-    "vm": ("${{ startsWith(matrix.flavor, 'stonking-') || "
-           "startsWith(matrix.flavor, 'arch-') }}",
-           "the rig's two rolling flavor families"),
-}
+#: EMPTY since 2026-09-12, and kept as a table rather than replaced by "no job
+#: may carry the key" so that a job joining it has to arrive with its reason
+#: written down.  Keyed by JOB and not by expression, for the day it is not
+#: empty: two of the nine that were here were the literal `true`, and a set of
+#: expressions would have swallowed a third job carrying `continue-on-error:
+#: true` without changing.
+#:
+#: What each of the nine became, all measured on run 34628777544
+#: [recon/gaps.md 4]:
+#:
+#:   unit-2610, deb-install  the development Ubuntu, now a digest-pinned
+#:                           ubuntu:26.10 -- pinned in ci.yml's `plan` step,
+#:                           which hashes it into the image key, and used by
+#:                           digest in deb-install's own matrix; every 26.10
+#:                           file was green on that run bar one that was red on
+#:                           24.04 and 26.04 too
+#:   unit-distro, pkgbuild   rolling Arch, now a dated base tag plus an
+#:                           archive.archlinux.org snapshot of the same date
+#:   parity-arch             its `wmctrl --help` size was uncounted; it is 6801
+#:                           bytes, byte for byte nixpkgs' plain 1.07 (measured
+#:                           2026-09-12 on the 1.07-6 package out of that same
+#:                           snapshot), so no second size was ever needed
+#:   three probe steps       "the first run here is the measurement": it passed,
+#:                           in deb-install on all three releases, in rpm and in
+#:                           nix, and inline in pkgbuild (job 103360336842)
+#:   vm                      `stonking-* || arch-*`; stonking-gnome and
+#:                           stonking-kde were green on two consecutive runs
+#:                           (34628777544 and 34662004383), and the four red
+#:                           arch flavors were fixed in the tree in this wave --
+#:                           the push after 2026-09-12 is the run that measures
+#:                           them, no arch rig having run since the fixes
+ROLLING = {}
 
 
 def text():
@@ -101,16 +125,18 @@ class TheHeaderIsTheIndex(unittest.TestCase):
         listed = set(re.findall(r"^#   ([a-z][a-z0-9-]*) {2,}\S", header(), re.M))
         self.assertEqual(set(jobs()) - listed, set())
 
-    def test_the_seventeen_jobs_are_the_ones_the_plan_names(self):
+    def test_the_eighteen_jobs_are_the_ones_the_plan_names(self):
         """Named rather than counted: a job that disappears is the failure, and
-        `len(jobs) == 17` would go green on a rename.  The unit tests are one
+        `len(jobs) == 18` would go green on a rename.  The unit tests are one
         job per release because a matrix caps at 256 jobs and three releases
-        times the files in tests/ passed that (run 34393015905)."""
+        times the files in tests/ passed that (run 34393015905).  `recordings`
+        is the eighteenth, added 2026-09-12 with the rig's `--record`."""
         self.assertEqual(sorted(jobs()),
                          ["deb", "deb-install", "image", "lint", "nix",
                           "nix-full", "parity", "parity-arch", "pkgbuild",
-                          "plan", "rpm", "rpm-install", "unit-2404", "unit-2604",
-                          "unit-2610", "unit-distro", "vm"])
+                          "plan", "recordings", "rpm", "rpm-install",
+                          "unit-2404", "unit-2604", "unit-2610", "unit-distro",
+                          "vm"])
 
     def test_no_matrix_can_reach_githubs_cap_of_256_jobs(self):
         """Each unit-* job has one matrix axis, the files; a second axis of
@@ -155,9 +181,12 @@ class ThePlanJob(unittest.TestCase):
         self.assertIn("scope:", text().split("\njobs:")[0])
 
     def test_there_is_one_image_key_per_dockerfile(self):
-        """The container tag is `<distro>-<12 hex of that Dockerfile>`, so a
-        change to one image rebuilds one image."""
-        keyed = set(re.findall(r"sha256sum (\.github/ci/\S+) \| cut -c1-12", self.plan))
+        """The container tag is `<distro>-<12 hex>`, so a change to one image
+        rebuilds one image.  The hash is over that Dockerfile AND the base
+        references it is built from -- tests/test_ci_images.py::TheBasePins is
+        the other half of that -- which is why the file name is matched inside
+        a `sha256sum ...;` rather than at the end of the line."""
+        keyed = set(re.findall(r"sha256sum (\.github/ci/[^;|\s]+)", self.plan))
         present = {"/".join([".github/ci", n])
                    for n in os.listdir(os.path.join(ROOT, ".github", "ci"))}
         self.assertEqual(keyed, present)
@@ -240,7 +269,8 @@ class TheImagesAndTheContainers(unittest.TestCase):
 
 
 class ContinueOnError(unittest.TestCase):
-    """The jobs allowed to fail, by name, and nothing outside them."""
+    """The jobs allowed to fail, by name, and nothing outside them.  There are
+    none."""
 
     def carriers(self):
         """job -> its `continue-on-error` expression, for the jobs that have
@@ -253,24 +283,21 @@ class ContinueOnError(unittest.TestCase):
         return out
 
     def test_the_jobs_that_carry_it_are_exactly_the_rolling_ones(self):
-        """By job, so an eighth job written `continue-on-error: true` is a new
-        key and a failure here -- which a set of expressions would not have
-        been, `true` being in it twice already.  The reason column of ROLLING
-        is the documentation the workflow's own comments repeat; a job may not
+        """ROLLING is empty, so this says no job carries the key at all.  By
+        job and not by expression, so a job written `continue-on-error: true`
+        is a new entry here and a failure; the reason column is the
+        documentation the workflow's own comments repeat, and a job may not
         join the table without one being written."""
-        # the vm job's expression is one line in the file; normalise the wrap
-        # the table above needs
         want = {job: re.sub(r"\s+", " ", expr) for job, (expr, _) in ROLLING.items()}
         self.assertEqual(self.carriers(), want)
 
-    def test_no_released_target_is_in_it(self):
-        """Fedora 43 and 44 and NixOS 26.05 are released: their jobs are red
-        when they are red."""
-        expressions = " ".join(re.findall(r"^    continue-on-error: (.*)$",
-                                          text(), re.M))
-        for released in ("'43'", "'44'", "nixos", "'24.04'", "'26.04'"):
-            with self.subTest(released):
-                self.assertNotIn(released, expressions)
+    def test_no_step_is_allowed_to_fail_either(self):
+        """The three `xw11 --print-display` probes carried a STEP-level key
+        (eight spaces), which the job-level regex above cannot see: a step that
+        is allowed to fail is a check whose result nobody reads, exactly like a
+        job that is.  Written as "the string is nowhere in the file" because
+        with the table empty there is nothing left to enumerate."""
+        self.assertEqual(re.findall(r"^\s*continue-on-error:.*$", text(), re.M), [])
 
 
 class ThePackagingJobs(unittest.TestCase):
@@ -283,14 +310,39 @@ class ThePackagingJobs(unittest.TestCase):
                 self.assertIn("name: %s\n          path:" % artifact, jobs()[builder])
                 self.assertIn("name: %s" % artifact, jobs()[installer])
 
+    def test_each_builder_uploads_before_it_runs_its_release_test(self):
+        """Run 34662004383: a stale test-count pin in test_release_rpm and
+        test_release_pkgbuild failed those two jobs, both of which ran their
+        release test BEFORE `upload-artifact` -- so nothing was uploaded, and
+        all twelve fedora-*/arch-* rig jobs died at `download-artifact` with
+        "Artifact not found for name: rpms|pkg".  Twelve desktops measured
+        nothing because of a number in a unit test.  The package job still goes
+        red on its own test; what this pins is the order, so the rigs get the
+        package that was built either way."""
+        for builder, release in (("deb", "tests/test_release_deb.py"),
+                                 ("rpm", "tests/test_release_rpm.py"),
+                                 ("pkgbuild", "tests/test_release_pkgbuild.py")):
+            with self.subTest(builder):
+                block = jobs()[builder]
+                self.assertIn(release, block)
+                self.assertLess(block.index("uses: actions/upload-artifact@v4"),
+                                block.index(release), block)
+
     def test_rpm_install_covers_the_two_released_fedora_tags(self):
         """43 and 44 are released and 44 is what the spec was written on.
         rawhide is deliberately not here: a noarch rpm built on 44 requires
         python(abi) = 3.14 and rawhide has moved on, so installing there means
-        building there (run 34390127394)."""
-        self.assertIn('tag: ["43", "44"]', jobs()["rpm-install"])
-        self.assertNotIn("rawhide", jobs()["rpm-install"].split("tag:")[1].split("\n")[0])
-        self.assertIn("image: fedora:${{ matrix.tag }}", jobs()["rpm-install"])
+        building there (run 34390127394).
+
+        By tag, because the tag is what the job's name and the rawhide
+        exclusion are about; the digest each tag is pinned to is
+        tests/test_ci_images.py's half."""
+        block = jobs()["rpm-install"]
+        self.assertEqual(re.findall(r"^          - tag: \"(\d+)\"$", block, re.M),
+                         ["43", "44"])
+        self.assertNotIn("rawhide", "\n".join(
+            ln for ln in block.splitlines() if not ln.lstrip().startswith("#")))
+        self.assertIn("image: ${{ matrix.image }}", block)
 
     def test_every_installer_makes_all_six_tools_answer_and_then_removes(self):
         """The install half of each packaging is only proved by a tool
@@ -382,6 +434,145 @@ class ThePackagingJobs(unittest.TestCase):
         self.assertNotIn("nixos-gnome", jobs()["nix"])
 
 
+class TheProxyInCI(unittest.TestCase):
+    """What the X11 proxy added to this workflow, and what would quietly stop
+    running if a line went.
+
+    Two of these have already been the failure elsewhere in this tree: a second
+    invocation added and the variable that makes it a second *thing* left off
+    (the parity run through the proxy is byte-for-byte the direct run without
+    `W11_PARITY_PROXY=1`, so a copy-paste that drops it is a job that passes
+    twice as slowly and proves nothing), and a package installed in a container
+    that has nothing to run it against."""
+
+    #: The four jobs that run the proxy against a real compositor: three that
+    #: have just installed or built a package, and the flake.
+    PROBERS = ("deb-install", "rpm", "pkgbuild", "nix")
+
+    def test_both_parity_jobs_run_the_oracle_direct_and_through_the_proxy(self):
+        """Once direct and once through a pass-through xw11 on :98.  The
+        second run is the framing's regression test: the two must differ only
+        in their `Ran N tests in` lines."""
+        for name in ("parity", "parity-arch"):
+            with self.subTest(name):
+                block = jobs()[name]
+                # `sh scripts/...`, the invocations: the step's own name says
+                # the script's path too and is not a run of it
+                self.assertGreaterEqual(block.count("sh scripts/parity-oracle.sh"), 2, block)
+                self.assertEqual(block.count("W11_PARITY_PROXY=1"), 1, block)
+
+    def test_the_nix_parity_job_runs_a_third_pass_with_the_proxy_synthesizing(self):
+        """The third mode is the one a real session is in: no `--passthrough`,
+        so every request is answered out of the proxy's own shadow, and in
+        front of a compositor's Xwayland rather than an Xvfb.  Nobody had run
+        the byte-parity set through it before 2026-09-12; it is byte-identical
+        and costs 5.3 s measured here, 6.4 s in the recon
+        [recon/recordings.md 2.2].  `parity-arch` does NOT get it: it runs in a
+        container whose sway is there for the live files, and one job proving
+        the mode is what the mode costs.
+
+        Both variables are asserted, because either alone is a third run of
+        something already run: without `W11_PARITY_PROXY=native` it is the
+        pass-through mode again, and without `W11_PARITY_SWAY=1` the upstream
+        is the same Xvfb as the other two."""
+        block = jobs()["parity"]
+        self.assertEqual(block.count("sh scripts/parity-oracle.sh"), 3, block)
+        self.assertIn("W11_PARITY_SWAY=1 W11_PARITY_PROXY=native "
+                      "sh scripts/parity-oracle.sh", block)
+
+    def test_the_bare_parity_runner_installs_what_native_parity_needs(self):
+        """`parity` is the one job on a bare runner rather than in one of our
+        images, so the packages are apt's and are listed by hand.
+        tests/test_xw11_parity.py::NativeParity needs a compositor, an Xwayland
+        and a native toplevel to compare against."""
+        block = jobs()["parity"]
+        for package in ("sway", "xwayland", "foot"):
+            with self.subTest(package):
+                self.assertRegex(block, r"install[^\n]*\b%s\b" % package)
+        # and the four it always had, so this test cannot pass by replacing them
+        for package in ("xvfb", "x11-utils", "xterm", "wmctrl"):
+            with self.subTest(package):
+                self.assertRegex(block, r"install[^\n]*\b%s\b" % re.escape(package))
+
+    def test_every_installer_runs_xw11_print_display_against_a_real_compositor(self):
+        """The one claim a container can make about the proxy: it starts, it
+        prints a display, and the second call prints the SAME one because a
+        session has one proxy.  A package that installs `xw11` and never runs
+        it is a package whose seventh command nobody has executed."""
+        for name in self.PROBERS:
+            with self.subTest(name):
+                block = jobs()[name]
+                self.assertIn("xw11-probe.sh", block)
+                self.assertIn("--print-display", block)
+                self.assertIn("WLR_BACKENDS=headless", block)
+                self.assertIn("xwayland enable", block)
+                # the comparison itself, not merely two calls
+                self.assertIn('[ "$a" = "$b" ]', block)
+
+    def test_the_probe_is_the_same_script_in_all_four(self):
+        """Four copies that have drifted apart are four different claims.  The
+        script is written by a quoted heredoc, so the bytes between `<<'PROBE'`
+        and the terminator are comparable directly."""
+        bodies = []
+        for name in self.PROBERS:
+            body = re.split(r"\n\s*PROBE\b",
+                            jobs()[name].split("<<'PROBE'", 1)[1], maxsplit=1)[0]
+            bodies.append("\n".join(ln.strip() for ln in body.splitlines()))
+        self.assertEqual(len(set(bodies)), 1, [b[:200] for b in bodies])
+        self.assertIn("--print-display", bodies[0])
+
+    def test_the_probe_step_gates_the_job_and_says_where_it_was_measured(self):
+        """It carried `continue-on-error: true` until 2026-09-12 on the ground
+        that the first run in a container WAS the measurement.  The run
+        happened -- 34628777544, passing in deb-install on all three releases,
+        in rpm and in nix [recon/gaps.md 4] -- so the marker is gone and a
+        proxy that will not start in a container turns the push red.  The date
+        of the measurement stays beside the step, because a step whose reason
+        drifted off to an unrelated line of the job is a reason nobody reading
+        the step will find."""
+        step = "- name: xw11 --print-display under a headless sway"
+        for name in ("deb-install", "rpm", "nix"):
+            with self.subTest(name):
+                head, probe = jobs()[name].split(step, 1)
+                self.assertNotIn("continue-on-error", probe.split("run:", 1)[0])
+                # the contiguous comment block immediately above the step plus
+                # its own keys down to `run:`, and not the whole job
+                comment, lines = [], head.splitlines()
+                if lines and not lines[-1].strip():
+                    lines.pop()                 # the step's own indentation
+                for line in reversed(lines):
+                    if not line.strip().startswith("#"):
+                        break
+                    comment.append(line)
+                where = "\n".join(reversed(comment)) + probe.split("run:", 1)[0]
+                self.assertIn("2026-09-11", where, where[-400:])
+                self.assertIn("34628777544", where, where[-400:])
+        # pkgbuild runs the same probe inline, because its `pacman -R` is a
+        # second claim that has to be reached whatever sway does; the failure
+        # is remembered in `probe` and asserted at the end of the step, so it
+        # gates the job like the other three
+        pkg = jobs()["pkgbuild"]
+        # and it says where ITS measurement is, which is not in any recon: the
+        # inline probe was behind `|| echo` on run 34628777544, so the only
+        # record that it passed there is that job's own log
+        self.assertIn("103360336842", pkg)
+        self.assertIn(":20 then :20", pkg)
+        self.assertIn("did not run in this container", pkg)
+        self.assertIn("probe=0", pkg)
+        self.assertIn('[ "$probe" = 0 ]', pkg)
+        self.assertLess(pkg.index("pacman -R --noconfirm w11"),
+                        pkg.index('[ "$probe" = 0 ]'), pkg)
+
+    def test_lint_covers_the_whole_tree_and_xw11_is_not_excluded(self):
+        """`uvx ruff check .` is every package; the only thing that could take
+        xw11/ out of it is pyproject's own exclude list, so that is where this
+        looks."""
+        self.assertIn("uvx ruff check .", jobs()["lint"])
+        with open(os.path.join(ROOT, "pyproject.toml"), encoding="utf-8") as fh:
+            self.assertNotIn("xw11", fh.read().split("[tool.ruff]", 1)[1]
+                             .split("[tool.ruff.lint]", 1)[0])
+
+
 class TheRigJob(unittest.TestCase):
     """The vm job: one per flavor, and the package it installs."""
 
@@ -411,7 +602,12 @@ class TheRigJob(unittest.TestCase):
         own download step, which is where a missing rpm belongs."""
         self.assertIn("if: ${{ !cancelled() && needs.plan.result == 'success' "
                       "&& needs.deb.result == 'success' }}", self.vm)
-        self.assertNotIn("continue-on-error", jobs()["rpm"])
+        # JOB level, four spaces: `rpm` carries a step-level `continue-on-error`
+        # (eight spaces) on its headless-sway probe since the X11 proxy landed,
+        # and a step that is allowed to fail says nothing about what the JOB
+        # reports to its dependants, which is the whole of this claim.
+        self.assertIsNone(re.search(r"^    continue-on-error:", jobs()["rpm"], re.M),
+                          jobs()["rpm"])
         self.assertIn("needs.deb.result", self.vm)
 
     def test_each_download_is_guarded_by_the_flavors_own_distro(self):
@@ -430,11 +626,393 @@ class TheRigJob(unittest.TestCase):
         self.assertIn("system-features = nixos-test benchmark big-parallel kvm", self.vm)
 
     def test_the_smoke_runs_in_package_mode_and_removes_afterwards(self):
-        self.assertIn("vm/live-smoke.sh ${{ matrix.flavor }} --pkg --remove "
-                      "--heads 3 --cpus 2 --mem 3G", self.vm)
+        # heads default to 3; a flavor pins fewer with `# vmctl-ci-heads:` (fedora44-cosmic: 2)
+        self.assertIn("vm/live-smoke.sh ${{ matrix.flavor }} --pkg --remove --record "
+                      '--heads "${H:-3}" --cpus 2 --mem 3G', self.vm)
+        self.assertIn("vmctl-ci-heads:", self.vm)
+
+    def test_the_smoke_records_and_the_upload_carries_the_capture(self):
+        """`--record` is the whole of what CI had to add for the recordings:
+        vm/live-smoke.sh pairs vm/live-smoke.d/capture-from-run with the log by
+        stamp and writes <flavor>-<stamp>-capture.txt beside it, and the upload
+        below already ships the whole of vm/live-smoke.out/.  Without the word,
+        every push measures 38 desktops and deletes the evidence
+        [recon/recordings.md 1.1: nothing in this file set CAPLOG].  24 KB per
+        Wayland flavor, measured on resolute-sway 2026-09-12."""
+        # the step is a `run: |` block now (it reads the flavor's head count first),
+        # so the invocation is its own line rather than on `run:`.
+        run = [ln for ln in self.vm.splitlines() if "vm/live-smoke.sh ${{ matrix.flavor }}" in ln]
+        self.assertEqual(len(run), 1, self.vm)
+        self.assertIn("--record", run[0])
+        self.assertIn("path: vm/live-smoke.out/", self.vm)
+        self.assertIn("if: always()", self.vm)
+
+    def test_the_dropped_marker_names_the_runs_that_measured_it(self):
+        """`continue-on-error: ${{ startsWith(matrix.flavor, \'stonking-\') ||
+        startsWith(matrix.flavor, \'arch-\') }}` came off on 2026-09-12, and the
+        two halves came off on different evidence.  stonking had the two
+        consecutive green runs that were asked for -- 34628777544 and
+        34662004383 -- and both are named, because one run named is one run
+        short of the condition.  The arch half came off on a fix in the TREE
+        with no CI measurement behind it yet (all twelve fedora-*/arch-* rigs
+        of 34662004383 died at download-artifact), and the comment has to say
+        so rather than call those flavors measured."""
+        # the stonking sentence itself, not the job: 34662004383 is named twice
+        # more below it, for the twelve rigs that died at download-artifact, and
+        # an assertion over the whole block would go green on those
+        stonking = self.vm.split("stonking-gnome", 1)[1].split("asked for", 1)[0]
+        for run in ("34628777544", "34662004383"):
+            with self.subTest(run):
+                self.assertIn(run, stonking)
+        self.assertIn("IN THE TREE", self.vm)
 
     def test_the_golden_comes_from_ci_golden_sh(self):
         self.assertIn("scripts/ci-golden.sh ${{ matrix.flavor }}", self.vm)
+
+
+class TheRigRetriesOnlyACosmicCompCrash(unittest.TestCase):
+    """The vm step retries the WHOLE fresh-boot smoke on exit 75 -- and on
+    NOTHING else.
+
+    fedora44-cosmic and arch-cosmic run cosmic-comp on Mesa llvmpipe with no
+    GPU, and it SIGSEGVs in lp_setup on a full-output re-render mid-WM-phase
+    (~1/3 of CI runs under scheduling contention; 8/8 rounds under load on the
+    rig at mesa 26.1.8; greetd self-heals -- batches 22/23).  live-smoke.sh
+    emits 75 (EX_TEMPFAIL) ONLY when a run FAILED *and* a cosmic-comp SIGSEGV
+    core landed in that boot, so the retry rides that upstream crash (route 2,
+    the compositor's own recovery) without ever absorbing a real w11 bug, which
+    fails deterministically with no such core and is therefore a different exit.
+
+    The three claims pinned here are the three the brief measured on the golden
+    (report-batch-24): crash -> 75 (retried), clean -> 0, w11-fail-no-crash ->
+    1 (NOT retried).  A push that dropped the `= 75` guard, or unbounded the
+    loop, or retried every non-zero, would let the retry mask a red -- worse
+    than the red -- so each is its own test."""
+
+    def setUp(self):
+        self.vm = jobs()["vm"]
+        # the one `run: |` block that invokes the smoke, sliced from its `- name:`
+        # to the next step (`- uses:`), so the assertions are about THAT step and
+        # not about some other line of the job that happens to carry the word.
+        after = self.vm.split("(retry ONLY a cosmic-comp SIGSEGV)", 1)
+        self.assertEqual(len(after), 2, "the smoke step's name no longer says it retries")
+        self.step = after[1].split("\n      - ", 1)[0]
+
+    def test_the_smoke_is_wrapped_in_a_retry_loop(self):
+        # the exact invocation is still one line (TheRigJob pins the flags); here
+        # the claim is only that a loop now surrounds it.
+        self.assertIn("for attempt in 1 2 3 4;", self.step)
+        self.assertIn("vm/live-smoke.sh ${{ matrix.flavor }} --pkg --remove --record", self.step)
+
+    def test_the_loop_is_bounded(self):
+        """An unbounded retry of a flaky external crash is an infinite job, not
+        a green: four attempts, then the last exit stands (four cosmic-comp
+        crashes in a row is a genuine failure the run must show)."""
+        self.assertIn("for attempt in 1 2 3 4;", self.step)
+        # no `while` / `until` open-ended loop, and the last rc is what the step exits on
+        self.assertNotIn("while ", self.step)
+        self.assertNotIn("until ", self.step)
+        self.assertRegex(self.step, r'(?m)^\s*exit "\$rc"\s*$')
+
+    def test_it_retries_only_on_exit_75(self):
+        """75 is EX_TEMPFAIL and is the ONLY code live-smoke.sh emits for a
+        cosmic-comp SIGSEGV during the run; the loop continues only for it."""
+        self.assertIn('[ "$rc" = 75 ] || exit "$rc"', self.step)
+        # a break on success, so a green attempt is not re-run
+        self.assertRegex(self.step, r'(?m)^\s*\[ "\$rc" = 0 \] && break\s*$')
+
+    def test_any_other_nonzero_exit_is_not_retried(self):
+        """The safety property: a w11 failure (any non-zero that is not 75)
+        leaves the loop immediately with that code, so the retry can never turn
+        a real red green.  The `|| exit "$rc"` sits BEFORE the retry warning,
+        so a non-75 code never reaches the `continue`/echo-and-loop path."""
+        gate = self.step.index('[ "$rc" = 75 ] || exit "$rc"')
+        warn = self.step.index("::warning::")
+        self.assertLess(gate, warn, "the non-75 exit must precede the retry warning")
+
+    def test_a_crashed_attempts_capture_is_discarded(self):
+        """--record writes a new capture per attempt; a crashed attempt's must
+        not survive next to the successful one, or the replay harvest could name
+        a fixture from the crash.  Clearing vm/live-smoke.out before each attempt
+        leaves only the attempt that SUCCEEDED (the one the loop breaks on)."""
+        self.assertRegex(self.step, r"(?m)^\s*rm -rf vm/live-smoke\.out\s*$")
+        # ...and it is inside the loop (after the `for`), not a one-time pre-clean
+        for_at = self.step.index("for attempt in 1 2 3 4;")
+        self.assertIn("rm -rf vm/live-smoke.out", self.step[for_at:])
+
+    def test_the_retry_reason_names_the_upstream_crash_not_a_w11_bug(self):
+        """AGENTS.md's one rule reaches the CI log too: the retry line says the
+        cosmic-comp SIGSEGV is upstream Mesa llvmpipe and NOT a w11 failure, so
+        nobody reads the retry as w11 papering over its own bug."""
+        self.assertIn("cosmic-comp SIGSEGV", self.step)
+        self.assertIn("not a w11 failure", self.step)
+        self.assertIn("retrying the whole fresh-boot smoke", self.step)
+
+    def test_the_75_it_retries_on_is_live_smokes_ex_tempfail(self):
+        """The retry guard `[ "$rc" = 75 ]` and live-smoke.sh's EX_COSMIC_SIGSEGV
+        are two copies of the one number; if they drift the retry stops firing
+        (a higher live-smoke code is never caught) or fires on the wrong code.
+        Read the value out of live-smoke.sh so this test breaks the day it moves,
+        not the day CI does."""
+        with open(LIVE_SMOKE, encoding="utf-8") as fh:
+            m = re.search(r"(?m)^EX_COSMIC_SIGSEGV=(\d+)\s*$", fh.read())
+        self.assertIsNotNone(m, "vm/live-smoke.sh no longer defines EX_COSMIC_SIGSEGV")
+        self.assertIn('[ "$rc" = %s ] || exit "$rc"' % m.group(1), self.step)
+
+    # -- the loop's SEMANTICS, not its text ----------------------------------
+    #
+    # Every pin above is a substring/regex over the step; a rewrite that keeps the
+    # literals but breaks the control flow (moving the `|| exit "$rc"` below the
+    # echo, losing `set +e` so `bash -e` kills the step before rc is read) passes
+    # them all.  So the loop is sliced out and RUN, with a fake live-smoke.sh that
+    # exits a scripted sequence and drops a marker, under the same shell the step
+    # runs under.  These five sequences are exactly the ones the reviewer ran by
+    # hand to accept the loop (report-batch-24): the retry is green over up to four
+    # cosmic-comp SIGSEGVs and can never turn a non-75 red green.
+
+    FAKE_SMOKE = (
+        "#!/bin/sh\n"
+        "n=$(cat .attempt 2>/dev/null || echo 0); n=$((n + 1)); echo \"$n\" > .attempt\n"
+        "code=$(sed -n \"${n}p\" .codes)\n"
+        "mkdir -p vm/live-smoke.out; echo \"attempt $n\" > vm/live-smoke.out/marker\n"
+        "exit \"${code:-0}\"\n"
+    )
+
+    def _loop_script(self):
+        """The `run: |` block of the step, dedented and with the flavor bound, so
+        it can run outside GitHub."""
+        body = self.step.split("run: |\n", 1)[1]
+        lines = []
+        for ln in body.splitlines():
+            if ln.strip() == "":
+                lines.append("")
+            else:
+                self.assertTrue(ln.startswith("          "), "run-block line not at 10 spaces: %r" % ln)
+                lines.append(ln[10:])
+        return "\n".join(lines).replace("${{ matrix.flavor }}", "fedora44-cosmic")
+
+    def _run_loop(self, codes):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        os.makedirs(os.path.join(tmp, "vm", "flavors"))
+        with open(os.path.join(tmp, "vm", "flavors", "fedora44-cosmic.yaml"), "w") as fh:
+            fh.write("# vmctl-ci-heads: 2\n")
+        smoke = os.path.join(tmp, "vm", "live-smoke.sh")
+        with open(smoke, "w") as fh:
+            fh.write(self.FAKE_SMOKE)
+        os.chmod(smoke, 0o755)
+        with open(os.path.join(tmp, ".codes"), "w") as fh:
+            fh.write("".join("%s\n" % c for c in codes))
+        got = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c",
+                              self._loop_script()], cwd=tmp, capture_output=True, text=True, timeout=60)
+        with open(os.path.join(tmp, ".attempt"), encoding="utf-8") as fh:
+            calls = int(fh.read().strip())
+        markers = len(os.listdir(os.path.join(tmp, "vm", "live-smoke.out")))
+        warnings = (got.stdout + got.stderr).count("::warning::")
+        return got.returncode, calls, warnings, markers
+
+    def test_a_clean_run_is_not_retried(self):
+        rc, calls, warnings, markers = self._run_loop([0])
+        self.assertEqual((rc, calls, warnings), (0, 1, 0))
+        self.assertEqual(markers, 1)
+
+    def test_crashes_then_green_ends_green_after_retrying(self):
+        rc, calls, warnings, markers = self._run_loop([75, 75, 0])
+        self.assertEqual((rc, calls, warnings), (0, 3, 2))
+        self.assertEqual(markers, 1, "only the succeeding attempt's capture survives")
+
+    def test_a_w11_bug_is_never_retried_and_stays_red(self):
+        rc, calls, warnings, markers = self._run_loop([1])
+        self.assertEqual((rc, calls, warnings), (1, 1, 0))
+        self.assertEqual(markers, 1)
+
+    def test_four_crashes_in_a_row_fails_red_and_is_bounded(self):
+        rc, calls, warnings, markers = self._run_loop([75, 75, 75, 75])
+        self.assertEqual((rc, calls, warnings), (75, 4, 3))
+        self.assertEqual(markers, 1)
+
+    def test_a_w11_bug_after_a_crash_is_not_masked(self):
+        """The dangerous case: a cosmic-comp crash on attempt 1, then a real w11
+        red on attempt 2.  The loop must exit 1 (the red), not keep retrying and
+        not report the green -- one crash does not buy a later bug a free pass."""
+        rc, calls, warnings, markers = self._run_loop([75, 1])
+        self.assertEqual((rc, calls, warnings), (1, 2, 1))
+        self.assertEqual(markers, 1)
+
+
+class TheRecordingsJob(unittest.TestCase):
+    """The other half of `--record`: one job per flavor that replays the
+    capture that flavor's rig job just made.
+
+    It proves the pipeline and lands nothing.  The 38 fixtures arrive in one
+    commit of their own (scripts/rig-recordings.sh writes them), and until they
+    do, `tests/fixtures/live/NOT-YET-RUN` is 59 lines long and every one of
+    them is waiting on bytes CI throws away
+    [recon/recordings.md 1.1, recon/gaps.md 2]."""
+
+    def setUp(self):
+        self.rec = jobs()["recordings"]
+
+    def test_it_replays_every_flavor_the_rig_ran(self):
+        """The same matrix as the rig job, from the same plan output: a flavor
+        that is smoked and not replayed is a recording nobody has ever read
+        back."""
+        self.assertIn("flavor: ${{ fromJSON(needs.plan.outputs.flavors) }}", self.rec)
+        self.assertIn("needs: [plan, vm]", self.rec)
+        self.assertIn("scripts/rig-recordings.sh ${{ github.run_id }} "
+                      "${{ matrix.flavor }}", self.rec)
+
+    def test_it_runs_after_a_red_rig_too(self):
+        """The rig uploads its artifact with `if: always()`, and a recording of
+        a run with failures in it is exactly as replayable as one of a green
+        run: rig-recordings.sh compares the replay against the tally that run's
+        own log recorded, FAILs included.  Without the condition, one red
+        flavor out of 38 would skip all 38 replays."""
+        self.assertIn("if: ${{ !cancelled() && needs.plan.result == 'success' }}",
+                      self.rec)
+
+    def test_it_writes_no_fixture_into_the_tree(self):
+        """The harvest is a commit somebody makes, not a job: RIG_REC_OUT and
+        RIG_REC_NYR point at a scratch directory, and the step ends by asking
+        git whether anything under tests/ moved."""
+        self.assertIn("RIG_REC_OUT=/tmp/rec RIG_REC_NYR=/tmp/rec/NOT-YET-RUN", self.rec)
+        self.assertIn("git diff --exit-code -- tests/", self.rec)
+
+    def test_the_replay_is_cheap_enough_to_run_every_push(self):
+        """`LIVE_SMOKE_SLEEP=0`: the phases sleep for a real compositor, and a
+        transcript needs none of it -- nine recordings twice each went from
+        2 m 50 s to 23 s with it (measured 2026-09-12).  Without it this job is
+        38 jobs of sleeping.
+
+        The variable is set by scripts/rig-recordings.sh, on the replay it
+        runs, and that is the copy asserted here.  The job carried one of its
+        own until the review of 2026-09-12 pointed out that the script's
+        assignment overrides it, so the job env was a copy that could not
+        act -- and a test on a line that cannot act is a test that goes green
+        while the thing it names is broken."""
+        with open(os.path.join(ROOT, "scripts", "rig-recordings.sh"),
+                  encoding="utf-8") as fh:
+            script = fh.read()
+        self.assertRegex(script, r"(?m)^\s*LIVE_SMOKE_SLEEP=0")
+        self.assertNotIn("LIVE_SMOKE_SLEEP", self.rec)
+
+    def test_it_downloads_the_package_its_flavor_installed(self):
+        """A `--pkg --remove` recording covers phase_install and phase_remove,
+        and replaying those needs the package file on the runner:
+        rig-recordings.sh drops both halves with a printed reason when it is
+        not there, and the fedora and arch flavors -- 12 of the 38 -- would
+        replay a third less than they recorded."""
+        for distro in ("ubuntu", "fedora", "arch"):
+            with self.subTest(distro):
+                self.assertIn("if: steps.flavor.outputs.distro == '%s'" % distro,
+                              self.rec)
+        for artifact, path in (("deb", "release"), ("rpms", "dist"), ("pkg", "dist")):
+            with self.subTest(artifact):
+                self.assertIn("name: %s\n          path: %s" % (artifact, path),
+                              self.rec)
+
+    def test_the_script_it_calls_is_the_one_the_harvest_uses(self):
+        """Same script, same acceptance rule, so the day the fixtures are cut
+        the pipeline has already run 38 times on that very run."""
+        script = os.path.join(ROOT, "scripts", "rig-recordings.sh")
+        self.assertTrue(os.path.exists(script))
+        with open(script, encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("FAKE_VMCTL_STRICT=1", body)
+        self.assertIn("RIG_REC_OUT", body)
+        self.assertIn("RIG_REC_NYR", body)
+
+
+class TheParityOracleSwayArm(unittest.TestCase):
+    """`W11_PARITY_SWAY=1`, the mode the `parity` job's third line runs in.
+
+    It lives beside the workflow tests because the workflow is what it
+    protects: that third line is the only run of the byte-parity set against
+    the proxy's own answers, and in front of a real compositor's Xwayland
+    rather than an Xvfb.  A run of it that silently measured something else
+    would be a green check standing for a comparison nobody made.
+
+    That is exactly what it did until the review of 2026-09-12 found it: the
+    arm exported the display sway named and handed it to the generic branch
+    below, which starts an Xvfb on :99 when the display does not answer.  With
+    a `sway` that wrote `:77` and exited, the script printed "upstream is
+    sway's Xwayland on DISPLAY=:77", then "DISPLAY=:99 (1280 720)", then "all
+    oracles ran", and exited 0.
+
+    The doubles here are three shell shims in a temporary directory rather
+    than anything out of tests/support.py: what is under test is a POSIX shell
+    script and the things it looks for on PATH."""
+
+    #: what the oracle gate at the top of the script demands before it reaches
+    #: the display at all: the pinned xdotool generation, and a `wmctrl --help`
+    #: of the 6801 bytes nixpkgs' 1.07 and Arch's 1.07-6 both print.
+    SHIMS = {
+        "xdotool": '#!/bin/sh\ncase "$1" in\nversion) echo "xdotool 4.20260303.1" ;;\n'
+                   '*) exit 1 ;;\nesac\n',
+        "wmctrl": '#!/bin/sh\n[ "$1" = --help ] || exit 1\nprintf \'%6800s\\n\' \'\'\n',
+        # names a display and dies, which is what a lazily started Xwayland
+        # that cannot start looks like from here
+        "sway": '#!/bin/sh\nconf=""\nwhile [ $# -gt 0 ]; do [ "$1" = -c ] && conf=$2; shift; done\n'
+                'echo ":77" > "$(dirname "$conf")/parity-display"\n',
+    }
+
+    def run_oracle(self, tmp, **extra):
+        binv = os.path.join(tmp, "bin")
+        os.makedirs(binv)
+        for name, body in self.SHIMS.items():
+            path = os.path.join(binv, name)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            os.chmod(path, 0o755)
+        rt = os.path.join(tmp, "rt")
+        os.makedirs(rt, mode=0o700)
+        env = dict(os.environ, PATH=binv + os.pathsep + os.environ["PATH"],
+                   W11_ORACLE_PATH=binv, XDG_RUNTIME_DIR=rt, W11_PARITY_SWAY="1")
+        env.pop("DISPLAY", None)
+        env.update(extra)
+        proc = subprocess.run(["sh", os.path.join(ROOT, "scripts", "parity-oracle.sh")],
+                              cwd=ROOT, env=env, capture_output=True, text=True,
+                              timeout=120)
+        return proc, rt
+
+    def test_a_display_sway_names_but_never_answers_is_fatal(self):
+        """Fatal, and fatal with the reason in it.  Not "the script exits
+        non-zero": without the wait the script exits ZERO, having quietly put
+        an Xvfb where the compositor was supposed to be."""
+        with tempfile.TemporaryDirectory(prefix="parity-arm-") as tmp:
+            proc, _ = self.run_oracle(tmp)
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("upstream is sway's Xwayland on DISPLAY=:77", proc.stdout)
+        self.assertIn("sway exited before its Xwayland answered", proc.stderr)
+        # the two lines the silent fallback used to print, and the end of a run
+        # that got all the way through on the wrong server
+        self.assertNotIn("DISPLAY=:99", proc.stdout)
+        self.assertNotIn("all oracles ran", proc.stdout)
+
+    def test_it_leaves_no_file_in_the_runtime_directory_it_was_given(self):
+        """The config and the display file are the script's, not the caller's:
+        two `/tmp/xdg-parity-*` directories were still on the author's box
+        after two runs on 2026-09-12.  A caller that HAD an XDG_RUNTIME_DIR
+        keeps it; only the two files go."""
+        with tempfile.TemporaryDirectory(prefix="parity-arm-") as tmp:
+            proc, rt = self.run_oracle(tmp)
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertTrue(os.path.isdir(rt))
+            self.assertEqual(sorted(os.listdir(rt)), [])
+
+    def test_the_xvfb_branch_cannot_be_reached_under_it(self):
+        """The second lock on the same door, and a source read because the
+        first lock makes it unreachable from outside: the wait above dies
+        before any display that does not answer can fall through.  If somebody
+        ever moves or weakens that wait, this is what says the fallback is
+        still fenced off."""
+        with open(os.path.join(ROOT, "scripts", "parity-oracle.sh"),
+                  encoding="utf-8") as fh:
+            oracle = fh.read()
+        branch = [ln for ln in oracle.splitlines() if "no usable DISPLAY" in ln]
+        self.assertEqual(len(branch), 1, oracle)
+        guard = oracle.split("command -v Xvfb", 1)[0].rstrip().splitlines()[-1]
+        self.assertIn('[ -z "${W11_PARITY_SWAY:-}" ] &&', guard)
 
 
 class TheGoldenRepository(unittest.TestCase):
@@ -473,27 +1051,27 @@ class EveryPushFlavorGetsAJob(unittest.TestCase):
     def push_flavors(self):
         return sorted(f for f, ci in self.flavors_by_ci().items() if ci == "push")
 
-    def test_every_flavor_is_in_exactly_one_of_the_two_sets(self):
+    def test_every_flavor_is_in_the_push_set(self):
         """Not a count: the numbers are derived and pinned once, in
-        tests/test_docs_matrix.py.  What this asserts is that the split is
+        tests/test_docs_matrix.py.  What this asserts is that the set is
         total -- a yaml with a header the plan step's grep does not match is a
-        flavor CI never builds and nobody is told about."""
+        flavor CI never builds and nobody is told about -- and that nothing is
+        on demand."""
         by_ci = self.flavors_by_ci()
-        self.assertEqual(set(by_ci.values()), {"push", "on-demand"})
-        on_demand = [f for f, ci in by_ci.items() if ci == "on-demand"]
-        self.assertEqual(len(self.push_flavors()) + len(on_demand), len(by_ci))
-        self.assertTrue(on_demand, "nothing is on demand any more")
+        self.assertEqual(set(by_ci.values()), {"push"}, "a flavor is on demand: the owner's rule "
+                         "of 2026-09-11 is that every flavor runs on every push")
+        self.assertEqual(len(self.push_flavors()), len(by_ci))
 
-    def test_the_foreign_flavors_of_the_push_set_are_the_four_that_were_red(self):
-        """fedora44-gnome, fedora44-sway, arch-sway, arch-hypr and nixos-sway
-        were the five rig jobs that ended in `no download rule` on run
-        34340513060; four are in the push set and must build now.  arch-hypr
-        went on demand on 2026-09-09 until Hyprland 0.56's windowmove lands
-        where it is asked (run 34390127394)."""
+    def test_every_foreign_flavor_is_in_the_push_set(self):
+        """Every flavor runs on every push (the owner's rule of 2026-09-11: nothing
+        is on demand), so every foreign flavor is in the push set and builds
+        on every run."""
         foreign = [f for f in self.push_flavors()
                    if f.startswith(("fedora", "arch-", "nixos-"))]
         self.assertEqual(sorted(foreign),
-                         ["arch-sway", "fedora44-gnome", "fedora44-sway", "nixos-sway"])
+                         ["arch-cosmic", "arch-gnome", "arch-hypr", "arch-kde", "arch-river", "arch-sway",
+                          "fedora43-gnome", "fedora44-cosmic", "fedora44-gnome", "fedora44-kde",
+                          "fedora44-sway", "nixos-gnome", "nixos-sway"])
 
 
 if __name__ == "__main__":

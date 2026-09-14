@@ -45,7 +45,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ["W11_PASSTHROUGH"] = "never"
 
 import support                                                    # noqa: E402
-from wmirror import supervise                                     # noqa: E402
+from hacks.mirror import supervise  # noqa: E402
 
 #: The two heads this file works with. HEADLESS-1 is the one sway boots with
 #: (support.HeadlessSway.CONF names its mode); HEADLESS-2 comes from

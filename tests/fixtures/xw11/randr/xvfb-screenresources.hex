@@ -1,0 +1,9 @@
+# Captured 2026-09-10 against Xvfb 21.1.22 on :91 through the same
+# recorder: no compositor at all, RANDR major **140** (not 139 -- the
+# single sharpest reason no major is ever written down in this package
+# [recon/env.md 3]), one output named `screen`, one mode, and a write
+# side that succeeds for --mode and fails at minor 7 for --off with
+# BadValue rather than Xwayland's BadMatch.
+# GetScreenResources reply: one crtc, one output `screen`, one mode
+# whose dot_clock is 0 -- Xvfb's refresh prints as 0.00.
+01000c000c000000f89e6d31f89e6d31010001000100080000000000000000003b0000003c0000003a0000000005d0020000000000000000000000000000000000000800000000003132383078373230

@@ -36,8 +36,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from w11common import session as wsession
 from w11common.wayland_mini import Cursor
 from wl_fake import msg, wstr
-from wxrandr import cli, core, kwin, mutter
-from wxrandr.core import Mode, State
+from wxrandr import cli
+from hacks.display import core, kwin, mutter
+from hacks.display.core import Mode, State
 
 # The suite never hands a tool over to the real X11 one: see tests/conftest.py
 # (which covers pytest). This line covers `python3 tests/<file>.py`.

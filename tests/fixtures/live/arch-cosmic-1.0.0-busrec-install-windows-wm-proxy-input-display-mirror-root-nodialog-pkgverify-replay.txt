@@ -1,0 +1,1750 @@
+# live-smoke recording: flavor=arch-cosmic desktop=cosmic distro=arch mode=pkg remove=1 heads=3 stamp=20260912-104436
+# replay: 85 pass, 0 fail (mode pkg, remove 1, phases busrec,install,windows,wm,proxy,input,display,mirror,root,nodialog,pkgverify, 2026-09-12)
+### true
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### printf 'w11-desktop-version: '; cosmic-comp --version
+w11-desktop-version: cosmic-comp 1.0.0 (git commit a55785993e8ef6aad38862cb1a9e1ccaad3c340d)
+### rc=0
+### pkill -x dbus-monitor >/dev/null 2>&1; rm -f $HOME/w11-bus.log; true
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### pgrep -x dbus-monitor | head -1
+1777
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+4
+### rc=0
+### dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus            org.freedesktop.DBus.ListNames >/dev/null 2>&1; sleep 1; true
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+187
+### rc=0
+### cd /tmp && pacman -U --noconfirm ./w11-*.pkg.tar.zst 2>&1
+loading packages...
+resolving dependencies...
+looking for conflicting packages...
+
+Packages (1) w11-0.4.0-1
+
+Total Installed Size:  9.52 MiB
+
+:: Proceed with installation? [Y/n] 
+checking keyring...
+checking package integrity...
+loading package files...
+checking for file conflicts...
+checking available disk space...
+:: Processing package changes...
+installing w11...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules).  Anyone who can open it can type as you.
+  * On an X11 session the tools hand over to the real ones:
+    pacman -S xdotool wmctrl xorg-xprop xorg-xrandr
+
+Optional dependencies for w11
+    python-gobject: the warandr GUI [installed]
+    gtk3: the warandr GUI [installed]
+    wl-mirror: wmirror, region and odd-shape mirroring on wlroots [installed]
+    gnome-shell: the bridge extension, needed by the window commands on GNOME
+    xdotool: the real tool wdotool hands over to, on X11 and through xw11 [installed]
+    wmctrl: the real tool wwmctl hands over to, on X11 and through xw11 [installed]
+    xorg-xprop: the real tool wxprop hands over to, on X11 and through xw11 [installed]
+    xorg-xrandr: the real tool wxrandr hands over to, on X11 and through xw11 [installed]
+:: Running post-transaction hooks...
+(1/3) Reloading device manager configuration...
+(2/3) Arming ConditionNeedsUpdate...
+(3/3) Updating the desktop file MIME type cache...
+### rc=0
+### ( sleep 1; reboot ) >/dev/null 2>&1 &
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### rm -f $HOME/w11-smoke.txt; touch $HOME/w11-smoke.txt
+### rc=0
+### rm -f $HOME/w11-smoke.txt; setsid nohup foot -- sh -c 'cat >> $HOME/w11-smoke.txt' >/dev/null 2>&1 </dev/null &            sleep 3; true
+### rc=0
+### wdotool search --class foot | head -1
+1921187924
+### rc=0
+### wdotool getwindowname 1921187924
+foot
+### rc=0
+### wdotool getwindowgeometry 1921187924
+Window 1921187924
+  Position: 612,153 (screen: 0)
+  Geometry: 696x532
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### cosmic-randr list --kdl
+output "Virtual-1" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 0 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-2" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 1920 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #true
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-3" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 3840 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+### rc=0
+### cosmic-randr list --kdl
+output "Virtual-2" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 1920 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #true
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-3" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 3840 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-1" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 0 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+### rc=0
+### cosmic-randr list --kdl
+output "Virtual-3" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 3840 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-1" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 0 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-2" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 1920 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #true
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+### rc=0
+### wdotool windowmove 1921187924 100 100 2>&1
+windowmove is not supported by the cosmic backend: the COSMIC toplevel protocol has no move, resize, raise or lower; not yet here, and the route is a patched cosmic-comp (AGENTS.md route 6)
+xdo_move_window reported an error while moving window 1921187924
+xdo_move_window reported an error while moving window 1921187924
+### rc=1
+### wdotool windowsize 1921187924 800 600 2>&1
+windowsize is not supported by the cosmic backend: the COSMIC toplevel protocol has no move, resize, raise or lower; not yet here, and the route is a patched cosmic-comp (AGENTS.md route 6)
+xdo_set_window_size on window:1921187924 reported an error
+### rc=1
+### wdotool windowactivate --sync 1921187924
+### rc=0
+### wdotool getactivewindow
+1921187924
+### rc=0
+### wwmctl -d
+0  * DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  1
+1  - DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  2
+2  * DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  1
+3  * DG: 1920x1080  VP: 0,0  WA: 0,0 0x0  1
+### rc=0
+### wdotool set_desktop 1
+### rc=0
+### wdotool get_desktop
+1
+### rc=0
+### wdotool set_desktop 0
+### rc=0
+### wdotool get_desktop
+0
+### rc=0
+### wdotool windowactivate --sync 1921187924
+### rc=0
+### wdotool mousemove 300 300
+### rc=0
+### wdotool getmouselocation
+x:300 y:300 screen:0 window:0
+### rc=0
+### wdotool mousemove 300 300 click 1
+### rc=0
+### wwmctl -l
+0x72830054  0 arch-cosmic-smoke foot
+### rc=0
+### wwmctl -m
+Name: Smithay X WM
+Class: N/A
+PID: N/A
+Window manager's "showing the desktop" mode: OFF
+### rc=0
+### wwmctl -lp
+0x72830054  0 0      arch-cosmic-smoke foot
+### rc=0
+### wwmctl -r :ACTIVE: -b add,maximized_vert,maximized_horz
+### rc=0
+### wxprop -id 1921187924 _NET_WM_STATE
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_FOCUSED
+### rc=0
+### wwmctl -r :ACTIVE: -b remove,maximized_vert,maximized_horz
+### rc=0
+### wxprop -id 1921187924 _NET_WM_STATE
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_FOCUSED
+### rc=0
+### wwmctl -r :ACTIVE: -b add,fullscreen 2>&1
+wwmctl: windowstate FULLSCREEN is not supported by the cosmic backend: cosmic-comp does not advertise the fullscreen capability; not yet here, and the route is a patched cosmic-comp (AGENTS.md route 6), which is where that array is built [R recon2/cosmic/state.rs:752-756]; ignoring
+### rc=0
+### wwmctl -r :ACTIVE: -b remove,fullscreen
+wwmctl: windowstate FULLSCREEN is not supported by the cosmic backend: cosmic-comp does not advertise the fullscreen capability; not yet here, and the route is a patched cosmic-comp (AGENTS.md route 6), which is where that array is built [R recon2/cosmic/state.rs:752-756]; ignoring
+### rc=0
+### command -v xterm
+/usr/bin/xterm
+### rc=0
+### setsid nohup xterm -T smokex -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 3; true
+### rc=0
+### wxprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x72830054, 0x40000c
+### rc=0
+### xprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x40000c
+### rc=0
+### xprop -id 0x40000c WM_CLASS
+WM_CLASS(STRING) = "xterm", "XTerm"
+### rc=0
+### wwmctl -lGpx
+0x72830054  0 0      1224 306  696  532  foot.foot             arch-cosmic-smoke foot
+0x0040000c  0 2623   718  189  484  316  xterm.XTerm           arch-cosmic-smoke smokex
+### rc=0
+### wmctrl -lGpx
+0x0040000c  0 2623   718  189  484  316  xterm.XTerm           arch-cosmic-smoke smokex
+### rc=0
+### pkill -x xterm; true
+### rc=0
+### command -v xw11
+/usr/bin/xw11
+### rc=0
+### xprop -root >/dev/null 2>&1
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null
+:20 2792 :0
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l
+1
+### rc=0
+### DISPLAY=:20 xdotool getdisplaygeometry
+1920 1080
+### rc=0
+### DISPLAY=:20 xdotool search --class foot | head -1
+4194305
+### rc=0
+### wdotool getwindowname 1921187924
+foot
+### rc=0
+### DISPLAY=:20 xdotool getwindowname 4194305
+foot
+### rc=0
+### wdotool getwindowgeometry 1921187924
+Window 1921187924
+  Position: 612,153 (screen: 0)
+  Geometry: 696x532
+### rc=0
+### DISPLAY=:20 xdotool getwindowgeometry 4194305
+Window 4194305
+  Position: 612,153 (screen: 0)
+  Geometry: 696x532
+### rc=0
+### DISPLAY=:20 xprop -id 4194305
+_NET_WM_NAME(UTF8_STRING) = "foot"
+WM_NAME(STRING) = "foot"
+WM_CLASS(STRING) = "foot", "foot"
+WM_CLIENT_MACHINE(STRING) = "arch-cosmic-smoke"
+_NET_WM_DESKTOP(CARDINAL) = 0
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_FOCUSED
+_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_NORMAL
+WM_STATE(WM_STATE):
+		window state: Normal
+		icon window: 0x0
+_NET_FRAME_EXTENTS(CARDINAL) = 0, 0, 0, 0
+WM_PROTOCOLS(ATOM): protocols  WM_DELETE_WINDOW
+### rc=0
+### wwmctl -l
+0x72830054  0 arch-cosmic-smoke foot
+### rc=0
+### DISPLAY=:20 wmctrl -l
+0x00400001  0 arch-cosmic-smoke foot
+### rc=0
+### DISPLAY=:20 xdotool get_desktop
+0
+### rc=0
+### DISPLAY=:20 wmctrl -d
+0  * DG: 1920x1080  VP: 0,0  WA: N/A  1
+1  - DG: 1920x1080  VP: 0,0  WA: N/A  2
+2  - DG: 1920x1080  VP: 0,0  WA: N/A  1
+3  - DG: 1920x1080  VP: 0,0  WA: N/A  1
+### rc=0
+### DISPLAY=:20 xprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x400001
+### rc=0
+### W11_PROXY=always wdotool search --class foot | head -1
+4194305
+### rc=0
+### W11_PROXY=never wdotool search --class foot | head -1
+1921187924
+### rc=0
+### wdotool --version
+xdotool version 4.20260303.1
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-2 1920,0
+Virtual-3 3840,0
+Virtual-1 0,0
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x200
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-2 1920,0
+Virtual-1 0,0
+Virtual-3 3840,200
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x0
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-1 0,0
+Virtual-3 3840,0
+Virtual-2 1920,0
+### rc=0
+### DISPLAY=:20 xrandr -q
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected primary 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### tail -4 ${XW11_LOG:-/tmp/xw11-$(id -u).log}
+1789210093.359 xw11[2792] own connection to :0: root 0x2f4, ids 0x400000|n, 70 atoms, 7 extensions
+1789210101.416 xw11[2792] xw11: RandR writes apply through the wlr backend (detection), state keyed by /run/user/1000/wayland-1
+1789210101.745 xw11[2792] xw11: applied a RandR batch of 1 crtc(s) in 347 ms through wlr (Virtual-3 on)
+1789210104.746 xw11[2792] xw11: applied a RandR batch of 1 crtc(s) in 298 ms through wlr (Virtual-3 on)
+### rc=0
+### xw11 --stop
+### rc=0
+### printf "%s %s" "$(pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l)" \                   "$(test -e $XDG_RUNTIME_DIR/xw11/display && echo 1 || echo 0)"
+0 0
+### rc=0
+### wdotool windowactivate --sync 1921187924
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool type --delay 30 -- 'us: yz@'
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+us: yz@
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool type --delay 30 -- abc; wdotool key Return; wdotool type --delay 30 -- def
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+abc
+def
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool --vkbd on type --delay 30 -- 'vkbd: yz@'
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+vkbd: yz@
+### rc=0
+### wdotool --vkbd on click 1 2>&1
+--vkbd on: cannot use zwlr_virtual_pointer_v1: this compositor does not implement zwlr_virtual_pointer_manager_v1 (Mutter, KWin and COSMIC do not; sway, Hyprland and the wlroots family do). COSMIC's keyboard half works: --vkbd on type types there with no privilege; not yet forced here, and the route is the kernel devices `--vkbd auto` takes on the same session (AGENTS.md route 4), at the cost of access to /dev/uinput
+### rc=1
+### wdotool --vkbd on click 1 2>&1
+--vkbd on: cannot use zwlr_virtual_pointer_v1: this compositor does not implement zwlr_virtual_pointer_manager_v1 (Mutter, KWin and COSMIC do not; sway, Hyprland and the wlroots family do). COSMIC's keyboard half works: --vkbd on type types there with no privilege; not yet forced here, and the route is the kernel devices `--vkbd auto` takes on the same session (AGENTS.md route 4), at the cost of access to /dev/uinput
+### rc=1
+### wdotool keys explain yz@ 2>&1
+layout: English (US) -- group 1 of 1, from wayland
+level keys: shift = key 42 <LFSH>   level3 = none   level5 = none   (what wdotool presses)
+note: this layout is plain US: wdotool uses its built-in table and never reads the keymap
+'y' -- 1 press on English (US)
+    press key 21 <AD06> -> 'y'
+    wdotool key 29                             (keycodes)
+    wdotool type 'y'                           (characters)
+'z' -- 1 press on English (US)
+    press key 44 <AB01> -> 'z'
+    wdotool key 52                             (keycodes)
+    wdotool type 'z'                           (characters)
+'@' -- 1 press on English (US)
+    press key 3 <AE02> with shift (key 42 <LFSH>, Shift_L) -> '@'
+    wdotool key 50+11                          (keycodes)
+    wdotool type '@'                           (characters)
+### rc=0
+### wxrandr --print-backend
+wlr
+### rc=0
+### wxrandr --print-backend --verbose
+wlr
+session: wayland
+chosen by: detection
+compositor: COSMIC (wlr-output-management)
+protocol: zwlr_output_manager_v1 version 4
+available: yes
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-3 3840,0
+Virtual-1 0,0
+Virtual-2 1920,0
+### rc=0
+### wxrandr --listmonitors
+Monitors: 3
+ 0: +Virtual-3 1920/480x1080/270+3840+0  Virtual-3
+ 1: +Virtual-1 1920/480x1080/270+0+0  Virtual-1
+ 2: +Virtual-2 1920/480x1080/270+1920+0  Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-3 3840,0
+Virtual-2 1920,0
+Virtual-1 0,0
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-3 3840,0
+Virtual-1 0,0
+Virtual-2 1920,0
+### rc=0
+### wxrandr --listmonitors
+Monitors: 3
+ 0: +Virtual-3 1920/480x1080/270+3840+0  Virtual-3
+ 1: +Virtual-1 1920/480x1080/270+0+0  Virtual-1
+ 2: +Virtual-2 1920/480x1080/270+1920+0  Virtual-2
+### rc=0
+### wxrandr --output Virtual-3 --off
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-1 0,0
+Virtual-2 1920,0
+### rc=0
+### wxrandr --output Virtual-3 --auto
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-2 1920,0
+Virtual-3 0,0
+Virtual-1 0,0
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-2 1920,0
+Virtual-1 0,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --output Virtual-3 --below Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,1080
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,1080
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### cosmic-randr list --kdl
+output "Virtual-3" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 3840 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-1" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 0 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-2" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 1920 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #true
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+### rc=0
+### wxrandr --output Virtual-2 --rotate left
+### rc=0
+### cosmic-randr list --kdl
+output "Virtual-1" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 0 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-2" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 1920 0
+  scale 1.00
+  transform "rotate270"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #true
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-3" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 3840 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+### rc=0
+### wxrandr --output Virtual-2 --rotate normal
+### rc=0
+### cosmic-randr list --kdl
+output "Virtual-2" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 1920 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #true
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-1" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 0 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-3" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 3840 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+### rc=0
+### cosmic-randr list --kdl
+output "Virtual-3" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 3840 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-1" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 0 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #false
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+output "Virtual-2" enabled=#true {
+  description make="Red Hat, Inc." model="QEMU Monitor"
+  physical 480 270
+  position 1920 0
+  scale 1.00
+  transform "normal"
+  adaptive_sync_support #false
+  adaptive_sync #false
+  xwayland_primary #true
+  modes {
+    mode 5120 2160 50000
+    mode 4096 2160 50000
+    mode 3840 2160 60000
+    mode 3840 2160 59940
+    mode 3840 2160 50000
+    mode 2560 1080 50000
+    mode 2048 1152 60000
+    mode 1920 1440 60000
+    mode 1920 1200 59885
+    mode 1920 1080 74998 current=#true preferred=#true
+    mode 1920 1080 60000
+    mode 1920 1080 50000
+    mode 1856 1392 59995
+    mode 1792 1344 60000
+    mode 1680 1050 59954
+    mode 1600 1200 60000
+    mode 1440 900 59887
+    mode 1400 1050 59978
+    mode 1360 768 60015
+    mode 1280 1024 60020
+    mode 1280 960 60000
+    mode 1280 768 59870
+    mode 1024 768 60004
+    mode 800 600 60317
+    mode 640 480 60000
+    mode 640 480 59940
+  }
+}
+### rc=0
+### wxrandr --brightness 0.8 2>&1
+xrandr: --brightness must be used after --output
+Try 'xrandr --help' for more information.
+### rc=1
+### wmirror --check
+helper:   /usr/bin/wl-mirror (wl-mirror v0.18.5)
+wayland:  /run/user/1000/wayland-1
+capture:  ext_image_copy_capture_manager_v1 v1
+outputs:  Virtual-3 1920x1080+3840+0, Virtual-1 1920x1080+0+0, Virtual-2 1920x1080+1920+0
+mirrors:  none
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-2 1920,0
+Virtual-3 3840,0
+Virtual-1 0,0
+### rc=0
+### python3 $HOME/w11-oracle.py cosmic
+Virtual-2 1920,0
+Virtual-1 0,0
+Virtual-3 3840,0
+### rc=0
+### wmirror Virtual-2 --to Virtual-3 --region 800x600+2020+100
+Virtual-3 <- Virtual-2  region 800x600+2020+100  scaling fit  wl-mirror pid 4480
+### rc=0
+### wmirror --list
+Virtual-3 <- Virtual-2  region 800x600+2020+100  scaling fit  wl-mirror pid 4480
+### rc=0
+### wmirror --stop Virtual-3
+stopped  Virtual-3 <- Virtual-2  region 800x600+2020+100  scaling fit  wl-mirror pid 4480
+### rc=0
+### pgrep -x wl-mirror
+### rc=1
+### wwmctl -l | wc -l
+1
+### rc=0
+### wwmctl -l | wc -l
+1
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-3
+Virtual-1
+Virtual-2
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-3
+Virtual-1
+Virtual-2
+### rc=0
+### wmirror --list
+### rc=0
+### wxrandr --persistent --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     75.00*+  60.00    50.00  
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   1920x1440     60.00  
+   2560x1080     50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   2048x1152     60.00  
+   1920x1200     59.88  
+   1600x1200     60.00  
+   1680x1050     59.95  
+   1400x1050     59.98  
+   1280x1024     60.02  
+   1440x900      59.89  
+   1280x960      60.00  
+   1360x768      60.02  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+   640x480       60.00    59.94  
+### rc=0
+### wwmctl -l
+0x00400001  0 arch-cosmic-smoke foot
+### rc=0
+### wwmctl -l
+0x00400001  0 arch-cosmic-smoke foot
+### rc=0
+### wxrandr --query
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected primary 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### wxrandr --query
+WARNING: running xrandr against an Xwayland server. See the xrandr man page for details.
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected primary 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### ls /run/user/0/xw11/display /tmp/wdotool-0/xw11/display 2>/dev/null
+### rc=2
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+11153
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep -c 'interface=org.freedesktop.portal\.'
+36
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal.Inhibit' | sed -n 's/.*sender=\([^ ]*\).*/\1/p' | sort -u
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal\.'                  | grep -vE 'interface=org.freedesktop.portal.(Settings|Request|Session)'                  | grep -v 'interface=org.freedesktop.portal.Documents; member=GetMountPoint'                   | head -5
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.PolicyKit1' | head -3
+### rc=0
+### grep -Ec '^signal ' $HOME/w11-bus.log
+512
+### rc=0
+### grep -o 'org.freedesktop.portal.[A-Za-z]*' $HOME/w11-bus.log | sort | uniq -c | sort -rn | head
+     74 org.freedesktop.portal.Desktop
+     72 org/freedesktop/portal/desktop
+     38 org.freedesktop.portal.Documents
+     36 org.freedesktop.portal.Settings
+     18 org.freedesktop.portal.Error
+### rc=0
+### pacman -Qkk w11 2>&1
+w11: 370 total files, 0 altered files
+### rc=0
+### pacman -R --noconfirm w11 2>&1
+checking dependencies...
+
+Packages (1) w11-0.4.0-1
+
+Total Removed Size:  9.52 MiB
+
+:: Do you want to remove these packages? [Y/n] 
+:: Processing package changes...
+removing w11...
+:: Running post-transaction hooks...
+(1/3) Reloading device manager configuration...
+(2/3) Arming ConditionNeedsUpdate...
+(3/3) Updating the desktop file MIME type cache...
+### rc=0
+### ls -d /usr/lib/w11 /var/lib/w11 /etc/xdg/autostart/w11-enable-bridge.desktop /usr/share/gnome-shell/extensions/w11-bridge@w11 /usr/share/gnome-shell/extensions/w11-overlap@w11  2>/dev/null | tr '\n' ' '
+### rc=0
+### for t in wdotool wwmctl wxprop wxrandr warandr wmirror; do command -v $t; done 2>/dev/null
+### rc=1
+### stat -c '%U:%G %a' /dev/uinput 2>/dev/null
+root:root 600
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+# file: /dev/uinput
+# owner: root
+# group: root
+user::rw-
+group::---
+other::---
+
+### rc=0
+### grep -l uinput /run/udev/tags/uaccess/* 2>/dev/null
+### rc=1
+### find /usr/lib/w11 /usr/bin -name __pycache__ 2>/dev/null
+### rc=1
+### cd /tmp && pacman -U --noconfirm ./w11-*.pkg.tar.zst 2>&1
+loading packages...
+resolving dependencies...
+looking for conflicting packages...
+
+Packages (1) w11-0.4.0-1
+
+Total Installed Size:  9.52 MiB
+
+:: Proceed with installation? [Y/n] 
+checking keyring...
+checking package integrity...
+loading package files...
+checking for file conflicts...
+checking available disk space...
+:: Processing package changes...
+installing w11...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules).  Anyone who can open it can type as you.
+  * On an X11 session the tools hand over to the real ones:
+    pacman -S xdotool wmctrl xorg-xprop xorg-xrandr
+
+Optional dependencies for w11
+    python-gobject: the warandr GUI [installed]
+    gtk3: the warandr GUI [installed]
+    wl-mirror: wmirror, region and odd-shape mirroring on wlroots [installed]
+    gnome-shell: the bridge extension, needed by the window commands on GNOME
+    xdotool: the real tool wdotool hands over to, on X11 and through xw11 [installed]
+    wmctrl: the real tool wwmctl hands over to, on X11 and through xw11 [installed]
+    xorg-xprop: the real tool wxprop hands over to, on X11 and through xw11 [installed]
+    xorg-xrandr: the real tool wxrandr hands over to, on X11 and through xw11 [installed]
+:: Running post-transaction hooks...
+(1/3) Reloading device manager configuration...
+(2/3) Arming ConditionNeedsUpdate...
+(3/3) Updating the desktop file MIME type cache...
+### rc=0

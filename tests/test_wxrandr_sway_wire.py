@@ -46,7 +46,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ["W11_PASSTHROUGH"] = "never"
 
 import support
-from wxrandr import cli, core
+from wxrandr import cli
+from hacks.display import core
 
 #: what `SwayIPC.__init__` arms the command socket with (wxrandr/core.py, a
 #: literal rather than a module constant -- wdotool's twin is

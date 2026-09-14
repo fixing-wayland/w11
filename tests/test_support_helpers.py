@@ -43,8 +43,8 @@ import support
 import wl_fake
 from w11common import session
 from w11common.wayland_mini import WlConn
-from wdotool import ext_workspace
-from wxrandr.core import Fatal, SwayIPC
+from hacks.window import ext_workspace
+from hacks.display.core import Fatal, SwayIPC
 
 
 def _rmtree(path):

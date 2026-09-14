@@ -2,7 +2,7 @@
 #
 # One derivation shipped everything until now: `packages.default` was a
 # buildPythonApplication with gobject-introspection, wrapGAppsHook3, gtk3 and
-# pygobject3 in it, and its $out held the six tools, five shadow symlinks and
+# pygobject3 in it, and its $out held the tools, five shadow symlinks and
 # no share/ at all -- no extension, no udev rule, no warandr.desktop
 # (measured: 546.2 MiB closure, 139 store paths, `find -maxdepth 4 -type d`
 # naming only lib/python3.14/site-packages [recon2/pkg-nix §1]).  Two facts
@@ -88,13 +88,14 @@ let
   w11 = python3Packages.buildPythonApplication (base // {
     pname = "w11";
 
-    # No GTK anywhere in this one.  bin/ is FIVE of the six console scripts of
-    # pyproject.toml [project.scripts]: the shadow names are
-    # packages.x11-shadows, the .desktop file comes with packages.warandr, and
-    # so does bin/warandr.
+    # No GTK anywhere in this one.  bin/ is SIX of the seven console scripts of
+    # pyproject.toml [project.scripts] -- the four clones, wmirror and xw11,
+    # the X11 proxy the first four run the originals against: the shadow names
+    # are packages.x11-shadows, the .desktop file comes with packages.warandr,
+    # and so does bin/warandr.
     #
-    # buildPythonApplication installs all six -- [project.scripts] is what it
-    # reads -- so the sixth is removed here, and that removal is half of what
+    # buildPythonApplication installs all seven -- [project.scripts] is what it
+    # reads -- so warandr is removed here, and that removal is half of what
     # keeps the two installable packages disjoint (the other half is
     # packages.warandr carrying no lib/, below).  Left in, bin/warandr exists
     # twice on a machine that installs both, and this one is the copy with no
@@ -108,7 +109,7 @@ let
     # (tests/test_flake.py:Live).
 
     meta = commonMeta // {
-      description = "xdotool, wmctrl, xprop and xrandr as drop-in clones for Wayland";
+      description = "xdotool, wmctrl, xprop and xrandr as drop-in clones for Wayland, and the X11 proxy";
       # `nix run .` died with `unable to execute .../bin/w11: No such
       # file or directory` because pname is w11 and no script is
       # [recon2/pkg-nix §1 defect 1].
@@ -178,12 +179,15 @@ let
     # [recon2/pkg-nix §2a]); and passthrough.is_us() guard 2 stops the loop if
     # one ever did.
     #
-    # The five CLI scripts go: this package exists for the one script that
+    # The six CLI scripts go: this package exists for the one script that
     # needs the 330.9 MiB, and a second copy of wdotool in $out/bin would be
-    # a second wdotool with the whole GTK closure behind it.
+    # a second wdotool with the whole GTK closure behind it.  xw11 is on the
+    # list for the same reason and one more: two packages with a bin/xw11
+    # would each spawn their own proxy for the session, and only one of them
+    # would hold the display file.
     postInstall = ''
       rm "$out"/bin/wdotool "$out"/bin/wwmctl "$out"/bin/wxprop \
-         "$out"/bin/wxrandr "$out"/bin/wmirror
+         "$out"/bin/wxrandr "$out"/bin/wmirror "$out"/bin/xw11
     '';
 
     meta = commonMeta // {

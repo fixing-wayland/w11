@@ -1,0 +1,8 @@
+# Lifted from recon/wire/trace_rr2.log connection 2, captured 2026-09-10
+# against the box's own X server on :355 (a TigerVNC screen called VNC-0)
+# through recon/wire/proxy.py, while `xrandr --output VNC-0 --mode 1680x1050`
+# ran. RANDR major 140 there, root 0x22b, crtc 0x3a, output 0x3b, config
+# timestamp 0x304a204b. It is the rig tests/fixtures/xw11/xrandr-mode-write.hex
+# came off, so the two go together.
+# GetOutputPrimary reply: 0.
+0100120000000000000000000000000000000000000000000000000000000000

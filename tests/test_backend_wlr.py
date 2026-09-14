@@ -25,7 +25,7 @@ import sys
 import tempfile
 import time
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -37,9 +37,11 @@ from w11common import session
 from w11common.errors import CmdError
 from support import env
 from test_wwmctl_x11 import FakeXServer
-from wdotool import backend_wlr, x11_mini
-from wdotool.backend_wlr import BASE_ID, WlrBackend
-from wxprop import core as wxcore
+from wdotool import cli
+from hacks.window import backend, backend_wlr, x11_mini, xid_match
+from hacks.window.backend_wlr import BASE_ID, WlrBackend
+from wdotool.ctx import Context
+from hacks.property import core as wxcore
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.
@@ -229,6 +231,15 @@ class WlrTest(unittest.TestCase):
                  top("Hidden", "gamma", MINIMIZED))
     comp_kw: dict = {}
 
+    def setUp(self):
+        # `list()` reads the X plane now (the route-5 rectangle), so "there is no X plane" has to be SAID
+        # rather than left to the box the suite runs on: this guest has an Xwayland of its own whenever a
+        # sway or labwc session is up, and the process table is what `_x11` asks. `FakeXPlane.x_server()`
+        # patches this back to True for the classes that do want one.
+        patch = mock.patch.object(session, "xwayland_running", lambda uid=None: False)
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def compositor(self, cls=ToplevelCompositor, **kw):
         opts = dict(self.comp_kw, **kw)
         opts.setdefault("toplevels", self.TOPLEVELS)
@@ -273,9 +284,12 @@ class Listing(WlrTest):
         self.assertEqual([w.desktop for w in wins], [-1, -1, -1])
 
     def test_geometry_is_the_output_box_because_none_is_carried(self):
+        """With no X plane to ask, every row is the floor -- and the listing records that it reported a
+        rectangle nobody told it, which is the flag a caller reads to say so (backend_cosmic's twin)."""
         _comp, b = self.backend()
         self.assertEqual([(w.x, w.y, w.w, w.h) for w in b.list()],
                          [(0, 0, 1920, 1080)] * 3)
+        self.assertTrue(b.geometry_is_floor)
 
     def test_the_widest_mode_wins_over_several_outputs(self):
         _comp, b = self.backend(outputs=((1280, 720), (1920, 1200)))
@@ -657,6 +671,278 @@ class XWaylandIds(FakeXPlane, WlrTest):
         _comp, b = self.backend()
         self.assertEqual([(v.xid, v.client_type) for v in b.views()],
                          [(0, "wayland"), (0, "wayland")])
+
+
+class XPlaneGeometry(FakeXPlane, WlrTest):
+    """Route 5: an XWayland window's rectangle is the X server's, a native one's is still the floor.
+
+    `zwlr_foreign_toplevel_management_v1` carries no rectangle, so every window of the wlr floor -- labwc,
+    river, Budgie, Xfce-on-Wayland, LXQt-on-Wayland -- was reported at 0,0 with the widest output's mode.
+    Measured on the resolute-labwc golden 2026-09-12, one xterm and one foot on a 1920x1080 head:
+
+        $ wdotool getwindowgeometry 1000000      # the xterm
+        Window 1000000
+          Position: 0,0 (screen: 0)
+          Geometry: 1920x1080
+        $ xdotool getwindowgeometry 0x40000c     # the same window, the oracle, the same session
+        Window 4194316
+          Position: 718,395 (screen: 0)
+          Geometry: 484x316
+
+    X is the oracle and the X plane is the lowest rung in reach (AGENTS.md route 5), so the xterm's row now
+    answers 718,395 484x316 and the foot's stays the floor with `geometry_is_floor` set. The native half is
+    NOT YET at rung 1: no foreign-toplevel protocol carries a rectangle yet.
+
+    The fixture is that measurement: the client list carries the xterm at its measured rect and pid, and the
+    two toplevels are the two windows that were on that head."""
+
+    XTERM = 0x40000C
+    CLIENTS = ((0x40000C, "xterm", "XTerm", "xtermwin", 2045, (718, 395, 484, 316)),)
+    TOPLEVELS = (top("xtermwin", "xterm"), top("footwin", "foot"))
+    XRECT = (718, 395, 484, 316)
+    FLOOR = (0, 0, 1920, 1080)
+    #: Two xterms the join cannot tell apart: same class, same default title, and `match_xids` hands out
+    #: no id on a tie -- so both keep the floor, and nothing may be said about it on stderr.
+    TIED = ((0x40000C, "xterm", "XTerm", "same", 11, (1, 2, 3, 4)),
+            (0x40000D, "xterm", "XTerm", "same", 12, (5, 6, 7, 8)))
+
+    def test_an_xwayland_window_is_listed_at_the_x_servers_rectangle(self):
+        self.x_server()
+        _comp, b = self.backend()
+        self.assertEqual([(w.x, w.y, w.w, w.h) for w in b.list()], [self.XRECT, self.FLOOR])
+
+    def test_find_answers_the_x_rectangle_which_is_what_getwindowgeometry_reads(self):
+        """`cmd_getwindowgeometry` goes through `find()` and never through `views()`, so a rectangle folded
+        into views() alone would have left the xdotool clone printing the floor."""
+        self.x_server()
+        _comp, b = self.backend()
+        w = b.find(BASE_ID)
+        self.assertEqual((w.x, w.y, w.w, w.h), self.XRECT)
+
+    def test_getwindowgeometry_prints_the_x_rectangle_and_not_the_floor(self):
+        """The user-visible line, byte for byte, through the real command: the three lines above are what
+        the golden printed for the oracle and what it printed for us differed in all four numbers."""
+        self.x_server()
+        _comp, b = self.backend()
+        ctx = Context()
+        ctx._backend = b
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = cli.run_chain(ctx, "wdotool", ["getwindowgeometry", str(BASE_ID)])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.getvalue(),
+                         "Window %d\n  Position: 718,395 (screen: 0)\n  Geometry: 484x316\n" % BASE_ID)
+
+    def test_a_native_toplevel_keeps_the_floor_and_the_listing_says_so(self):
+        """The half route 5 does not reach. The foot window has no X client to ask, so its row is the
+        output box -- and `geometry_is_floor` is how a caller tells that rectangle from a measured one."""
+        self.x_server()
+        _comp, b = self.backend()
+        wins = b.list()
+        self.assertEqual((wins[1].x, wins[1].y, wins[1].w, wins[1].h), self.FLOOR)
+        self.assertTrue(b.geometry_is_floor)
+
+    def test_a_listing_whose_windows_all_have_a_rectangle_does_not_claim_the_floor(self):
+        self.x_server()
+        _comp, b = self.backend(toplevels=(top("xtermwin", "xterm"),))
+        self.assertEqual([(w.x, w.y, w.w, w.h) for w in b.list()], [self.XRECT])
+        self.assertFalse(b.geometry_is_floor)
+
+    def test_an_x_client_that_pairs_with_nobody_hands_out_no_rectangle(self):
+        """`match_xids`' rule, from the geometry side: a client whose WM_CLASS agrees with no toplevel is
+        not this window's rectangle, and a native row that took it would report where some other client
+        happens to sit."""
+        self.x_server(clients=((0x40000C, "gedit", "Gedit", "xtermwin", 9, (11, 22, 33, 44)),))
+        _comp, b = self.backend()
+        self.assertEqual([(w.x, w.y, w.w, w.h) for w in b.list()], [self.FLOOR, self.FLOOR])
+
+    def test_no_x_plane_at_all_leaves_every_row_on_the_floor(self):
+        """sway and Wayfire spawn their Xwayland on demand; asking for one would start it, so a session
+        without one keeps the floor listing rather than gaining a server."""
+        self.x_server()
+        patch = mock.patch.object(session, "xwayland_running", lambda uid=None: False)
+        patch.start()
+        self.addCleanup(patch.stop)
+        _comp, b = self.backend()
+        self.assertEqual([(w.x, w.y, w.w, w.h) for w in b.list()], [self.FLOOR, self.FLOOR])
+        self.assertTrue(b.geometry_is_floor)
+        self.assertIsNone(b._x)
+
+    def test_an_x_read_that_fails_leaves_a_floor_listing_and_not_an_exception(self):
+        """`list()` runs under every window command there is; an X server that goes away mid-read is a
+        listing with no rectangles in it, not a traceback out of `wdotool search`."""
+        self.x_server()
+        _comp, b = self.backend()
+        self.assertEqual([(w.x, w.y, w.w, w.h) for w in b.list()], [self.XRECT, self.FLOOR])
+        with mock.patch.object(type(b), "_x_clients", staticmethod(lambda _x: 1 / 0)):
+            wins = b.list()
+        self.assertEqual([(w.x, w.y, w.w, w.h) for w in wins], [self.FLOOR, self.FLOOR])
+        self.assertIsNone(b._x, "the connection that failed was dropped, not kept for the next call")
+
+    def test_the_join_is_read_once_per_listing_and_not_once_per_reader(self):
+        """`views()` reads the ids out of the listing `list()` has just joined, so the pairing is computed
+        on the listing object and reused. Without the memo one `wwmctl -l` would ask the X server for
+        `_NET_CLIENT_LIST` and five properties per client twice: measured in-process against a headless
+        labwc on this guest 2026-09-12, `list()` costs 0.02 ms with no X plane, 0.10 ms with one X client
+        and 0.53 ms with eight."""
+        self.x_server()
+        _comp, b = self.backend()
+        calls = []
+        real = type(b)._x_clients
+
+        def counted(x):
+            calls.append(x)
+            return real(x)
+
+        with mock.patch.object(type(b), "_x_clients", staticmethod(counted)):
+            views = b.views()
+        self.assertEqual([v.xid for v in views], [self.XTERM, 0])
+        self.assertEqual(len(calls), 1)
+
+    def test_two_windows_that_tie_are_warned_about_once_by_the_reader_that_owes_the_line(self):
+        """`wwmctl -l` prints the X id column, so a 0 in it is what wants explaining and `views()` is where
+        the sentence belongs -- once for the listing, though `list()` and `views()` both ran the join."""
+        self.x_server(clients=self.TIED)
+        _comp, b = self.backend(toplevels=(top("same", "xterm"), top("same", "xterm")))
+        err = io.StringIO()
+        with redirect_stderr(err):
+            b.views()
+        self.assertEqual(err.getvalue().count("could not be told apart"), 1)
+
+    def test_a_tie_says_nothing_on_stderr_under_a_wdotool_command(self):
+        """The join runs under `list()` now, and `list()` runs under every window command there is -- so a
+        warning inside the join is a line the original never printed. The pinned xdotool 4.20260303.1 writes
+        nothing at all on `search` or `getwindowgeometry`, whatever the X client list looks like, and a
+        `--sync` loop would have printed ours once per poll. Two xterms under one title is the shape that
+        ties, and it is the ordinary shape on this floor."""
+        self.x_server(clients=self.TIED)
+        _comp, b = self.backend(toplevels=(top("same", "xterm"), top("same", "xterm")))
+        ctx = Context()
+        ctx._backend = b
+        err, out = io.StringIO(), io.StringIO()
+        with redirect_stderr(err), redirect_stdout(out):
+            cli.run_chain(ctx, "wdotool", ["search", "--class", "xterm"])
+            cli.run_chain(ctx, "wdotool", ["getwindowgeometry", str(BASE_ID)])
+        self.assertEqual(err.getvalue(), "")
+        # and the tie is still a tie: neither window took the other's rectangle
+        self.assertEqual([(w.x, w.y, w.w, w.h) for w in b.list()], [self.FLOOR, self.FLOOR])
+
+    def test_the_wlr_floor_and_the_kwin_path_print_one_sentence_for_a_tie(self):
+        """The line moved from the matcher to `views()`, so there are two printers of it now and they must
+        print the same bytes: `wwmctl -l` on labwc and `wwmctl -l` on KWin say the same thing about the same
+        tie. The literal below is what shipped before this batch (`xid_match.match_xids`, unchanged)."""
+        line = ("wdotool: 2 XWayland window(s) could not be told apart from each other in the X client "
+                "list; their X ids are left unset\n")
+        # The prefix is whatever main() last named the process (wwmctl's CLI tests leave it at
+        # "wwmctl" when the whole suite runs in one interpreter, run 2026-09-12); pin it for this test.
+        from hacks.window import backend as backend_mod
+        self.addCleanup(backend_mod.set_program, backend_mod.program())
+        backend_mod.set_program("wdotool")
+        self.x_server(clients=self.TIED)
+        _comp, b = self.backend(toplevels=(top("same", "xterm"), top("same", "xterm")))
+        floor = io.StringIO()
+        with redirect_stderr(floor):
+            views = b.views()
+        self.assertEqual(floor.getvalue(), line)
+        self.assertEqual([v.xid for v in views], [0, 0], "a tie hands out no id, which is what the line says")
+        raw = [{"u": "1", "c": "xterm", "n": "", "t": "same"}, {"u": "2", "c": "xterm", "n": "", "t": "same"}]
+        clients = [{"xid": x, "pid": p, "inst": "xterm", "cls": "XTerm", "name": "same", "geo": (1, 2, 3, 4)}
+                   for x, p in ((0x40000C, 11), (0x40000D, 12))]
+        kwin = io.StringIO()
+        with redirect_stderr(kwin):
+            self.assertEqual(xid_match.match_xids(raw, clients, None), {})
+        self.assertEqual(kwin.getvalue(), line)
+
+    def test_the_pointer_is_hit_tested_against_the_x_rectangle_and_misses_outside_it(self):
+        """What the floor cost beyond `getwindowgeometry`: `hit_test` is `getmouselocation`'s `window:`
+        field, and a row claiming the whole output is a hit on every pixel of the head
+        [vm/live-smoke.d/labwc.sh's note]. With the X rectangle the xterm is under 730,400 and nothing is
+        under 10,10 -- which is the truth, and the answer the floor could never give.
+
+        Only the XWayland half moves: a native toplevel still claims the whole head, so a session whose
+        windows are all native hit-tests exactly as it did. That is the rung-1 gap, not a fixable one
+        here."""
+        self.x_server()
+        _comp, b = self.backend(toplevels=(top("xtermwin", "xterm"),))
+        wins = b.list()
+        self.assertEqual(backend.hit_test(wins, 730, 400), BASE_ID)
+        self.assertEqual(backend.hit_test(wins, 10, 10), 0)
+
+
+class XPlanePid(FakeXPlane, WlrTest):
+    """The other half of the same route-5 join: `_NET_WM_PID`, and the two commands that were dead without it.
+
+    `zwlr_foreign_toplevel_management_v1` carries no pid, so `list()` handed out 0 for every window and
+    `wdotool getwindowpid` on an XWayland window answered `window 1000000 has no pid associated with it`
+    while the X plane in the same process knew the number: on the resolute-labwc golden, 2026-09-12,
+    `wwmctl -lGpx` -- which reads `views()`, where the pid was already folded -- printed
+    `0x0040000c -1 2045 718 395 484 316` for that very window [M goal2/requests-batch-12.md 4]. X answers
+    it, so we owe it, and the fixture below is that row: pid 2045 at 718,395 484x316.
+
+    The native half stays at 0 and keeps xdotool's own sentence, which is what the original prints for an X
+    window with no `_NET_WM_PID`. NOT YET, rung 1: a foreign-toplevel protocol that carries the pid."""
+
+    XTERM = 0x40000C
+    CLIENTS = ((0x40000C, "xterm", "XTerm", "xtermwin", 2045, (718, 395, 484, 316)),)
+    TOPLEVELS = (top("xtermwin", "xterm"), top("footwin", "foot"))
+
+    def test_the_listing_carries_the_x_servers_pid_for_the_xwayland_row(self):
+        """`list()` and not `views()`: every xdotool command reads the listing, and `getwindowpid` reads
+        `find()`, which is `list()`."""
+        self.x_server()
+        _comp, b = self.backend()
+        self.assertEqual([w.pid for w in b.list()], [2045, 0])
+        self.assertEqual(b.find(BASE_ID).pid, 2045)
+
+    def test_getwindowpid_prints_the_number_where_it_used_to_refuse(self):
+        self.x_server()
+        _comp, b = self.backend()
+        ctx = Context()
+        ctx._backend = b
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = cli.run_chain(ctx, "wdotool", ["getwindowpid", str(BASE_ID)])
+        self.assertEqual((rc, out.getvalue()), (0, "2045\n"))
+
+    def test_a_native_toplevel_still_refuses_in_the_originals_own_words(self):
+        """The half route 5 does not reach: no X server has heard of the foot window. The sentence is
+        xdotool's byte for byte -- the original prints it for an X window with no `_NET_WM_PID`, so parity
+        and honesty are the same string here."""
+        self.x_server()
+        _comp, b = self.backend()
+        ctx = Context()
+        ctx._backend = b
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc = cli.run_chain(ctx, "wdotool", ["getwindowpid", str(BASE_ID + 1)])
+        self.assertEqual(rc, 1)
+        self.assertEqual(err.getvalue(),
+                         "window %d has no pid associated with it.\n" % (BASE_ID + 1))
+
+    def test_windowkill_reaches_the_x_clients_pid(self):
+        """`WindowBackend.kill` sends SIGKILL to `find(wid).pid`, so the fold is what turns `windowkill`
+        from `no pid for window 1000000` into a signal. The kill itself is faked -- 2045 is the golden's
+        pid and not this box's -- and what is asserted is the number the command reached for."""
+        self.x_server()
+        _comp, b = self.backend()
+        with mock.patch("os.kill") as killed:
+            b.kill(BASE_ID)
+        self.assertEqual(killed.call_args[0][0], 2045)
+
+    def test_windowkill_on_a_native_toplevel_is_still_refused_and_signals_nobody(self):
+        self.x_server()
+        _comp, b = self.backend()
+        with mock.patch("os.kill") as killed:
+            with self.assertRaises(CmdError):
+                b.kill(BASE_ID + 1)
+        self.assertEqual(killed.call_count, 0, "a refusal must not have signalled anything first")
+
+    def test_an_x_client_that_pairs_with_nobody_hands_out_no_pid(self):
+        """The same rule the rectangle follows: a client whose WM_CLASS agrees with no toplevel is not this
+        window's pid, and a row that took it would name a process that is not the window's."""
+        self.x_server(clients=((0x40000C, "gedit", "Gedit", "xtermwin", 9, (11, 22, 33, 44)),))
+        _comp, b = self.backend()
+        self.assertEqual([w.pid for w in b.list()], [0, 0])
 
 
 class ViewFlags(FakeXPlane, WlrTest):

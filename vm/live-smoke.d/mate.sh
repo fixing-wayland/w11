@@ -109,12 +109,13 @@ phase_heads() {
     "$VM" head "$NAME" "$idx" 1920x1080 >/dev/null 2>&1 || true
     sleep 8
     n2=$(oracle_outputs | grep -c . || true)
-    # An `xwant` and not a `want`: nobody has ever plugged a head back into a live MATE session.  If it
-    # comes back the line is promoted; if it does not, the fix is one key in vm/build-image.sh's
-    # desktop_mate (turn-on-external-monitors-at-startup=true), asked for in scratchpad
-    # requests-batch-2.md so that the label has an owner and not only a note.
-    xwant "$conn comes back on its own when it is plugged in again (until resolute-mate runs once)" \
-          "^$n0$" "$n2"
+    # A plain `want` since the golden carries the key this was waiting for:
+    # `org.mate.SettingsDaemon.plugins.xrandr turn-on-external-monitors-at-startup=true` is a
+    # gschema override vm/build-image.sh's desktop_mate writes and then reads back with
+    # gsettings in the same build (the key's own default is false, and MATE is the only rig
+    # desktop where it is).  The `--auto` arm below stays: it is what the phase says instead
+    # when the head does not come back by itself.
+    want "$conn comes back on its own when it is plugged in again" "^$n0$" "$n2"
     note "after the replug the oracle sees: $(ev "$(oracle_outputs || true)")"
     if [ "$n2" != "$n0" ]; then
         guest "wxrandr --output $conn --auto" >/dev/null 2>&1 || true

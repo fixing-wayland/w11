@@ -44,8 +44,9 @@ os.environ["W11_PASSTHROUGH"] = "never"
 
 import test_wxrandr_mutter as twm                         # noqa: E402
 import wl_fake                                            # noqa: E402
-from wdotool import daemon, layoutbox                     # noqa: E402
-from wxrandr import mutter                                # noqa: E402
+from wdotool import daemon  # noqa: E402
+from hacks.input import layoutbox  # noqa: E402
+from hacks.display import mutter  # noqa: E402
 
 
 # A head, as the wire carries it: the wl_output mode (real pixels), the
@@ -443,7 +444,7 @@ class DisplayConfigSource(BboxCase):
 
     def test_no_wxrandr_import_creeps_back_in(self):
         """The zipapp guard above, as a check rather than a comment."""
-        with io.open(os.path.join(ROOT, "wdotool", "layoutbox.py"),
+        with io.open(os.path.join(ROOT, "hacks", "input", "layoutbox.py"),
                      encoding="utf-8") as f:
             src = f.read()
         code = "\n".join(ln for ln in src.splitlines()

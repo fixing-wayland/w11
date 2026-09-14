@@ -77,6 +77,19 @@ class Tree(unittest.TestCase):
             "XDG_SESSION_TYPE": "x11",
             "DISPLAY": ":0",
             "FAKE_REAL_LOG": self.log,
+            # This file is about the X11 handover, and every case in it runs a
+            # real process on a session it seams into being.  Since the X11
+            # proxy landed, a *Wayland* session in that shape has a second
+            # handover under the first one -- and the wrapper would spawn a
+            # real `xw11 __serve` out of the test, against whatever X server
+            # this box has at $DISPLAY, leaving it running for fifteen minutes
+            # (measured: `test_x11_on_a_wayland_session_hands_over` did exactly
+            # that, and only when an Xwayland happened to be up, which is a
+            # test that passes or fails by what else is running).  `never` here
+            # keeps this file's subject; the proxy's own handover is
+            # tests/test_xw11_wrap.py's, and the one case in this file that
+            # wants it asks for `auto` by name.
+            "W11_PROXY": "never",
             "W11_SHIM_SEAMS": json.dumps({
                 "_X11_SOCK_DIR": self.x11, "_LOGIND_DIR": self.logind,
                 "_RUN_USER_DIR": os.path.dirname(self.runuser)}),
@@ -283,14 +296,41 @@ class Environment(Tree):
 
     def test_wayland_session_never_hands_over(self):
         """The whole point of the ordering: a live compositor socket wins even
-        though DISPLAY is set (Xwayland always sets it)."""
+        though DISPLAY is set (Xwayland always sets it).
+
+        `W11_PROXY=never` (out of `env()`, which sets it for every case in this
+        file) because this file is about `maybe_exec_real` and the X11
+        handover, and a Wayland session with the original installed now has a
+        SECOND handover below it -- the wrapper's, through the proxy
+        (xw11/wrap.py, tests/test_xw11_wrap.py).  Without it the fake below
+        would run for that other reason and this case would stop being about
+        the session ordering at all; the case underneath it is the next
+        test."""
         open(os.path.join(self.runuser, "wayland-0"), "w").close()
-        env = self.env(XDG_SESSION_TYPE="wayland",
+        env = self.env(XDG_SESSION_TYPE="wayland",         # W11_PROXY=never: see env()
                        XDG_RUNTIME_DIR=self.runuser, WAYLAND_DISPLAY="wayland-0")
         p, out, err = self.run_tool("xdotool", "version", env=env)
         self.assertEqual(p.returncode, 0)
         self.assertIn("xdotool version 4.", out)        # ours, not the fake's
         self.assertEqual(self.records(), [])
+
+    def test_a_wayland_session_with_the_original_installed_hands_over_below(self):
+        """...and the same command without that variable is this batch's whole
+        claim, in a real process: on a Wayland session with the original on
+        PATH, `xdotool version` is the ORIGINAL's version string, because the
+        original is what will run every other command there (design section
+        8.1).  `version` is a help request (passthrough.py:763), so it reaches
+        the original with no proxy started at all -- a version string opens no
+        display."""
+        open(os.path.join(self.runuser, "wayland-0"), "w").close()
+        env = self.env(XDG_SESSION_TYPE="wayland", W11_PROXY="auto",
+                       XDG_RUNTIME_DIR=self.runuser, WAYLAND_DISPLAY="wayland-0")
+        p, out, err = self.run_tool("xdotool", "version", env=env)
+        self.assertEqual(p.returncode, 0)
+        self.assertIn("fake-real-tool xdotool", out)
+        self.assertEqual(self.records()[0]["argv"], ["version"])
+        # and no DISPLAY of the proxy's in it: there is no proxy.
+        self.assertEqual(self.records()[0]["env"]["DISPLAY"], ":0")
 
     def test_escape_hatch_keeps_our_own_code(self):
         """`W11_PASSTHROUGH=never` — what the test suite and the

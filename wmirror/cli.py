@@ -16,7 +16,8 @@ import sys
 
 from w11common import session, stdio
 
-from . import VERSION, core, supervise
+from . import VERSION
+from hacks.mirror import core, supervise
 
 
 def _out(line: str = ""):
@@ -127,6 +128,23 @@ def _cmd_stop_all() -> int:
 
 def _cmd_check() -> int:
     ok = True
+    hit = session.find_wayland_socket()
+    conn, problem = None, ()
+    try:
+        conn = core.open_conn()
+    except core.Refusal as e:
+        problem = e.lines
+    # T21, fix 40's `--check` half.  The session's own problem is printed FIRST, above `helper:` and the
+    # `apt install wl-mirror` line under it.  On an X11 session this printed `helper:   not installed`, the
+    # install hint, `wayland:  none`, and only then, on line 4, "this is an X11 session: there is no
+    # wl-mirror here" -- so a reader who stops at the first thing that looks like an instruction installs a
+    # package that cannot help them.  Measured on all nine X11 flavors of run 34628777544 with the evidence
+    # `[helper:   not installed]`, and reproduced on the guest's own X server at :355
+    # [goal2/recon/gaps.md 1b #9].  `_cmd_start` in this module has ordered the same two answers this way
+    # round since 0.4; this is the query catching up with the verb.  The other rows still print, because what
+    # is or is not installed on this box is true whatever the session is.
+    for i, line in enumerate(problem):
+        _out(("problem:  " if i == 0 else "          ") + line)
     helper = core.find_helper()
     if helper:
         version = core.helper_version(helper)
@@ -136,13 +154,8 @@ def _cmd_check() -> int:
         _out("helper:   not installed")
         for line in core.missing_helper_lines():
             _out("          " + line)
-    hit = session.find_wayland_socket()
     _out("wayland:  %s" % (hit[2] if hit else "none"))
-    try:
-        conn = core.open_conn()
-    except core.Refusal as e:
-        for i, line in enumerate(e.lines):
-            _out(("problem:  " if i == 0 else "          ") + line)
+    if conn is None:
         return 1
     try:
         have = core.capture_support(conn)

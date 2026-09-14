@@ -266,7 +266,7 @@ class TheDebIntoAScratchRoot(unittest.TestCase):
     def test_the_six_tools_the_symlink_and_the_stamp_land(self):
         got = self.install()
         self.assertEqual(sorted(os.listdir(self.r("usr/bin"))),
-                         ["warandr", "wdotool", "wmirror", "wwmctl", "wxprop", "wxrandr"])
+                         ["warandr", "wdotool", "wmirror", "wwmctl", "wxprop", "wxrandr", "xw11"])
         link = self.r("etc/xdg/autostart/w11-enable-bridge.desktop")
         self.assertEqual(os.readlink(link), "/usr/lib/w11/enable-bridge.desktop")
         self.assertTrue(os.path.exists(self.r(STAMP)))

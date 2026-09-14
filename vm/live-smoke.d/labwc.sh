@@ -47,7 +47,7 @@
 # `nodialog` is trivially true here and cheap: this session runs no xdg-desktop-portal at all
 # (no org.freedesktop.portal.Desktop on the bus, measured on the Xfce variant
 # [recon2/xfce-wayland 1]).
-SMOKE_PHASES="busrec install windows wm input display mirror root nodialog"
+SMOKE_PHASES="busrec install windows wm proxy input display mirror root nodialog"
 
 # The terminal, in two knobs rather than a copied editor_start per flavor: budgie.sh and
 # lxqt-wayland.sh and xfce-wayland.sh source this file and set these BEFORE the source, which
@@ -115,18 +115,23 @@ phase_windows() {
     # different backend and this check would be the first thing to say so.
     want "the id is the wlr floor's: 1000000 plus arrival order" "^10000[0-9]{2}$" "$WIN"
     want "getwindowname is not empty" "." "$(guest "wdotool getwindowname $WIN" || true)"
-    # The floor's fiction, and the gap is an xwant rather than a want: zwlr_foreign_toplevel
-    # carries no geometry, so every window is reported at 0,0 with the largest output's mode
-    # [recon2/labwc 3, measured `Position: 0,0 (screen: 0)` / `Geometry: 1280x720`].  Pinning
-    # `Position: 0,0` as REQUIRED would go red the day a real rectangle arrives, which is the
-    # outcome we want; so the reading is recorded and the check is on a position that is not
-    # the floor's, expected to fail until then.  NOT YET, and the lowest route on the AGENTS.md
-    # ladder is 5, the X plane, which reaches XWayland windows only.
+    # The NATIVE half of the geometry gap, and it is a recorded row rather than a red or an
+    # xwant.  $WIN is foot, a Wayland client no X server has ever heard of, and
+    # zwlr_foreign_toplevel_management_v1 carries no rectangle -- so 0,0 plus the widest
+    # output's mode is the whole truth this session has about it [recon2/labwc 3, measured
+    # `Position: 0,0 (screen: 0)` / `Geometry: 1280x720`].  NOT YET: the lowest route is rung 1,
+    # a foreign-toplevel protocol that carries a rectangle, which costs wlroots writing and
+    # shipping one; the fallback is rung 6, a patched compositor with one geometry event per
+    # window.  Pinning `Position: 0,0` as REQUIRED would go red the day either lands, which is
+    # the outcome we want, so the reading is recorded and not asserted.
+    # The XWAYLAND half is in reach and is checked -- as a plain `same` against an oracle, not
+    # an xwant -- in labwc_xwayland below, where the oracle is the real X server (route 5).  Measured on the
+    # resolute-labwc golden 2026-09-12: an xterm at 718,395 484x316 to `xdotool
+    # getwindowgeometry 0x40000c` read 0,0 1920x1080 from us until backend_wlr.list() folded
+    # the X plane in.
     local wgeom; wgeom=$(guest "wdotool getwindowgeometry $WIN" || true)
-    note "getwindowgeometry: $(printf '%s' "$wgeom" | tr '\n' '|')"
-    xwant "getwindowgeometry answers the window's own position, not the floor's 0,0 (until \
-AGENTS.md route 5, the X plane, gives XWayland windows a real rectangle)" \
-          "Position: ([1-9][0-9]*,[0-9]+|[0-9]+,[1-9][0-9]*)" "$wgeom"
+    note "getwindowgeometry, native window (the floor: no protocol carries a rectangle yet, \
+AGENTS.md route 1): $(printf '%s' "$wgeom" | tr '\n' '|')"
     # The refusal's REASON.  README note (c) explains the wlroots family's missing move with
     # sway's tiling; labwc is a STACKING compositor where a move would be natural, so the only
     # true sentence names the protocol [recon2/labwc 6c, backend_wlr.NO_GEOMETRY].
@@ -272,10 +277,68 @@ labwc_xwayland() {
          "xterm\.XTerm" "$row"
     wantnot "not the synthesized app_id twice over, which is what the floor printed" \
             "xterm\.xterm" "$row"
-    # Recorded, not asserted: the pid and the rectangle for an X row come from the X server
-    # once views() exists, so this is where a `0` pid or an output-sized rectangle would show.
+    # The RECTANGLE, AGENTS.md route 5.  wdotool's own id for this xterm against the X server's
+    # rectangle for the same window, read by the ORIGINAL xdotool over its own connection -- a
+    # different tool, a different socket, so agreement here is agreement and not a tautology of
+    # the code under test.  Measured on the resolute-labwc golden 2026-09-12 before the fold:
+    # ours `0,0 1920x1080`, theirs `718,395 484x316`, one session, one second apart.
+    local wid ours theirs
+    # By TITLE and not by class: the app id an xwm hands the toplevel is not the same string on
+    # every compositor -- labwc's xterm arrives as `xterm` and river's recon read `XTerm.XTerm`
+    # [recon2/river 3] -- while `-T smokex` above is ours on both.
+    wid=$(guest 'wdotool search --name smokex | head -1' | tr -d ' \r\n' || true)
+    if [ -z "$wid" ] || [ -z "$xid" ] || ! guest 'command -v xdotool' >/dev/null 2>&1; then
+        # Not a second FAIL, for the reason the $xid branch above gives: a listing with no row
+        # for this xterm is what the id check has just gone red about.  It is also what the
+        # REPLAY rig looks like -- the recordings under tests/fixtures/live/ were captured
+        # before this command existed and fake-vmctl answers an unrecorded command with
+        # nothing -- so re-recording them is what makes this check run there too.
+        note "(no wdotool id for the xterm, or no xdotool to be the oracle: the rectangle check \
+needs both -- id '$(ev "$wid")', X id '$(ev "$xid")')"
+    else
+        ours=$(win_geom "$wid")
+        theirs=$(guest "xdotool getwindowgeometry $xid" | awk '
+            /Position:/ { pos = $2 } /Geometry:/ { geo = $2 }
+            END { printf "%s %s\n", pos, geo }')
+        note "getwindowgeometry, XWayland window: ours '$ours', the oracle xdotool '$theirs'"
+        same "getwindowgeometry on the XWayland window is the X server's own rectangle \
+(route 5), not the floor's 0,0 + a head's mode" "$theirs" "$ours"
+    fi
+    # The PID, the other half of the same route-5 join.  `_NET_WM_PID` is on the X window and
+    # zwlr_foreign_toplevel_management_v1 carries no pid at all, so `wdotool getwindowpid` on
+    # this xterm answered `window 1000000 has no pid associated with it` while the X plane in
+    # the same process knew the number -- `wwmctl -lGpx` printed `0x0040000c -1 2045 718 395
+    # 484 316` for that very window on the resolute-labwc golden 2026-09-12
+    # [goal2/requests-batch-12.md 4].  The oracle is the ORIGINAL wmctrl's own pid column for
+    # the same X id, read over its own connection to the X server.
+    local theirrow ourpid theirpid
+    theirrow=$(guest 'wmctrl -lGpx' | grep -i xterm || true)
+    theirpid=$(printf '%s\n' "$theirrow" | awk '{ print $3 }')
+    if [ -n "$wid" ] && [ -n "$xid" ]; then
+        ourpid=$(guest "wdotool getwindowpid $wid 2>&1" | tr -d ' \r\n' || true)
+    fi
+    # Exactly two answers degrade to a note, and NEITHER of them is a pid: nothing at all, and
+    # `fake-vmctl: nothing recorded for ...` (guest() folds the fake's stderr into its stdout,
+    # live-smoke.sh:352), which is what a recording cut before this command existed replies under
+    # FAKE_VMCTL_STRICT=1.  Everything else goes through `same` -- above all the refusal sentence
+    # `window 1000000 has no pid associated with it`, which is the regression this check exists to
+    # catch and which an "is it all digits?" guard would have waved through as a note.  A live run
+    # with no id is already red one line earlier, at the X-id `want`.
+    case "${ourpid:-}" in
+        ""|*nothingrecorded*)
+            note "(no getwindowpid answer for the xterm -- ours '$(ev "${ourpid:-}")', the original \
+wmctrl '$(ev "${theirpid:-}")': a recording cut before this check answers neither)" ;;
+        *)
+            if [ -n "$theirpid" ]; then
+                same "getwindowpid on the XWayland window is the X server's _NET_WM_PID (route 5), \
+not the floor's 0" "$theirpid" "$ourpid"
+            else
+                note "(the original wmctrl printed no pid column for the xterm, so it cannot be the \
+oracle here -- ours '$(ev "$ourpid")')"
+            fi ;;
+    esac
     note "ours:   $row"
-    note "theirs: $(guest 'wmctrl -lGpx' | grep -i xterm || true)"
+    note "theirs: $theirrow"
     guest "pkill -x xterm; true" >/dev/null 2>&1 || true
 }
 

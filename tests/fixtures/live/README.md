@@ -26,7 +26,7 @@ re-recorded, and the widths went with them, because `dpkg -l` sized its name
 column for an eleven-character package (`ii  fuckwayland    0.4.0` became
 `ii  w11    0.4.0` in `noble-gnome-46.0-capture.txt`, which is not what dpkg
 would print for `w11`). Everything the compositors, the portals and the distro
-printed about themselves is untouched, and all seven `*-replay.txt` files still
+printed about themselves is untouched, and all eight `*-replay.txt` files still
 replay with no failure.
 
 ### `noble-gnome-46.0-capture.txt`
@@ -98,3 +98,19 @@ signature, measured on this host on 2026-09-08 with
 That printing is the point of the fixture: `uint32 0` for the transform field
 and `@a{sv} {}` for an empty dictionary are what a `gdbus`-parsing oracle has to
 survive, and the shipped one did not.
+
+### `resolute-sway-1.11-windows-wm-proxy-replay.txt`
+
+resolute-sway (sway 1.11, Xwayland 24.1.10; the originals are the 26.04 golden's
+test-support packages, `xdotool` 1:3.20160805.1 and `wmctrl` 1.07 per the package table
+in vm/README.md; `xrandr`'s version was not recorded and is not guessed here),
+2026-09-11, two 1920x1080 virtual heads, recorded off a live run with
+`vm/live-smoke.d/capture-from-run` -- sway.sh overrides `phase_windows` and `phase_wm`,
+so `guest-capture.sh`'s fixed command list is the wrong shape for it. 94 sections; the
+run was 27 pass, 0 fail and the replay is 27 pass, 0 fail. It is the first recording of
+the `proxy` phase: the ORIGINAL xdotool, wmctrl and xprop answering through `xw11` about
+a `foot` window with no X window behind it, and `xrandr --output Virtual-2 --pos
+1920x200` moving sway's own head and putting it back.
+
+    CAPLOG=/tmp/cap.txt LIVE_SMOKE_VMCTL=vm/live-smoke.d/capture-from-run \
+        vm/live-smoke.sh resolute-sway --reuse --keep --phases windows,wm,proxy

@@ -49,7 +49,7 @@ class Context:
 
     def backend(self):
         if self._backend is None:
-            from wdotool import backend_detect
+            from hacks.window import backend_detect
 
             self._backend = backend_detect.detect()
         return self._backend

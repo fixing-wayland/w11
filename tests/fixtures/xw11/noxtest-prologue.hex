@@ -1,0 +1,45 @@
+# The prologue xdotool sends when XTEST answers `present=0`.
+# recon/tools/caps/noxtest.jsonl, connection 1, requests 1..28,
+# rebuilt from the decoded capture (that run kept no raw bytes).
+#
+# With XTEST absent the tool prints, once,
+#   Warning: XTEST extension unavailable on '(null)'.
+# -- the literal '(null)' is xdotool's own bug -- then sends NO input
+# request at all: `key`/`type` exit 0 having sent nothing, `click`
+# exits 1, `mousemove` sends no WarpPointer [recon/tools.md 4.9].
+# There is no SendEvent fallback. That is why the proxy keeps
+# upstream's `present=1` and owns FakeInput itself (design 6.1).
+#
+# Measured here, and recon/tools.md 4.9 has it slightly differently:
+# the prologue loses THREE requests, not one -- QueryExtension
+# ('Generic Event Extension'), GE.QueryVersion and XTEST.GetVersion --
+# and still asks for 14 atom names, not 11. 28 requests, not 31.
+# ROOT 0x21f
+620005000c0000004249472d5245515545535453  # 4 QueryExtension
+85000100  # 6 BIG-REQUESTS.Enable pad
+370005000000a0001f0200000000000000000000  # 8 CreateGC pad
+140006001f020000170000001f0000000000000000e1f505  # 9 GetProperty
+6200050009000000584b4559424f415244000000  # 11 QueryExtension
+8700020001000000  # 13 XKEYBOARD.UseExtension pad
+620006000f00000058496e707574457874656e73696f6e00  # 15 QueryExtension
+62000400050000005854455354000000  # 17 QueryExtension
+87080700000100000000000000000000000000000000000000000000  # 19 XKEYBOARD.GetMap pad
+77000100  # 21 GetModifierMapping
+871103000300000000000000  # 23 XKEYBOARD.GetNames pad
+87080700000100000000000000000000000000000000000000000000  # 25 XKEYBOARD.GetMap pad
+8701050003000000000000000000000000000000  # 27 XKEYBOARD.SelectEvents pad
+87010400030000000000000000000000  # 28 XKEYBOARD.SelectEvents pad
+1100020089000000  # 29 GetAtomName
+110002008b000000  # 31 GetAtomName
+110002008c000000  # 33 GetAtomName
+110002008e000000  # 35 GetAtomName
+1100020080000000  # 37 GetAtomName
+1100020097000000  # 39 GetAtomName
+1100020098000000  # 41 GetAtomName
+110002007f000000  # 43 GetAtomName
+1100020099000000  # 45 GetAtomName
+110002007e000000  # 47 GetAtomName
+1100020090000000  # 49 GetAtomName
+1100020095000000  # 51 GetAtomName
+1100020081000000  # 53 GetAtomName
+110002008a000000  # 55 GetAtomName

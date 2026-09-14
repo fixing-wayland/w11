@@ -32,10 +32,10 @@ from w11common.errors import CmdError
 from support import env
 from test_dbus_mini import MockBus
 import wl_fake
-from wdotool import backend_detect, backend_gnome
-from wdotool.backend import (View, Window, WindowBackend, Workspace,
+from hacks.window import backend_detect, backend_gnome
+from hacks.window.backend import (View, Window, WindowBackend, Workspace,
                              hit_test, state_steps)
-from wdotool.backend_gnome import (BUS_NAME, EXT_UUID, IFACE,
+from hacks.window.backend_gnome import (BUS_NAME, EXT_UUID, IFACE,
                                    OBJECT_PATH, SHELL_NAME, GnomeBackend)
 from wdotool.ctx import NoSessionError
 
@@ -951,7 +951,7 @@ class BackendTests(_Base):
         # wwmctl -a :SELECT: and wxprop's click-select print this before
         # blocking. On GNOME the picker wants a click; only sway's backend,
         # which can do nothing but wait for a focus change, says "focus".
-        from wdotool.backend_sway import SwayBackend
+        from hacks.window.backend_sway import SwayBackend
         self.assertEqual(self.b.select_window_hint,
                          "click the target window to select it")
         self.assertEqual(SwayBackend.select_window_hint,
@@ -1827,9 +1827,9 @@ class DetectTests(_Base):
         not in the tree yet. detect() is written around CmdError -- the forced path lets it out and the socket
         arms swallow it -- so a bare ModuleNotFoundError would reach the user as a traceback from every
         wdotool command on a real Hyprland or Wayfire session, where the wlr floor answered before."""
-        for name, module in (("_hypr", "wdotool.backend_hypr"),
-                             ("_wayfire", "wdotool.backend_wayfire"),
-                             ("_cosmic", "wdotool.backend_cosmic")):
+        for name, module in (("_hypr", "hacks.window.backend_hypr"),
+                             ("_wayfire", "hacks.window.backend_wayfire"),
+                             ("_cosmic", "hacks.window.backend_cosmic")):
             with self.subTest(name):
                 if importlib.util.find_spec(module) is not None:
                     self.skipTest("%s is built here; its own batch owns this maker" % module)
@@ -1850,7 +1850,7 @@ class DetectTests(_Base):
         """The other side of the same guard: with the socket really there and nothing to import, the arm
         refuses like any other failing maker and detect() carries on to its own line -- rc 2 with an
         explanation, not a traceback out of an import."""
-        if importlib.util.find_spec("wdotool.backend_hypr") is not None:
+        if importlib.util.find_spec("hacks.window.backend_hypr") is not None:
             self.skipTest("wdotool/backend_hypr.py is built here; batch 5 owns this arm")
         setattr(backend_detect, "_hypr", self._orig["_hypr"])
         d = os.path.join(self.rundir, str(os.getuid()), "hypr", "sig_1_1")
@@ -2397,7 +2397,7 @@ class ShippedFilesTests(unittest.TestCase):
         layout."""
         with open(os.path.join(self.EXT, "metadata.json")) as f:
             listed = [int(v) for v in json.load(f)["shell-version"]]
-        from wxrandr import gnome_overlap
+        from hacks.display import gnome_overlap
         overlap = sorted(g["shell_major"] for g in gnome_overlap.GENERATIONS)
         self.assertEqual([m for m in self._vm_gnome_majors() if m not in listed],
                          [], "the rig runs a GNOME the bridge will not load on")

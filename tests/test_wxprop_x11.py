@@ -23,8 +23,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from wdotool import x11_mini
-from wdotool.x11_mini import X11Conn, X11Error, XUnavailable
+from hacks.window import x11_mini
+from hacks.window.x11_mini import X11Conn, X11Error, XUnavailable
 
 from test_wwmctl_x11 import FakeXServer
 

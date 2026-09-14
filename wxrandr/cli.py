@@ -24,8 +24,8 @@ import re
 import sys
 
 from w11common import distro, passthrough, stdio
-from wxrandr import core, gnome_overlap
-from wxrandr.core import ArgErr, Fatal, Stanza
+from hacks.display import core, gnome_overlap
+from hacks.display.core import ArgErr, Fatal, Stanza
 
 _PERSIST_CONFLICT = (
     "--persistent and %s cannot be used together: %s applies a layout GNOME's "
@@ -652,9 +652,21 @@ def canonical_backend(value):
 #: Real xrandr has neither, so neither may reach it: on an X11 session
 #: `--persistent` came back as its `unrecognized option '--persistent'` and
 #: exit 1 with the layout unapplied, where the documents say an X11 apply
-#: works and simply saves nothing (WXRANDR.md, "Keeping a layout").
+#: works and simply saves nothing (WXRANDR.md, "Keeping a layout").  These two
+#: are the pair README's handover paragraph names.
 PERSISTENT_FLAG = "--persistent"
 OWN_APPLY_FLAGS = (PERSISTENT_FLAG, gnome_overlap.FLAG)
+
+#: every option of ours the original must never be handed, which is the pair
+#: above plus the force flag.  `--unsafe-gnome-overlap-unmeasured` modifies a
+#: refusal *check* and not an apply, so it is not one of the two -- and it got
+#: the identical wrong answer until T26: on Xvfb :355 here, `python3 -m wxrandr
+#: --unsafe-gnome-overlap-unmeasured 51` printed the ORIGINAL's `unrecognized
+#: option '--unsafe-gnome-overlap-unmeasured'`, as it did on all nine X11
+#: flavors of the first all-38 run [M goal2/recon/gaps.md 1a #7].  It takes a
+#: value (`_ARITY`), which `_walk_argv` drops with it -- or `51` would reach
+#: the original as a positional and be read as a screen size.
+OWN_ARGV_FLAGS = OWN_APPLY_FLAGS + (gnome_overlap.FORCE_FLAG,)
 
 
 def _walk_argv(argv):
@@ -675,10 +687,10 @@ def _walk_argv(argv):
 
 
 def own_flags_in(argv):
-    """The options of OWN_APPLY_FLAGS this argv really carries, as a set -- an output *named* `--persistent`
+    """The options of OWN_ARGV_FLAGS this argv really carries, as a set -- an output *named* `--persistent`
     is not one of them.  main() asks before handing over: one of these on an X11 session is a user asking for
     something the original has never heard of, and the answer has to be ours."""
-    return {a for a, _take in _walk_argv(argv) if a in OWN_APPLY_FLAGS}
+    return {a for a, _take in _walk_argv(argv) if a in OWN_ARGV_FLAGS}
 
 
 def scan_backend_argv(argv):
@@ -686,7 +698,7 @@ def scan_backend_argv(argv):
     out of a raw argv *before* anything is parsed -- which is where main() has to decide whether this X11
     session hands over to the real xrandr.  The stripped argv is what the original is then exec'd with:
     `--backend x11` asks for the real xrandr, which has no such option to be handed, and neither does it have
-    the two in OWN_APPLY_FLAGS.  A `--backend` with no value at all comes back as `""` -- present, naming
+    the three in OWN_ARGV_FLAGS.  A `--backend` with no value at all comes back as `""` -- present, naming
     nothing -- so that the flag's own error is ours to print on every session, not the original's.
 
     argv is walked by `_walk_argv`, so an output named like one of our options is a value here too.  Never
@@ -719,7 +731,7 @@ def scan_backend_argv(argv):
             take = 11
             while i + take < n and argv[i + take].lower() in core.MODE_FLAGS:
                 take += 1
-        if a not in OWN_APPLY_FLAGS:
+        if a not in OWN_ARGV_FLAGS:
             rest.extend(argv[i:i + take])
         i += take
     return backend, info, rest
@@ -785,7 +797,7 @@ def _probe_sway(verbose=False):
 
 def _probe_kwin():
     from w11common import session as wsession
-    from wxrandr import kwin as kwin_mod
+    from hacks.display import kwin as kwin_mod
     conn = kwin_mod.probe()
     if conn is None:
         if wsession.find_wayland_socket() is None:
@@ -804,7 +816,7 @@ def _probe_kwin():
 
 def _probe_mutter():
     from w11common import session as wsession
-    from wxrandr import mutter as mutter_mod
+    from hacks.display import mutter as mutter_mod
     bus = mutter_mod.probe()
     if bus is None:
         if not wsession.find_session_bus():
@@ -870,7 +882,7 @@ def _probe_hypr(verbose=False):
         return Probe("hypr", False,
                      "no Hyprland IPC socket ($HYPRLAND_INSTANCE_SIGNATURE)")
     try:
-        from wxrandr import hypr as hypr_mod
+        from hacks.display import hypr as hypr_mod
     except ImportError:
         # The socket says this really is Hyprland, and `hypr` is second in AUTO_ORDER, so an ImportError here
         # escapes probe_backend() and kills every wxrandr invocation on a Hyprland desktop -- including
@@ -885,7 +897,7 @@ def _probe_cinnamon():
     org.cinnamon.Muffin.DisplayConfig and never org.gnome.Mutter.DisplayConfig [M recon2/cinnamon.md §2.2], so
     this is a separate name on the same bus and not a second flavour of the mutter probe."""
     from w11common import session as wsession
-    from wxrandr import mutter as mutter_mod
+    from hacks.display import mutter as mutter_mod
     bus = mutter_mod.probe(flavor=mutter_mod.MUFFIN)
     if bus is None:
         if not wsession.find_session_bus():
@@ -1251,7 +1263,7 @@ class Session:
             # session without sway has already left through _cant_open()
             self.impl = core.SwayBackend(ipc, core.wlr_snapshot_safe())
         elif self.backend == "kwin":
-            from wxrandr import kwin as kwin_mod
+            from hacks.display import kwin as kwin_mod
             if kprobe is None and wsession.find_wayland_socket() is None:
                 self._cant_open()
             try:
@@ -1261,7 +1273,7 @@ class Session:
             except (OSError, RuntimeError, ValueError):
                 self._cant_open()
         elif self.backend == "mutter":
-            from wxrandr import mutter as mutter_mod
+            from hacks.display import mutter as mutter_mod
             try:
                 # no bus at all -> "Can't open display"; a bus without
                 # DisplayConfig raises Fatal with a one-line explanation
@@ -1269,13 +1281,13 @@ class Session:
             except (mutter_mod.DBusError, OSError, ValueError):
                 self._cant_open()
         elif self.backend == "hypr":
-            from wxrandr import hypr as hypr_mod
+            from hacks.display import hypr as hypr_mod
             # the probe's HyprIPC, so the socket path is found once per run; it holds no connection, so
             # reusing it costs nothing and closing it twice is safe. No arm for a missing socket: HyprIPC
             # opens nothing here and the probe has already refused a session that has none, by name.
             self.impl = hypr_mod.HyprOutputs(ipc=reuse("hypr"))
         elif self.backend == "cinnamon":
-            from wxrandr import mutter as mutter_mod
+            from hacks.display import mutter as mutter_mod
             try:
                 # Muffin's DisplayConfig is Mutter's interface under Cinnamon's three names, so this is the
                 # mutter arm above with the flavour swapped -- including the connection the probe opened,
@@ -1319,7 +1331,7 @@ class Session:
         # tests/test_wxrandr_cinnamon.py: without this the `--dryrun --verbose` plan omits the crtc lines
         # for the neighbours the apply shifts and promises `screen 0: 5760x1600` where the run leaves 5520
         if getattr(self.impl, "flavor", None) is not None:
-            from wxrandr import mutter as mutter_mod
+            from hacks.display import mutter as mutter_mod
             moved = {n for n, _p, _via in mutter_mod.keep_adjacent(targets, dims, pos)}
             for t in targets:
                 if t.name in moved:
@@ -1512,7 +1524,7 @@ def _check_screen_size(opts: Opts, targets, dims, pos):
 
 
 def _apply_gamma(sess: Session, opts: Opts, outputs):
-    from wxrandr import gamma as gammamod
+    from hacks.display import gamma as gammamod
     from w11common import session as wsession
     hit = wsession.find_wayland_socket()
     sock = hit[2] if hit else None
@@ -1799,8 +1811,18 @@ def main(argv=None) -> int:
         # unable to be: `x11` there means the real xrandr on any session, exactly like the flag.  A Wayland name
         # in it is still left alone -- not pre-checked, and not allowed to suppress an X11 session's handover.
         forced = "x11"
-    ours = info_only or (flag is not None and asked not in ("auto", "x11"))
     mine = own_flags_in(args)
+    # T26.  The force flag is a *modifier* of `--unsafe-gnome-overlap`, and typed on its own it is a usage
+    # error of ours -- the sentence `_check_force` raises.  Alone it never reached that sentence
+    # on an X11 session, because the handover below replaced the process first: `wxrandr
+    # --unsafe-gnome-overlap-unmeasured 51` answered `xrandr: unrecognized option
+    # '--unsafe-gnome-overlap-unmeasured'` -- the ORIGINAL's words -- on all nine X11 flavors of run
+    # 34628777544, reproduced here on Xvfb :355 [M goal2/recon/gaps.md 1a #7].  So a command line carrying it
+    # WITHOUT `--unsafe-gnome-overlap` is ours all the way to parse(), which is the only place our own words
+    # for it live; with the pair typed together the GNOME refusal below is the right answer and comes first.
+    force_alone = (gnome_overlap.FORCE_FLAG in mine
+                   and gnome_overlap.FLAG not in mine)
+    ours = info_only or force_alone or (flag is not None and asked not in ("auto", "x11"))
     if not ours:
         # The X11 session's own answer to our two apply options, given before the handover because after it
         # there is no code of ours left to give one.  `--persistent` is dropped and the apply goes through:
@@ -1831,6 +1853,22 @@ def main(argv=None) -> int:
             entry=entry, force=forced == "x11")
         if rc is not None:
             return rc
+        # Wayland with the original installed: the original ITSELF, against the
+        # xw11 display (design section 8.1).  The FULL args and not `stripped`:
+        # the hook's fourth rule is "an option of ours means our code", and
+        # `--persistent` -- which `stripped` has already removed -- is exactly
+        # such an option, so a stripped argv here would send a persistent apply
+        # to the original with the persistence silently gone.  Imported inside
+        # main(): on an X11 session the handover above has already replaced this
+        # process, and the wxrandr zipapp carries no xw11/.
+        try:
+            from xw11.wrap import maybe_exec_through_proxy
+        except ImportError:             # pragma: no cover - a bundle without xw11/
+            maybe_exec_through_proxy = None
+        if maybe_exec_through_proxy is not None:
+            rc = maybe_exec_through_proxy("xrandr", args, entry=entry)
+            if rc is not None:
+                return rc
     if argv is None:
         argv = sys.argv[1:]
     quiet = False

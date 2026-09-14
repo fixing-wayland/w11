@@ -71,7 +71,7 @@ PAIRS = {
     "usr/share/licenses/w11/LICENSE": "LICENSE",
 }
 
-TOOLS = ("warandr", "wdotool", "wmirror", "wwmctl", "wxprop", "wxrandr")
+TOOLS = ("warandr", "wdotool", "wmirror", "wwmctl", "wxprop", "wxrandr", "xw11")
 
 
 def load_gen_gir():
@@ -205,7 +205,7 @@ class ThePayload(PkgCase):
                     seen += 1
             self.assertGreaterEqual(seen, 3, uuid)
 
-    def test_the_typelibs_are_all_three_there_and_describe_what_the_tree_does(self):
+    def test_the_typelibs_are_all_four_there_and_describe_what_the_tree_does(self):
         """The regenerated files, compared by meaning and not by bytes.
 
         build() recompiles them, so the bytes differ from the checked-in blobs
@@ -223,7 +223,7 @@ class ThePayload(PkgCase):
         with open(os.path.join(ROOT, "gnome", OVERLAP_UUID, "generations.json"),
                   encoding="utf-8") as f:
             names = [g["namespace"] for g in json.load(f)["generations"]]
-        self.assertEqual(len(names), 3, names)
+        self.assertEqual(len(names), 4, names)
         packaged_dir = os.path.join(tmp, EXT, OVERLAP_UUID, "typelib")
         shipped_dir = os.path.join(ROOT, "gnome", OVERLAP_UUID, "typelib")
         for ns in names:
@@ -247,7 +247,7 @@ class ThePayload(PkgCase):
                 self.assertEqual(built["namespace"], ns)
                 self.assertEqual(built["shared_libraries"], [])
 
-    def test_usr_bin_is_the_six_commands(self):
+    def test_usr_bin_is_the_seven_commands(self):
         got = [m for m in self.members() if m.startswith("usr/bin/")]
         self.assertEqual(sorted(got), ["usr/bin/%s" % n for n in TOOLS])
 

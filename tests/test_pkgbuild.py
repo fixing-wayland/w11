@@ -285,7 +285,7 @@ class TheRecipe(unittest.TestCase):
             os.path.join(ROOT, "gnome", "overlap-typelib", "gen-gir.py")))
         with open(GENERATIONS, encoding="utf-8") as fh:
             names = [g["namespace"] for g in json.load(fh)["generations"]]
-        self.assertEqual(len(names), 3, names)
+        self.assertEqual(len(names), 4, names)
         for ns in names:
             with self.subTest(ns):
                 self.assertTrue(os.path.exists(os.path.join(
@@ -715,11 +715,15 @@ class TheThreePackagingsAgree(unittest.TestCase):
         top-level names and nothing about anybody else's.  A seventh package
         added to pyproject and not to that alternation is a red CI job for a
         reason nobody would find; an alternation that grew a name this tree
-        does not ship would hide a real finding."""
+        does not ship would hide a real finding.
+
+        `xw11` is the eighth name in `[project.scripts]` and the alternation
+        carries it (it landed with the proxy's CI fixes, one word)."""
         with open(os.path.join(ROOT, "pyproject.toml"), "rb") as fh:
             project = tomllib.load(fh)["project"]
         mine = {v.split(":")[0].split(".")[0] for v in project["scripts"].values()}
         mine.add("w11common")
+        mine.add("hacks")
         with open(NAMCAP_EXPECTED, encoding="utf-8") as fh:
             text = fh.read()
         m = re.search(r"Referenced python module '\(([^)]*)\)", text)

@@ -10,7 +10,8 @@ import sys
 
 from w11common import passthrough, stdio
 from w11common.errors import CmdError
-from wdotool import backend, commands
+from wdotool import commands
+from hacks.window import backend
 from wdotool.cnum import atoi as _atoi
 from wdotool.ctx import Context
 
@@ -389,13 +390,21 @@ def _main(argv: list[str] | None = None) -> int:
             sys.stderr.write("wdotool: --vkbd: invalid argument %r; "
                              "valid: auto, on, off\n" % vkbd_mode)
             return 1
+    # The arguments as the user wrote them, kept before the two options above
+    # are taken out of them.  The X11 handover is given the STRIPPED argv (they
+    # are ours and the real xdotool has never had them), but the proxy hook has
+    # to see them: its rule 4 is "an option of ours means our own code runs",
+    # and an argv that has already lost `--layout` would send `--layout xkb type
+    # a` to the original with the layout silently gone.  wxrandr's call passes
+    # the full args for exactly this reason (wxrandr/cli.py, `--persistent`).
+    proxy_args = list(argv[1:])
     if layout_mode is not None or vkbd_mode is not None:
         argv = argv[:1] + rest
 
     # Hidden diagnostic (B13): dump the compositor's keymap and what wdotool
     # makes of it. Ours, like __daemon: never a passthrough, never in `help`.
     if len(argv) > 1 and argv[1] == "__keymap":
-        from wdotool import xkbmap
+        from hacks.input import xkbmap
 
         return xkbmap.diagnostic_main(argv[2:])
 
@@ -414,6 +423,19 @@ def _main(argv: list[str] | None = None) -> int:
     rc = passthrough.maybe_exec_real("xdotool", argv[1:], entry=entry)
     if rc is not None:
         return rc
+    # Wayland with the original installed: the original ITSELF, run against
+    # the xw11 display, which answers for the whole desktop (design section
+    # 8.1).  Imported here and not at the top of the file: on an X11 session
+    # main() has already left above, so `xw11.wrap` is never imported there --
+    # and the wdotool zipapp carries no xw11/ (scripts/build-pyz.sh).
+    try:
+        from xw11.wrap import maybe_exec_through_proxy
+    except ImportError:                 # pragma: no cover - a bundle without xw11/
+        maybe_exec_through_proxy = None
+    if maybe_exec_through_proxy is not None:
+        rc = maybe_exec_through_proxy("xdotool", proxy_args, entry=entry)
+        if rc is not None:
+            return rc
 
     prog = _prog_name(argv)
 

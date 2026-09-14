@@ -21,14 +21,14 @@ let
 in
 {
   options.programs.w11 = {
-    enable = lib.mkEnableOption "the w11 tools (wdotool, wwmctl, wxprop, wxrandr, wmirror)";
+    enable = lib.mkEnableOption "the w11 tools (wdotool, wwmctl, wxprop, wxrandr, wmirror, xw11)";
 
     package = lib.mkOption {
       type = lib.types.package;
       default = w11pkgs.w11;
       defaultText = lib.literalExpression "w11.packages.\${system}.w11";
       description = ''
-        The stdlib CLI package -- five of the six tools, no GTK.  `warandr`
+        The stdlib CLI package -- six of the seven tools, no GTK.  `warandr`
         (the one GUI) is a package of its own for the 330.9 MiB of closure it
         needs (216.0 MiB against 546.9 MiB, both built from this tree), and
         the two `bin/` directories are disjoint so that nothing has to be
@@ -131,6 +131,32 @@ in
       '';
     };
 
+    proxy.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Start `xw11 --foreground` with the graphical session, as a systemd user
+        service, instead of letting the first `xdotool`/`wmctrl`/`xprop`/
+        `xrandr` call start it on demand.
+
+        Off by default because nothing needs it: the wrapper spawns the proxy
+        itself on the first call (`xw11/wrap.py`), nothing is left behind on a
+        session that never runs an X tool, and Xwayland keeps its own
+        `-terminate` behaviour there.  Turn it on for the one thing on-demand
+        cannot give you: shadow window ids that are stable for the whole
+        session.  A proxy that started on demand exits fifteen minutes after
+        its last client (`_IDLE_SECONDS`), and the ids it minted mean nothing
+        to the next one -- so a script that saves an id, sleeps an hour and
+        acts on it wants a proxy that never idles.  The cost is one process and
+        one Xwayland pinned for the whole session.
+
+        The service waits for the session's X server rather than giving up on
+        it: on GNOME and KWin, Xwayland starts on demand and may not exist when
+        `graphical-session.target` is reached, so the unit retries every five
+        seconds with no start limit.
+      '';
+    };
+
     wlMirror.enable = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -187,6 +213,36 @@ in
       # node then carries the permissions and the uaccess ACL from the first
       # login on rather than from the first open().
       boot.kernelModules = [ "uinput" ];
+    })
+
+    (lib.mkIf cfg.proxy.enable {
+      # A user service and not an autostart .desktop entry: NixOS has no
+      # /etc/xdg/autostart hook that every desktop reads, and the proxy has to
+      # be there before the session's first X tool runs.  `--foreground`
+      # because systemd owns the lifetime here; the on-demand spawn's double
+      # fork would leave systemd with nothing to supervise.
+      systemd.user.services.xw11 = {
+        description = "xw11: an X11 display in front of the session's X server";
+        partOf = [ "graphical-session.target" ];
+        after = [ "graphical-session.target" ];
+        wantedBy = [ "graphical-session.target" ];
+        serviceConfig = {
+          ExecStart = "${cfg.package}/bin/xw11 --foreground";
+          # The proxy refuses to start when nothing answers $DISPLAY and no
+          # Xwayland is running (xw11/cli.py:_refusal), and on GNOME and KWin
+          # that is the NORMAL state at graphical-session.target: both start
+          # Xwayland on demand, so the X server may be minutes away.  Exit 1
+          # then, and systemd's default rate limit (5 starts in 10 s) would put
+          # the unit in `failed` before the session's first X tool ever ran.
+          # Five seconds between tries and no limit on the number: the unit
+          # waits for Xwayland instead of giving up on it.
+          Restart = "on-failure";
+          RestartSec = 5;
+        };
+        # Unit-level and not in serviceConfig: systemd moved the two start-limit
+        # settings out of [Service] in v229 and NixOS spells them here.
+        startLimitIntervalSec = 0;
+      };
     })
 
     (lib.mkIf cfg.gnomeBridge.enable {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bug 3: what the six tools do when their standard output is not there.
+"""Bug 3: what the seven tools do when their standard output is not there.
 
 Every one of them printed something no original ever prints:
 
@@ -58,6 +58,9 @@ TOOLS = [
     ("wxrandr", ["--help"], "xrandr"),
     ("warandr", ["--version"], "warandr"),
     ("wmirror", ["--help"], "wmirror"),
+    # the seventh: not a clone, and the one whose --help is the only thing it
+    # prints without touching a session at all
+    ("xw11", ["--help"], "xw11"),
 ]
 
 
@@ -219,7 +222,7 @@ class ClosedStderr(NoTracebackEver):
 
     def test_a_tool_that_prints_still_prints(self):
         """The other way a crash on the way to stderr would hide: fd 2 is
-        gone, fd 1 is a pipe, and the six TOOLS commands each print to it.
+        gone, fd 1 is a pipe, and every TOOLS command prints to it.
         A tool that died on `sys.stderr is None` before reaching its own
         output would still exit 0 here with nothing on stdout, so the bytes
         are the assertion -- byte-for-byte what the same command prints on a
@@ -238,7 +241,7 @@ class ClosedStderr(NoTracebackEver):
 
     def test_both_descriptors_closed_still_exits_0(self):
         """`tool >&- 2>&-`: nothing can be said and nothing needed saying, so
-        the six commands in TOOLS -- each of which succeeds on a healthy
+        the commands in TOOLS -- each of which succeeds on a healthy
         terminal -- succeed here too."""
         for mod, argv, _prog in TOOLS:
             with self.subTest(tool=mod):
@@ -255,7 +258,7 @@ _BOOM = """
 import os, sys
 sys.path.insert(0, %r)
 os.environ["W11_PASSTHROUGH"] = "never"
-from wdotool.backend import WindowBackend
+from hacks.window.backend import WindowBackend
 
 
 class Boom(WindowBackend):
@@ -278,7 +281,7 @@ def boom(*a, **k):
 def xboom(*a, **k):
     # BadWindow (code 3) from X_GetProperty (major 20), the error a real
     # xprop meets when the id it was handed has just been destroyed.
-    from wdotool.x11_mini import X11Error
+    from hacks.window.x11_mini import X11Error
     raise X11Error(3, 20, 0, 0x1)
 
 
@@ -291,11 +294,11 @@ sys.exit(%s)
 #: report carries.
 DEBUG_CASES = [
     ("wdotool",
-     "from wdotool import backend_detect, cli\n"
+     "from wdotool import cli; from hacks.window import backend_detect\n"
      "backend_detect.detect = lambda: Boom()",
      'cli.main(["__main__.py", "getactivewindow"])', "wdotool"),
     ("wwmctl",
-     "from wwmctl import core, cli\n"
+     "from wwmctl import cli; from hacks.window import wmctl as core\n"
      "core._detect_backend = lambda: Boom()\n"
      "core._x11_connect = lambda: None",
      'cli.main(["-l"])', "wwmctl"),
@@ -305,7 +308,7 @@ DEBUG_CASES = [
     # seam that does -- core._x11_connect() guards its own body, not a
     # replacement of it.
     ("wxprop",
-     "from wxprop import core, cli\n"
+     "from wxprop import cli; from hacks.property import core\n"
      "core._detect_backend = lambda: None\n"
      "core._x11_connect = boom",
      'cli.main(["-root", "_NET_CLIENT_LIST"])', "wxprop"),
@@ -378,7 +381,7 @@ class DebugAndXProtocolErrors(NoTracebackEver):
     message for out". Nothing else pins that choice, so this does; the
     default path keeps the block byte for byte."""
 
-    PATCH = ("from wxprop import core, cli\n"
+    PATCH = ("from wxprop import cli; from hacks.property import core\n"
              "core._detect_backend = lambda: None\n"
              "core._x11_connect = xboom")
     CALL = 'cli.main(["-root", "_NET_CLIENT_LIST"])'

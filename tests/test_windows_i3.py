@@ -40,8 +40,9 @@ os.environ["W11_PASSTHROUGH"] = "never"
 
 import support
 from test_wxprop_x11 import FakeXServerExt
-from wdotool import cli, x11_mini
-from wdotool.backend_sway import SwayBackend
+from wdotool import cli
+from hacks.window import x11_mini
+from hacks.window.backend_sway import SwayBackend
 from wdotool.ctx import Context
 
 #: the w11smoke xterm, as the live i3 reported it [M recon2/i3.md §1, fixtures/i3/get_tree_floating.json]
@@ -195,7 +196,8 @@ class Ids(XPlaneBase):
     def test_wwmctl_lists_the_window_under_its_x_id(self):
         """`wwmctl -l` already read `node["window"]` for the printed column, so this pins that the id
         column and the id every other tool hands out are now the same number."""
-        from wwmctl import cli as wwmctl_cli, core as wwmctl_core
+        from wwmctl import cli as wwmctl_cli
+        from hacks.window import wmctl as wwmctl_core
         b = self.backend()
         out, err = io.StringIO(), io.StringIO()
         with mock.patch.object(wwmctl_core, "_detect_backend", lambda: b), \
@@ -238,7 +240,8 @@ class Ids(XPlaneBase):
         self.assertNotIn("BadWindow", err)
 
     def wxprop(self, *argv):
-        from wxprop import cli as wxprop_cli, core as wxprop_core
+        from wxprop import cli as wxprop_cli
+        from hacks.property import core as wxprop_core
 
         class Cap:
             def __init__(self):

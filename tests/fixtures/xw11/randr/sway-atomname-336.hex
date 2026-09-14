@@ -1,0 +1,8 @@
+# Captured 2026-09-10 on this box: sway 1.11 headless with one
+# HEADLESS-1 at 1280x720, Xwayland 24.1.10, through the recording
+# forwarder scratchpad/b7/rec.py. RANDR major 139, root 0x234,
+# crtc 0x20, output 0x21.
+# GetAtomName(0x136) reply, the monitor name atom --listmonitors
+# resolves. Not a RandR request at all; it is here because the
+# --listmonitors stream sends it.
+01001400030000000a0000000000000000000000000000000000000000000000484541444c4553532d310000

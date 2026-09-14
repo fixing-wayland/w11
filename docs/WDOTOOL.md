@@ -50,6 +50,19 @@ xdotool documents.
 The gap is real time, so a repeat is not instantaneous, and the tool waits for it
 before exiting the way xdotool does.
 
+## On Wayland, with xdotool installed, this runs xdotool
+
+Since the X11 proxy, `wdotool` hands over on a **Wayland** session as well as on an X11 one:
+the original is exec'd with `DISPLAY` pointing at [`xw11`](XW11.md), which answers for
+native Wayland windows as well as for Xwayland's. The clone still runs when the original
+is not installed, when `W11_PROXY=never` (or `WDOTOOL_PROXY=never`) asks for it, when
+`W11_PASSTHROUGH=never` is set, and whenever the command uses one of our own options --
+`--layout`, `--vkbd` or the `keys` command, none of which xdotool has.
+Everything this document says about the clone's output is still what the clone prints;
+through the proxy the output is the original's, byte for byte, because it **is** the
+original. The six rules in order are
+[XW11.md § The wrapper rules](XW11.md#the-wrapper-rules).
+
 ## Compatibility
 
 All 48 xdotool commands are implemented, with output byte-compatible against
@@ -964,7 +977,7 @@ send, so wdotool asks `org.gnome.Mutter.DisplayConfig` when, and only when, the 
 carries that signature, and **says so once** when the two answers differ, naming both
 and the way out. It does not take DisplayConfig's number for the pointer: that was
 tried, and since Mutter's absolute-input mapping uses the stale rectangle too, it lands
-every target at twice the coordinate asked for (`wdotool/layoutbox.py`). Changing the
+every target at twice the coordinate asked for (`hacks/input/layoutbox.py`). Changing the
 scale once clears the whole state; 26.04 and Plasma never enter it.
 
 ## Architecture
@@ -1130,7 +1143,7 @@ Daemon notes:
   motion across even when it is stale; a difference is a one-off diagnostic, since it
   is `getdisplaygeometry` that is then reporting a desktop that is not there. Every
   other session (scale 1, any logical-mode session, KDE, sway, X11) never opens a bus
-  and pays nothing: `wdotool/layoutbox.py`, and
+  and pays nothing: `hacks/input/layoutbox.py`, and
   [Pointer accuracy](#pointer-accuracy) for the measurement.
   Fallback (0, 0, 1920, 1080) + warn, and the `geometry` reply
   says `fallback: true` so `getdisplaygeometry` can refuse to print a guess
@@ -1379,7 +1392,7 @@ Daemon notes:
 - **kwin**: `org.kde.kwin.Scripting.loadScript()` over `dbus_mini`, unprivileged
   on Plasma 5.27 and 6 alike (plain `Q_SCRIPTABLE` on `/Scripting`, no polkit, no
   bus policy), so **nothing has to be installed**, unlike the GNOME bridge. One
-  generated script per command (`wdotool/kwin_js.py`, the whole 5.27↔6 divergence
+  generated script per command (`hacks/window/kwin_js.py`, the whole 5.27↔6 divergence
   lives there); it answers with the JS global `callDBus()` to a name we own
   (`org.w11.KWin` / `/org/w11/KWin` / `org.w11.KWin1`,
   members `Result(token, json)` and `Event(token, uuid, change)`), which
@@ -1661,7 +1674,7 @@ question is moot, because wdotool uploads its own keymap.
   `is_shaded` where mutter dropped shading and KWin 6 removed it, and
   `_NET_WM_STATE_SHADED` is in muffin's `_NET_SUPPORTED` too. `wxprop -id` does not print
   it back yet, though, where the real `xprop` on a Cinnamon X11 session does, **not yet**,
-  one atom in `wxprop/core.py`.
+  one atom in `hacks/property/core.py`.
 * `SKIP_TASKBAR`, `SKIP_PAGER` and `MODAL` warn and succeed, as on GNOME; `BELOW` is
   refused by name. All four are **not yet**: for an XWayland window `wwmctl` already sets
   them on the X11 connection (route 5), and for a native one it is one setter each in muffin
@@ -1744,7 +1757,7 @@ IPC (route 2).
 
 ### What the base class answers, and for whom
 
-Four gaps live in `wdotool/backend.py:WindowBackend`'s defaults rather than in any one
+Four gaps live in `hacks/window/backend.py:WindowBackend`'s defaults rather than in any one
 backend: a backend reaches them by not overriding the method. Measured 2026-09-09 against
 the eight backend modules, gnome and kwin reach none of them.
 

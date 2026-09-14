@@ -49,7 +49,7 @@
 # /dev/uinput; `wmirror --check` found both capture managers.  `wl-mirror` itself could NOT be
 # run in the recon (no EGL in that sandbox: `failed to create EGL display`), so this rig is
 # the first place a real mirror on river is measured at all [recon2/river 3].
-SMOKE_PHASES="busrec install windows wm input display mirror root nodialog"
+SMOKE_PHASES="busrec install windows wm proxy input display mirror root nodialog"
 EDITOR_CLASS=foot
 
 #: Where the second terminal writes its own pid.  In $HOME and not /tmp, for the reason
@@ -85,15 +85,17 @@ river with no window-manager client reports zero toplevels [$(ev "$out")]"
     fi
     pass "wdotool search --class $EDITOR_CLASS -> $WIN"
     want "getwindowname is not empty" "." "$(guest "wdotool getwindowname $WIN" || true)"
-    # The floor's geometry fiction, as on labwc: 0,0 plus the output rectangle.  Recorded and
-    # then checked the way labwc.sh checks it -- as an xwant on a position that is NOT the
-    # floor's, so the day a real rectangle arrives the run says XPASS instead of going red.
-    # NOT YET; the lowest route on the AGENTS.md ladder is 5, the X plane, XWayland only.
+    # The NATIVE half of the geometry gap, as on labwc: $WIN is foot, no X server has heard of
+    # it, and zwlr_foreign_toplevel_management_v1 carries no rectangle, so 0,0 plus the output
+    # rectangle is everything this session knows.  Recorded and not asserted, for the reason
+    # labwc.sh gives at the same check: pinning `Position: 0,0` would go red the day a real
+    # rectangle arrives.  NOT YET, rung 1 -- a foreign-toplevel protocol that carries a
+    # rectangle, which costs wlroots writing and shipping one -- with rung 6, a patched
+    # compositor, as the fallback.  The XWayland half is route 5 and is checked in
+    # river_xwayland below, against the real X server.
     local wgeom; wgeom=$(guest "wdotool getwindowgeometry $WIN" || true)
-    note "getwindowgeometry: $(printf '%s' "$wgeom" | tr '\n' '|')"
-    xwant "getwindowgeometry answers the window's own position, not the floor's 0,0 (until \
-AGENTS.md route 5, the X plane, gives XWayland windows a real rectangle)" \
-          "Position: ([1-9][0-9]*,[0-9]+|[0-9]+,[1-9][0-9]*)" "$wgeom"
+    note "getwindowgeometry, native window (the floor: no protocol carries a rectangle yet, \
+AGENTS.md route 1): $(printf '%s' "$wgeom" | tr '\n' '|')"
     # getdisplaygeometry is the zxdg_output LAYOUT BOX and not one head's mode -- measured
     # 2560 720 across two heads where WlrBackend.display_size() would have said 1280 720
     # [recon2/river 3].
@@ -125,7 +127,10 @@ river_read_only() {
     # 3. activate.  A second window is needed for this to mean anything: activating the window
     #    that is already focused proves nothing whichever way it goes.  Its pid is written by
     #    the shell that BECOMES it (`exec`, so $$ stays the terminal's), because there is no
-    #    other way to get it: `getwindowpid` has nothing to answer with on this protocol, and
+    #    other way to get it: this is a NATIVE foot window, and the toplevel protocol carries
+    #    no pid for one, so `getwindowpid` has nothing to answer with here (the XWayland half
+    #    is answered off the X plane in river_xwayland below; the native half is NOT YET at
+    #    rung 1, a foreign-toplevel protocol that carries the pid).  And
     #    `pkill -f 'sleep 600'` would match the `sh -c` wrapper running this very command --
     #    the self-match hypr.sh documents.  It has to go before the input phase, since
     #    windowactivate does not work here and typing would otherwise land in whichever window
@@ -231,11 +236,22 @@ river_xwayland() {
     fi
     guest "setsid nohup xterm -T smokex -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 3; true" \
         >/dev/null || true
-    local list xid row bare
+    local list xid bare
     list=$(guest 'wxprop -root _NET_CLIENT_LIST' || true)
     want "wxprop -root _NET_CLIENT_LIST names the X client" "window id # 0x[0-9a-f]+" "$list"
     xid=$(xplane_id xterm || true)
-    row=$(guest 'wwmctl -lGpx' | grep -i xterm || true)
+    # poll for the X-plane join: the window can be in _NET_CLIENT_LIST before the wlr
+    # floor lists it, so a single fetch races empty (arch-river, CI run 34733966065).
+    # Driver-side retry keeps the recorded command `wwmctl -lGpx` unchanged, so the
+    # committed recording still replays (the recorded row answers the first poll) while
+    # a live run waits the join out, bounded ~10s.  LIVE_SMOKE_SLEEP=0 zeroes the sleep
+    # in replay, where the first call already matches.
+    local row=''; local _i
+    for _i in 1 2 3 4 5 6 7 8 9 10; do
+        row=$(guest 'wwmctl -lGpx' | grep -i xterm || true)
+        [ -n "$row" ] && break
+        sleep 1
+    done
     if [ -n "$xid" ]; then
         # The recon's own numbers for this exact join on river: the XTerm was 0x0040000c with
         # pid 51601 to the real wmctrl and 0x000f4243 with pid 0 and class XTerm.XTerm to us,
@@ -248,8 +264,70 @@ river_xwayland() {
     fi
     want "and with a real pid from the X server, where the floor printed 0" \
          "^0x[0-9a-f]+ +[0-9-]+ +[1-9][0-9]* " "$row"
+    # The RECTANGLE, AGENTS.md route 5, exactly as labwc.sh checks it: our own id for this
+    # xterm against the same window's rectangle read by the ORIGINAL xdotool over its own
+    # connection.  river is the flavor where this check earns its keep twice over, because the
+    # xterm it starts really does sit at 0,0 here -- the CI run of 2026-09-11 measured
+    # `0x0040000c ... 0 0 484 316` on arch-river [goal2/ci/rig-arch-river.log:559] -- so a
+    # check on "a position that is not 0,0" would have been red on a correct rectangle, and
+    # what says the fold happened is agreement with the oracle on all four numbers.
+    local wid ours theirs
+    # By TITLE and not by class: the app id an xwm hands the toplevel is not the same string on
+    # every compositor -- labwc's xterm arrives as `xterm` and river's recon read `XTerm.XTerm`
+    # [recon2/river 3] -- while `-T smokex` above is ours on both.
+    wid=$(guest 'wdotool search --name smokex | head -1' | tr -d ' \r\n' || true)
+    if [ -z "$wid" ] || [ -z "$xid" ] || ! guest 'command -v xdotool' >/dev/null 2>&1; then
+        # Not a second FAIL, for the reason the $xid branch above gives: a listing with no row
+        # for this xterm is what the id check has just gone red about.  It is also what the
+        # REPLAY rig looks like -- the recordings under tests/fixtures/live/ were captured
+        # before this command existed and fake-vmctl answers an unrecorded command with
+        # nothing -- so re-recording them is what makes this check run there too.
+        note "(no wdotool id for the xterm, or no xdotool to be the oracle: the rectangle check \
+needs both -- id '$(ev "$wid")', X id '$(ev "$xid")')"
+    else
+        ours=$(win_geom "$wid")
+        theirs=$(guest "xdotool getwindowgeometry $xid" | awk '
+            /Position:/ { pos = $2 } /Geometry:/ { geo = $2 }
+            END { printf "%s %s\n", pos, geo }')
+        note "getwindowgeometry, XWayland window: ours '$ours', the oracle xdotool '$theirs'"
+        same "getwindowgeometry on the XWayland window is the X server's own rectangle \
+(route 5), not the floor's 0,0 + a head's mode" "$theirs" "$ours"
+    fi
+    # The PID, the other half of the same route-5 join.  `_NET_WM_PID` is on the X window and
+    # zwlr_foreign_toplevel_management_v1 carries no pid at all, so `wdotool getwindowpid` on
+    # this xterm answered `window 1000000 has no pid associated with it` while the X plane in
+    # the same process knew the number -- `wwmctl -lGpx` printed `0x0040000c -1 2045 718 395
+    # 484 316` for that very window on the resolute-labwc golden 2026-09-12
+    # [goal2/requests-batch-12.md 4].  The oracle is the ORIGINAL wmctrl's own pid column for
+    # the same X id, read over its own connection to the X server.
+    local theirrow ourpid theirpid
+    theirrow=$(guest 'wmctrl -lGpx' | grep -i xterm || true)
+    theirpid=$(printf '%s\n' "$theirrow" | awk '{ print $3 }')
+    if [ -n "$wid" ] && [ -n "$xid" ]; then
+        ourpid=$(guest "wdotool getwindowpid $wid 2>&1" | tr -d ' \r\n' || true)
+    fi
+    # Exactly two answers degrade to a note, and NEITHER of them is a pid: nothing at all, and
+    # `fake-vmctl: nothing recorded for ...` (guest() folds the fake's stderr into its stdout,
+    # live-smoke.sh:352), which is what a recording cut before this command existed replies under
+    # FAKE_VMCTL_STRICT=1.  Everything else goes through `same` -- above all the refusal sentence
+    # `window 1000000 has no pid associated with it`, which is the regression this check exists to
+    # catch and which an "is it all digits?" guard would have waved through as a note.  A live run
+    # with no id is already red one line earlier, at the X-id `want`.
+    case "${ourpid:-}" in
+        ""|*nothingrecorded*)
+            note "(no getwindowpid answer for the xterm -- ours '$(ev "${ourpid:-}")', the original \
+wmctrl '$(ev "${theirpid:-}")': a recording cut before this check answers neither)" ;;
+        *)
+            if [ -n "$theirpid" ]; then
+                same "getwindowpid on the XWayland window is the X server's _NET_WM_PID (route 5), \
+not the floor's 0" "$theirpid" "$ourpid"
+            else
+                note "(the original wmctrl printed no pid column for the xterm, so it cannot be the \
+oracle here -- ours '$(ev "$ourpid")')"
+            fi ;;
+    esac
     note "ours:   $row"
-    note "theirs: $(guest 'wmctrl -lGpx' | grep -i xterm || true)"
+    note "theirs: $theirrow"
     guest "pkill -x xterm; true" >/dev/null 2>&1 || true
 }
 
@@ -293,6 +371,10 @@ host-side screendump per head)"
          "$(printf '%s\n' "$outs" | grep -c .)" \
          "$(guest 'wxrandr --listmonitors' | sed -n 's/^Monitors: //p' | tr -d ' \r')"
     note "listmonitors order: $(guest 'wxrandr --listmonitors' | tr '\n' ' ' || true)"
+    # river 0.4.8's output manager will not re-enable a head it switched --off: wlr-randr --on answers
+    # `failed to apply configuration` (no IPC, riverctl gone from 0.4), so common_display_phase's three
+    # re-enable checks are route-6 xwants here [run 34667595059, diagnosis §4].
+    OFF_HEAD_STAYS_OFF="river 0.4.8's output manager answers 'failed to apply configuration' to wlr-randr --on"
     common_display_phase
 }
 

@@ -39,7 +39,8 @@ os.environ.setdefault("WDOTOOL_LAYOUT", "us")
 import wl_fake
 from support import RecorderDev, abs_report
 from w11common.wayland_mini import WlConn
-from wdotool import daemon, uinput, vptr
+from wdotool import daemon
+from hacks.input import uinput, vptr
 
 
 def cosmic_globals(served):

@@ -27,7 +27,7 @@
 # reparenting WM moved too (100,100 asked, 102,140 read back under openbox).  The rounding is the window
 # manager's business on X and the client's on Wayland, and both sides of that fork fit inside one cell.
 
-SMOKE_PHASES="busrec install windows wm input desktops display mirror root nodialog"
+SMOKE_PHASES="busrec install windows wm proxy input desktops display mirror root nodialog"
 EDITOR_CLASS=foot
 
 # The X client the WM_CLASS-instance and _NET_CLIENT_LIST checks need; started by phase_wm and killed there.
@@ -260,14 +260,14 @@ layout_phase() {
     same "--vkbd on types byte-exact with no uinput and no privilege" "vkbd: yz@" "$(editor_text)"
     local ex; ex=$(guest 'wdotool keys explain --chars z' || true)
     want "keys explain reads the keymap off the wire" "^layout: .* -- group [0-9]+ of [0-9]+" "$ex"
-    # WayfireLayouts is in the tree and cannot be reached on this image: the ini vm/build-image.sh writes has
-    # one xkb_layout, so the keymap has one group, choose_group is CERTAIN and fetch() never asks anybody.
-    # The route to a second group is the ini and only the ini -- `wayfire/set-config-options
-    # {"input/xkb_layout": "us,de"}` answered `{"result":"ok"}` and left get-keyboard-state reporting one
-    # layout (measured on this box 2026-09-08, wayfire 0.10.0), and `set-keyboard-state` corrupts the layout
-    # list [recon2/wayfire 2.7].  A second layout in the golden's ini turns this line green.
-    xwant "keys explain names wayfire as the group's source (until the ini carries a second xkb_layout)" \
-          "from wayland \+ wayfire" "$ex"
+    # A plain `want` since the golden's ini carries the second layout: vm/build-image.sh writes
+    # `xkb_layout = us,de` into wayfire.ini, so the keymap has two groups, choose_group is no
+    # longer CERTAIN and fetch() asks WayfireLayouts -- which is what puts wayfire's name in the
+    # clause.  The route was the ini and only the ini: `wayfire/set-config-options
+    # {"input/xkb_layout": "us,de"}` answered `{"result":"ok"}` and left get-keyboard-state
+    # reporting one layout (measured on this box 2026-09-08, wayfire 0.10.0), and
+    # `set-keyboard-state` corrupts the layout list [recon2/wayfire 2.7].
+    want "keys explain names wayfire as the group's source" "from wayland \+ wayfire" "$ex"
     note "get-keyboard-state: $(ev "$(wfipc wayfire/get-keyboard-state || true)")"
 }
 
@@ -322,42 +322,68 @@ phase_mirror() {
     rx=$(( ${org%%,*} + 100 )); ry=$(( ${org##*,} + 100 ))
     local region="400x300+$rx+$ry"
     st=0
+    # The target head's framebuffer BEFORE the mirror starts, read from INSIDE the guest so the answer is
+    # a recorded command the replay reproduces: grim (resolute-wayfire.yaml:54) captures $second off
+    # wayfire's own zwlr_screencopy and we count the PNG's bytes.  The host-side `$VM shot` this used to
+    # take is a QMP screendump the replay cannot make -- fake-vmctl writes a text placeholder where the
+    # png goes -- so the pixel pass it emitted was live-only, and the recording replayed 88 checks where
+    # the run logged 89 (requests-batch-16 §1b, rig-recordings refused to name the fixture).  grim moves
+    # that one check onto a recorded guest command; the rest of the pixel claim stands unchanged.
+    local base; base=$(guest "grim -o $second - 2>/dev/null | wc -c" | tr -d ' \r\n' || true)
+    note "head $second grim png bytes before the mirror: ${base:-none}"
     out=$(guest "wmirror $first --to $second --region $region") || st=$?
     ok "wmirror $first --to $second --region $region" "$st"
     want "the mirror is running with the region it was given" \
          "$second <- $first +region 400x300\+$rx\+$ry" "$out"
     want "wmirror --list shows it" "$second <- $first" "$(guest 'wmirror --list' || true)"
-    # The pixels, which is the half a headless bench cannot show.  wf-background and wf-panel paint the
-    # SOURCE head on every boot of this flavor (the live run of 2026-09-08 measured standard deviation
-    # 0.0707 on the target while the mirror ran), so a flat target here means nothing arrived and that is a
-    # FAIL, not a note.  head_dark returns 1 both for "painted" and for "the shot could not be taken", so
-    # the shot is taken once here first and handed to identify: an image that can actually be measured is
-    # what separates a broken mirror from a replay (fake-vmctl writes a text placeholder where the png
-    # goes) or from a host with no ImageMagick on it.
-    local probe; probe=$(mktemp -t wf-mirror-XXXXXX.png)
-    if ! "$VM" shot "$NAME" "$((${second##*-} - 1))" "$probe" >/dev/null 2>&1 \
-       || ! identify -format '%[fx:standard_deviation]' "$probe" >/dev/null 2>&1; then
-        note "(no host-side screendump of $second to read: an offline replay writes a placeholder and not a"
-        note " framebuffer, and a host with no ImageMagick cannot measure one -- the pixel half of this"
-        note " phase is a live-run claim, and the rest of the phase stands without it)"
-    else
-        # wl-mirror paints the target when its first screencopy frame lands, which on a loaded runner is
-        # a few seconds after the started line (CI run 34329371964 measured the target painted; run
-        # 34336882062, same tree for this phase, took the one shot early and saw it flat): poll, and only
-        # a head still flat after ten seconds is a mirror that delivered nothing.
-        local painted=false i
+    # wl-mirror paints the target when its first screencopy frame lands, a few seconds after the started
+    # line on a loaded runner (CI run 34329371964 measured the target painted; run 34336882062, the same
+    # tree, took the one shot too early and saw it flat).  So poll grim and compare each capture with the
+    # baseline: a mirror that delivered frames REPLACES the target's wallpaper with the scaled source
+    # region, and the PNG size moves out of all doubt -- measured on resolute-wayfire 0.10.0 2026-09-12
+    # (this box, two 1920x1080 heads): Virtual-2's wallpaper PNG was 3316378 bytes on one boot and 3316259
+    # on the next before the mirror (the baseline is PER-RUN -- the panel clock and the boot's wallpaper
+    # shift it, which is exactly why the check compares against its OWN baseline, not a constant) and
+    # dropped to 1420780 while the mirror ran, each stable across six polls.  A change of more than an
+    # eighth of the baseline is that arrival; a target still within an eighth ten seconds in is a mirror
+    # that delivered nothing.  Every read is a recorded guest command, so the replay walks the same polls
+    # in order (fake-vmctl take() over one key) and reaches the same verdict, which is what makes it 89/89.
+    #
+    # A baseline of 0 is NOT "flat", it is "grim captured nothing" -- `grim | wc -c` prints 0 when grim
+    # fails (no socket, no binary), and the two must not read the same: a 0 baseline would make every
+    # later non-zero read pass falsely (0 vs anything is > 0/8), and a grim that fails throughout would
+    # blame the mirror for a capture that never happened.  grim is on this golden (resolute-wayfire.yaml:54),
+    # so a 0-byte baseline is a real failure of this flavor, reported as itself below.
+    local painted=false i now
+    if [ "${base:-0}" -gt 0 ]; then
         for i in 1 2 3 4 5 6 7 8 9 10; do
-            if ! head_dark "$second"; then painted=true; break; fi
+            now=$(guest "grim -o $second - 2>/dev/null | wc -c" | tr -d ' \r\n' || true)
+            note "head $second grim png bytes: ${now:-none}"
+            if [ "${now:-0}" -gt 0 ] \
+               && awk -v a="$now" -v b="$base" 'BEGIN { d = a - b; if (d < 0) d = -d; exit !(d > b / 8) }'; then
+                painted=true; break
+            fi
             sleep 1
         done
-        if $painted; then
-            pass "the target head is painting something while the mirror runs"
-        else
-            fail "the target head is flat ten seconds into the mirror: nothing arrived" \
-                 "(this flavor paints the source: wf-background and wf-panel are up on every boot)"
-        fi
+    fi
+    # The host-side QMP screendump of the same head, as a NOTE and never a pass/fail: it reads the actual
+    # scanout (a second opinion on the compositor buffer grim reads), but it is a live-run measurement the
+    # replay's placeholder cannot serve, so it stays out of the count that has to match on replay.
+    local probe sd; probe=$(mktemp -t wf-mirror-XXXXXX.png)
+    if "$VM" shot "$NAME" "$((${second##*-} - 1))" "$probe" >/dev/null 2>&1 \
+       && sd=$(identify -format '%[fx:standard_deviation]' "$probe" 2>/dev/null); then
+        note "host-side QMP screendump of $second: standard deviation $sd"
     fi
     rm -f "$probe"
+    if $painted; then
+        pass "the target head is painting something while the mirror runs"
+    elif [ "${base:-0}" -gt 0 ]; then
+        fail "the target head did not change ten seconds into the mirror: nothing arrived" \
+             "(this flavor paints the source: wf-background and wf-panel are up on every boot)"
+    else
+        fail "grim captured nothing on $second before the mirror (0 bytes): cannot tell if it painted" \
+             "(grim is on this golden, resolute-wayfire.yaml:54, so a 0-byte capture is a real failure)"
+    fi
     st=0
     out=$(guest "wmirror --stop $second") || st=$?
     ok "wmirror --stop $second" "$st"

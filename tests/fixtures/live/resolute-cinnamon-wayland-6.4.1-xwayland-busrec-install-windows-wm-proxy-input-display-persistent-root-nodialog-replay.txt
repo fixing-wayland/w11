@@ -1,0 +1,1103 @@
+# live-smoke recording: flavor=resolute-cinnamon-wayland desktop=cinnamon-wayland distro=ubuntu mode=pkg remove=1 heads=3 stamp=20260912-103546
+# replay: 92 pass, 0 fail (mode pkg, remove 1, phases xwayland,busrec,install,windows,wm,proxy,input,display,persistent,root,nodialog, 2026-09-12)
+### true
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### printf 'w11-desktop-version: '; muffin --version
+w11-desktop-version: mutter 6.4.1
+Copyright © 2001-2011 Havoc Pennington, Red Hat, Inc., and others
+This is free software; see the source for copying conditions.
+There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon                              --method org.Cinnamon.Eval 'String(1+1)' 2>&1
+(true, '"2"')
+### rc=0
+### pkill -x dbus-monitor >/dev/null 2>&1; rm -f $HOME/w11-bus.log; true
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### pgrep -x dbus-monitor | head -1
+3087
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+4
+### rc=0
+### dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus            org.freedesktop.DBus.ListNames >/dev/null 2>&1; sleep 1; true
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+144
+### rc=0
+### for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \           systemctl stop unattended-upgrades.service 2>/dev/null; true
+### rc=0
+### cd /tmp && DEBIAN_FRONTEND=noninteractive apt-get install -y ./w11.deb 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following NEW packages will be installed:
+  w11
+0 upgraded, 1 newly installed, 0 to remove and 81 not upgraded.
+Need to get 0 B/677 kB of archives.
+After this operation, 2850 kB of additional disk space will be used.
+Get:1 /tmp/w11.deb w11 all 0.4.0 [677 kB]
+Selecting previously unselected package w11.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 194277 files and directories currently installed.)
+Preparing to unpack /tmp/w11.deb ...
+Unpacking w11 (0.4.0) ...
+Setting up w11 (0.4.0) ...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.  The
+    extension is installed and is enabled for you automatically in that first
+    session.  wxrandr and warandr work already; until the relogin the window
+    commands say the bridge is not running and name gnome/install-bridge.sh,
+    which is the from-a-clone route -- this package has done that part.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules), which is what lets wdotool type and click
+    without root.  Anyone who can open it can type as you -- see the threat
+    model in /usr/share/doc/w11/README.md.gz.
+  * On an X11 session the tools hand over to the real ones; install those
+    with: apt install xdotool wmctrl
+
+Processing triggers for desktop-file-utils (0.28-1build1) ...
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+### rc=0
+### ( sleep 1; reboot ) >/dev/null 2>&1 &
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### rm -f $HOME/w11-smoke.txt; touch $HOME/w11-smoke.txt
+### rc=0
+### rm -f $HOME/w11-smoke.txt; setsid nohup gnome-terminal -- sh -c 'cat >> $HOME/w11-smoke.txt'            >/dev/null 2>&1 </dev/null & sleep 4; true
+### rc=0
+### wdotool search --class 'gnome[-.]terminal' | head -1
+8
+### rc=0
+### wdotool getwindowname 8
+Terminal
+### rc=0
+### wdotool windowmove 8 100 100; wdotool windowsize 8 800 600
+### rc=0
+### wdotool getwindowgeometry 8
+Window 8
+  Position: 100,100 (screen: 0)
+  Geometry: 798x591
+### rc=0
+### wdotool getwindowpid 8
+2752
+### rc=0
+### test -d /proc/2752
+### rc=0
+### wdotool windowactivate --sync 8
+### rc=0
+### wdotool getactivewindow
+8
+### rc=0
+### wdotool windowminimize 8
+### rc=0
+### wdotool getactivewindow 2>&1
+4
+### rc=0
+### wdotool windowmap 8; wdotool windowactivate --sync 8
+### rc=0
+### wwmctl -d
+0  * DG: 5760x1080  VP: 0,0  WA: 0,0 1920x1040  Workspace 1
+1  - DG: 5760x1080  VP: N/A  WA: 0,0 1920x1040  Workspace 2
+2  - DG: 5760x1080  VP: N/A  WA: 0,0 1920x1040  Workspace 3
+3  - DG: 5760x1080  VP: N/A  WA: 0,0 1920x1040  Workspace 4
+### rc=0
+### wdotool set_desktop 1
+### rc=0
+### wdotool get_desktop
+1
+### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'global.workspace_manager.get_active_workspace_index()'
+(true, '1')
+### rc=0
+### wdotool set_desktop 0
+### rc=0
+### wdotool get_desktop
+0
+### rc=0
+### wdotool windowactivate --sync 8
+### rc=0
+### wdotool mousemove 300 300
+### rc=0
+### wdotool getmouselocation
+x:300 y:300 screen:0 window:8
+### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'global.get_pointer().slice(0, 2).join(",")'
+(true, '"300,300"')
+### rc=0
+### wdotool mousemove 300 300 click 1
+### rc=0
+### setsid nohup xterm -T smokex -e sh -c 'sleep 600' >/dev/null 2>&1 </dev/null & sleep 3; true
+### rc=0
+### wwmctl -l -x
+0x01000034  0 nemo-desktop.Nemo-desktop  resolute-cinnamon-wayland-smoke nemo-desktop
+0x01000030  0 nemo-desktop.Nemo-desktop  resolute-cinnamon-wayland-smoke nemo-desktop
+0x01000028  0 nemo-desktop.Nemo-desktop  resolute-cinnamon-wayland-smoke Desktop
+0x00e00004  0 csd-background.Csd-background  resolute-cinnamon-wayland-smoke csd-background
+0x00e00008  0 csd-background.Csd-background  resolute-cinnamon-wayland-smoke csd-background
+0x00e0000c  0 csd-background.Csd-background  resolute-cinnamon-wayland-smoke csd-background
+0x00000008  0 org.gnome.Terminal.org.gnome.Terminal  resolute-cinnamon-wayland-smoke Terminal
+0x0120000c  0 xterm.XTerm           resolute-cinnamon-wayland-smoke smokex
+### rc=0
+### wwmctl -l -p
+0x01000034  0 2136   resolute-cinnamon-wayland-smoke nemo-desktop
+0x01000030  0 2136   resolute-cinnamon-wayland-smoke nemo-desktop
+0x01000028  0 2136   resolute-cinnamon-wayland-smoke Desktop
+0x00e00004  0 1860   resolute-cinnamon-wayland-smoke csd-background
+0x00e00008  0 1860   resolute-cinnamon-wayland-smoke csd-background
+0x00e0000c  0 1860   resolute-cinnamon-wayland-smoke csd-background
+0x00000008  0 2752   resolute-cinnamon-wayland-smoke Terminal
+0x0120000c  0 4288   resolute-cinnamon-wayland-smoke smokex
+### rc=0
+### wwmctl -m
+Name: Mutter (Muffin)
+Class: N/A
+PID: N/A
+Window manager's "showing the desktop" mode: OFF
+### rc=0
+### wdotool windowactivate --sync 8
+### rc=0
+### wdotool getwindowgeometry 8
+Window 8
+  Position: 100,100 (screen: 0)
+  Geometry: 798x591
+### rc=0
+### wwmctl -r :ACTIVE: -b add,maximized_vert,maximized_horz
+### rc=0
+### wdotool getwindowgeometry 8
+Window 8
+  Position: 0,0 (screen: 0)
+  Geometry: 1920x1040
+### rc=0
+### wxprop -id 8 _NET_WM_STATE
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_FOCUSED
+### rc=0
+### wwmctl -r :ACTIVE: -b remove,maximized_vert,maximized_horz
+### rc=0
+### wdotool getwindowgeometry 8
+Window 8
+  Position: 100,100 (screen: 0)
+  Geometry: 798x591
+### rc=0
+### wwmctl -r :ACTIVE: -b add,shaded
+### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'String(global.display.list_windows(0).filter(w => w.get_stable_sequence() == 8)[0].is_shaded())'
+(true, '"true"')
+### rc=0
+### wxprop -id 8 _NET_WM_STATE
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_SHADED, _NET_WM_STATE_HIDDEN, _NET_WM_STATE_FOCUSED
+### rc=0
+### wwmctl -r :ACTIVE: -b remove,shaded
+### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'String(global.display.list_windows(0).filter(w => w.get_stable_sequence() == 8)[0].is_shaded())'
+(true, '"false"')
+### rc=0
+### wwmctl -d
+0  * DG: 5760x1080  VP: 0,0  WA: 0,0 1920x1040  Workspace 1
+1  - DG: 5760x1080  VP: N/A  WA: 0,0 1920x1040  Workspace 2
+2  - DG: 5760x1080  VP: N/A  WA: 0,0 1920x1040  Workspace 3
+3  - DG: 5760x1080  VP: N/A  WA: 0,0 1920x1040  Workspace 4
+### rc=0
+### wxprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x1000034, 0x1000030, 0x1000028, 0xe00004, 0xe00008, 0xe0000c, 0x120000c, 0x8
+### rc=0
+### pkill -x xterm; true
+### rc=0
+### command -v xw11
+/usr/bin/xw11
+### rc=0
+### xprop -root >/dev/null 2>&1
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null
+:20 5659 :0
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l
+1
+### rc=0
+### DISPLAY=:20 xdotool getdisplaygeometry
+1920 1080
+### rc=0
+### DISPLAY=:20 xdotool search --class gnome[-.]terminal | head -1
+18874369
+### rc=0
+### wdotool getwindowname 8
+Terminal
+### rc=0
+### DISPLAY=:20 xdotool getwindowname 18874369
+Terminal
+### rc=0
+### wdotool getwindowgeometry 8
+Window 8
+  Position: 100,100 (screen: 0)
+  Geometry: 798x591
+### rc=0
+### DISPLAY=:20 xdotool getwindowgeometry 18874369
+Window 18874369
+  Position: 100,100 (screen: 0)
+  Geometry: 798x591
+### rc=0
+### DISPLAY=:20 xprop -id 18874369
+_NET_WM_NAME(UTF8_STRING) = "Terminal"
+WM_NAME(STRING) = "Terminal"
+WM_CLASS(STRING) = "org.gnome.Terminal", "org.gnome.Terminal"
+_NET_WM_PID(CARDINAL) = 2752
+WM_CLIENT_MACHINE(STRING) = "resolute-cinnamon-wayland-smoke"
+_NET_WM_DESKTOP(CARDINAL) = 0
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_FOCUSED
+_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_NORMAL
+WM_STATE(WM_STATE):
+		window state: Normal
+		icon window: 0x0
+_NET_FRAME_EXTENTS(CARDINAL) = 0, 0, 0, 0
+WM_PROTOCOLS(ATOM): protocols  WM_DELETE_WINDOW
+### rc=0
+### wwmctl -l
+0x01000034  0 resolute-cinnamon-wayland-smoke nemo-desktop
+0x01000030  0 resolute-cinnamon-wayland-smoke nemo-desktop
+0x01000028  0 resolute-cinnamon-wayland-smoke Desktop
+0x00e00004  0 resolute-cinnamon-wayland-smoke csd-background
+0x00e00008  0 resolute-cinnamon-wayland-smoke csd-background
+0x00e0000c  0 resolute-cinnamon-wayland-smoke csd-background
+0x00000008  0 resolute-cinnamon-wayland-smoke Terminal
+### rc=0
+### DISPLAY=:20 wmctrl -l
+0x01000034  0 resolute-cinnamon-wayland-smoke nemo-desktop
+0x01000030  0 resolute-cinnamon-wayland-smoke nemo-desktop
+0x01000028  0 resolute-cinnamon-wayland-smoke Desktop
+0x00e00004  0 resolute-cinnamon-wayland-smoke csd-background
+0x00e00008  0 resolute-cinnamon-wayland-smoke csd-background
+0x00e0000c  0 resolute-cinnamon-wayland-smoke csd-background
+0x01200001  0 resolute-cinnamon-wayland-smoke Terminal
+### rc=0
+### DISPLAY=:20 xdotool get_desktop
+0
+### rc=0
+### DISPLAY=:20 wmctrl -d
+0  * DG: 5760x1080  VP: 0,0  WA: 0,0 5760x1040  Workspace 1
+1  - DG: 5760x1080  VP: 0,0  WA: 0,0 5760x1040  Workspace 2
+2  - DG: 5760x1080  VP: 0,0  WA: 0,0 5760x1040  Workspace 3
+3  - DG: 5760x1080  VP: 0,0  WA: 0,0 5760x1040  Workspace 4
+### rc=0
+### DISPLAY=:20 xprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x1000034, 0x1000030, 0x1000028, 0xe00004, 0xe00008, 0xe0000c, 0x1200001
+### rc=0
+### W11_PROXY=always wdotool search --class gnome[-.]terminal | head -1
+18874369
+### rc=0
+### W11_PROXY=never wdotool search --class gnome[-.]terminal | head -1
+8
+### rc=0
+### wdotool --version
+xdotool version 4.20260303.1
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x200
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,200
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x0
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### DISPLAY=:20 xrandr -q
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### tail -4 ${XW11_LOG:-/tmp/xw11-$(id -u).log}
+1789209562.162 xw11[5659] own connection to :0: root 0x2f4, ids 0x1200000|n, 70 atoms, 7 extensions
+1789209571.305 xw11[5659] xw11: RandR writes apply through the cinnamon backend (detection), state keyed by /run/user/1000/wayland-0
+1789209571.682 xw11[5659] xw11: applied a RandR batch of 1 crtc(s) in 390 ms through cinnamon (Virtual-3 on)
+1789209574.947 xw11[5659] xw11: applied a RandR batch of 1 crtc(s) in 201 ms through cinnamon (Virtual-3 on)
+### rc=0
+### xw11 --stop
+### rc=0
+### printf "%s %s" "$(pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l)" \                   "$(test -e $XDG_RUNTIME_DIR/xw11/display && echo 1 || echo 0)"
+0 0
+### rc=0
+### wdotool windowactivate --sync 8
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool type --delay 30 -- 'us: yz@'
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+us: yz@
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+### rc=0
+### wdotool type --delay 30 -- abc; wdotool key Return; wdotool type --delay 30 -- def
+### rc=0
+### wdotool key Return
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+abc
+def
+### rc=0
+### gsettings get org.cinnamon.desktop.input-sources sources
+@a(ss) []
+### rc=0
+### gsettings set org.cinnamon.desktop.input-sources sources "[('xkb','us'),('xkb','de')]"
+### rc=0
+### gsettings set org.cinnamon.desktop.input-sources current 1
+### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'imports.gi.Meta.get_backend().set_keymap("us,de", "", ""); String(1)'
+(true, '"1"')
+### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'imports.gi.Meta.get_backend().lock_layout_group(1); String(1)'
+(true, '"1"')
+### rc=0
+### wdotool keys explain --chars z
+layout: German -- group 2 of 2 (assumed), from wayland + cinnamon input-sources
+level keys: shift = key 42 <LFSH>   level3 = key 100 <RALT>   level5 = key 195 <LVL5>   (what wdotool presses)
+'z' -- 1 press on German
+    press key 21 <AD06> -> 'z'
+    wdotool key 29                             (keycodes)
+    wdotool type 'z'                           (characters)
+### rc=0
+### wdotool key ctrl+u; : > $HOME/w11-smoke.txt
+wdotool: the compositor does not say which keyboard layout is active (it sends that only to the focused window); assuming 'German'. Set WDOTOOL_XKB_GROUP=<n> to pin one.
+### rc=0
+### wdotool type --delay 30 -- 'de: yz@'
+wdotool: the compositor does not say which keyboard layout is active (it sends that only to the focused window); assuming 'German'. Set WDOTOOL_XKB_GROUP=<n> to pin one.
+### rc=0
+### wdotool key Return
+wdotool: the compositor does not say which keyboard layout is active (it sends that only to the focused window); assuming 'German'. Set WDOTOOL_XKB_GROUP=<n> to pin one.
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+de: yz@
+### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'imports.gi.Meta.get_backend().lock_layout_group(0); String(1)'
+(true, '"1"')
+### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'imports.gi.Meta.get_backend().set_keymap("us", "", ""); String(1)'
+(true, '"1"')
+### rc=0
+### gsettings set org.cinnamon.desktop.input-sources current 0
+### rc=0
+### gsettings reset org.cinnamon.desktop.input-sources sources
+### rc=0
+### wdotool --vkbd on type -- x 2>&1
+--vkbd on: cannot use zwp_virtual_keyboard_v1: this compositor does not implement zwp_virtual_keyboard_manager_v1 (Mutter, KWin and Cinnamon's Muffin 6.4 do not; sway, Hyprland, the wlroots family, COSMIC and Muffin 6.6+ do)
+### rc=1
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --print-backend
+cinnamon
+### rc=0
+### wxrandr --print-backend --verbose
+cinnamon
+session: wayland
+chosen by: detection
+compositor: Muffin
+protocol: org.cinnamon.Muffin.DisplayConfig (D-Bus)
+available: yes
+### rc=0
+### warandr --print-backend
+cinnamon
+### rc=0
+### wxrandr --listmonitors 2>&1
+Monitors: 3
+ 0: +*Virtual-1 1920/508x1080/286+0+0  Virtual-1
+ 1: +Virtual-2 1920/508x1080/286+1920+0  Virtual-2
+ 2: +Virtual-3 1920/508x1080/286+3840+0  Virtual-3
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --listmonitors
+Monitors: 3
+ 0: +*Virtual-1 1920/508x1080/286+0+0  Virtual-1
+ 1: +Virtual-2 1920/508x1080/286+1920+0  Virtual-2
+ 2: +Virtual-3 1920/508x1080/286+3840+0  Virtual-3
+### rc=0
+### wxrandr --output Virtual-3 --off
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+### rc=0
+### wxrandr --output Virtual-3 --auto
+xrandr: output Virtual-3 enabled without a position; placing it right-of Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --output Virtual-3 --below Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,1080
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,1080
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### wmirror --check 2>&1
+helper:   /usr/bin/wl-mirror (wl-mirror v0.18.5)
+wayland:  /run/user/1000/wayland-0
+capture:  this compositor advertises neither zwlr_screencopy_manager_v1 nor ext_image_copy_capture_manager_v1, so wl-mirror cannot capture here
+          wl-mirror needs a compositor with zwlr_screencopy_manager_v1 (sway, Hyprland, labwc, Wayfire, ...) or ext_image_copy_capture_manager_v1 (COSMIC, labwc, sway 1.12)
+          on GNOME and KDE the route is the desktop portal's ScreenCast (AGENTS.md route 4), which asks the user for permission once per session and is not wired up here yet
+outputs:  this compositor does not advertise zwlr_output_manager_v1, so wmirror cannot read the output layout
+          not yet here: the route is the compositor's own display bus or IPC, which wxrandr already speaks on Mutter, KWin, Hyprland and sway (AGENTS.md route 2), at the cost of one layout reader per compositor
+mirrors:  none
+### rc=1
+### wxrandr --output Virtual-3 --pos 4000x0 2>&1
+xrandr: Cinnamon's Muffin refused this layout: Logical monitors not adjacent (Cinnamon allows neither a gap nor an overlap between outputs; re-place the neighbours in the same command)
+### rc=1
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### wxrandr --listmonitors 2>&1
+Monitors: 3
+ 0: +*Virtual-1 1920/508x1080/286+0+0  Virtual-1
+ 1: +Virtual-2 1920/508x1080/286+1920+0  Virtual-2
+ 2: +Virtual-3 1920/508x1080/286+3840+0  Virtual-3
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### md5sum $HOME/.config/cinnamon-monitors.xml 2>/dev/null | cut -d' ' -f1
+### rc=0
+### wxrandr --output Virtual-3 --below Virtual-2 --persistent 2>&1
+xrandr: Cinnamon will ask "Keep these display settings?" for 20 s; confirm the dialog or the layout reverts
+### rc=0
+### md5sum $HOME/.config/cinnamon-monitors.xml 2>/dev/null | cut -d' ' -f1
+### rc=0
+### python3 $HOME/w11-oracle.py cinnamon-wayland
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --output Virtual-3 --below Virtual-2 --persistent >/dev/null 2>&1 &
+### rc=0
+### gdbus call --session --dest org.Cinnamon --object-path /org/Cinnamon            --method org.Cinnamon.Eval 'String(global.window_manager.complete_display_change(true))'
+(true, '"undefined"')
+### rc=0
+### md5sum $HOME/.config/cinnamon-monitors.xml 2>/dev/null | cut -d' ' -f1
+1a07f16e5da7743dd762c477c6742290
+### rc=0
+### test -f $HOME/.config/monitors.xml && echo present || echo absent
+absent
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### wwmctl -l | wc -l
+7
+### rc=0
+### wwmctl -l | wc -l
+7
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-1
+Virtual-2
+Virtual-3
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-1
+Virtual-2
+Virtual-3
+### rc=0
+### wmirror --list
+### rc=0
+### wxrandr --persistent --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 0mm x 0mm
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   2560x1080     50.00  
+   2048x1152     60.00  
+   1920x1440     60.00  
+   1920x1200     59.88  
+   1920x1080     75.00*+  60.00    50.00  
+   1856x1392     60.00  
+   1792x1344     60.00  
+   1680x1050     59.95  
+   1600x1200     60.00  
+   1440x900      59.89  
+   1400x1050     59.98  
+   1360x768      60.02  
+   1280x1024     60.02  
+   1280x960      60.00  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 0mm x 0mm
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   2560x1080     50.00  
+   2048x1152     60.00  
+   1920x1440     60.00  
+   1920x1200     59.88  
+   1920x1080     75.00*+  60.00    50.00  
+   1856x1392     60.00  
+   1792x1344     60.00  
+   1680x1050     59.95  
+   1600x1200     60.00  
+   1440x900      59.89  
+   1400x1050     59.98  
+   1360x768      60.02  
+   1280x1024     60.02  
+   1280x960      60.00  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 0mm x 0mm
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   2560x1080     50.00  
+   2048x1152     60.00  
+   1920x1440     60.00  
+   1920x1200     59.88  
+   1920x1080     75.00*+  60.00    50.00  
+   1856x1392     60.00  
+   1792x1344     60.00  
+   1680x1050     59.95  
+   1600x1200     60.00  
+   1440x900      59.89  
+   1400x1050     59.98  
+   1360x768      60.02  
+   1280x1024     60.02  
+   1280x960      60.00  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+### rc=0
+### wwmctl -l
+0x010000d8  0 resolute-cinnamon-wayland-smoke nemo-desktop
+0x010000d4  0 resolute-cinnamon-wayland-smoke nemo-desktop
+0x010000d0  0 resolute-cinnamon-wayland-smoke Desktop
+0x00e00004  0 resolute-cinnamon-wayland-smoke csd-background
+0x00e00008  0 resolute-cinnamon-wayland-smoke csd-background
+0x00e0000c  0 resolute-cinnamon-wayland-smoke csd-background
+0x01200001  0 resolute-cinnamon-wayland-smoke Terminal
+### rc=0
+### wwmctl -l
+0x010000d8  0 resolute-cinnamon-wayland-smoke nemo-desktop
+0x010000d4  0 resolute-cinnamon-wayland-smoke nemo-desktop
+0x010000d0  0 resolute-cinnamon-wayland-smoke Desktop
+0x00e00004  0 resolute-cinnamon-wayland-smoke csd-background
+0x00e00008  0 resolute-cinnamon-wayland-smoke csd-background
+0x00e0000c  0 resolute-cinnamon-wayland-smoke csd-background
+0x01200001  0 resolute-cinnamon-wayland-smoke Terminal
+### rc=0
+### wxrandr --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+XWAYLAND3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### wxrandr --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+XWAYLAND3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       72.67  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### ls /run/user/0/xw11/display /tmp/wdotool-0/xw11/display 2>/dev/null
+### rc=2
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+118390
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep -c 'interface=org.freedesktop.portal\.'
+10
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal.Inhibit' | sed -n 's/.*sender=\([^ ]*\).*/\1/p' | sort -u
+:1.187
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal\.'                  | grep -vE 'interface=org.freedesktop.portal.(Settings|Request|Session)'                  | grep -v 'interface=org.freedesktop.portal.Documents; member=GetMountPoint'                  | grep -vE 'sender=:1\.187' | head -5
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.PolicyKit1' | head -3
+### rc=0
+### grep -Ec '^signal ' $HOME/w11-bus.log
+706
+### rc=0
+### grep -o 'org.freedesktop.portal.[A-Za-z]*' $HOME/w11-bus.log | sort | uniq -c | sort -rn | head
+    137 org/freedesktop/portal/desktop
+     86 org.freedesktop.portal.Desktop
+     67 org.freedesktop.portal.Documents
+     19 org.freedesktop.portal.Settings
+     11 org.freedesktop.portal.Error
+      8 org.freedesktop.portal.Inhibit
+      4 org/freedesktop/portal/documents
+      3 org.freedesktop.portal.GameMode
+      1 org.freedesktop.portal.Session
+      1 org.freedesktop.portal.Request
+### rc=0
+### for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \           systemctl stop unattended-upgrades.service 2>/dev/null; true
+### rc=0
+### DEBIAN_FRONTEND=noninteractive apt-get remove -y w11 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following packages will be REMOVED:
+  w11
+0 upgraded, 0 newly installed, 1 to remove and 81 not upgraded.
+After this operation, 2850 kB disk space will be freed.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 194420 files and directories currently installed.)
+Removing w11 (0.4.0) ...
+Processing triggers for desktop-file-utils (0.28-1build1) ...
+### rc=0
+### ls -d /usr/lib/w11 /var/lib/w11 /etc/xdg/autostart/w11-enable-bridge.desktop /usr/share/gnome-shell/extensions/w11-bridge@w11 /usr/share/gnome-shell/extensions/w11-overlap@w11  2>/dev/null | tr '\n' ' '
+### rc=0
+### for t in wdotool wwmctl wxprop wxrandr warandr wmirror; do command -v $t; done 2>/dev/null
+### rc=127
+### stat -c '%U:%G %a' /dev/uinput 2>/dev/null
+root:root 600
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+# file: /dev/uinput
+# owner: root
+# group: root
+user::rw-
+group::---
+other::---
+
+### rc=0
+### grep -l uinput /run/udev/tags/uaccess/* 2>/dev/null
+### rc=1
+### find /usr/lib/w11 /usr/bin -name __pycache__ 2>/dev/null
+### rc=1
+### cd /tmp && DEBIAN_FRONTEND=noninteractive apt-get install -y ./w11.deb 2>&1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following NEW packages will be installed:
+  w11
+0 upgraded, 1 newly installed, 0 to remove and 81 not upgraded.
+Need to get 0 B/677 kB of archives.
+After this operation, 2850 kB of additional disk space will be used.
+Get:1 /tmp/w11.deb w11 all 0.4.0 [677 kB]
+Selecting previously unselected package w11.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 194277 files and directories currently installed.)
+Preparing to unpack /tmp/w11.deb ...
+Unpacking w11 (0.4.0) ...
+Setting up w11 (0.4.0) ...
+
+w11: wdotool, wwmctl, wxprop, wxrandr, warandr and wmirror are on PATH.
+
+  * On GNOME, the window commands need the bridge extension, and gnome-shell
+    only scans extension directories at login: LOG OUT AND BACK IN ONCE.  The
+    extension is installed and is enabled for you automatically in that first
+    session.  wxrandr and warandr work already; until the relogin the window
+    commands say the bridge is not running and name gnome/install-bridge.sh,
+    which is the from-a-clone route -- this package has done that part.
+  * /dev/uinput is now open to the user at the active seat (udev rule
+    60-w11-uinput.rules), which is what lets wdotool type and click
+    without root.  Anyone who can open it can type as you -- see the threat
+    model in /usr/share/doc/w11/README.md.gz.
+  * On an X11 session the tools hand over to the real ones; install those
+    with: apt install xdotool wmctrl
+
+Processing triggers for desktop-file-utils (0.28-1build1) ...
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+User sessions running outdated binaries:
+ root @ session #150: xw11[11475]
+ root @ session #31: wdotool[4034]
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+### rc=0

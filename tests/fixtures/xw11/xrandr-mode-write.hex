@@ -1,0 +1,21 @@
+# `xrandr --output VNC-0 --mode 1680x1050` -- the five requests between and
+# including GrabServer and UngrabServer, lifted from recon/wire/trace_rr2.log
+# connection 2 (requests 19-23), captured 2026-09-10 against the box's own
+# :355 through recon/wire/proxy.py. RANDR major 140 there, root 0x22b, crtc
+# 0x3a, output 0x3b, mode 0x3f = 1680x1050, config timestamp 0x304a204b.
+#
+# One line per request, in the order they were sent:
+#   GrabServer
+#   SetCrtcConfig  crtc 0x3a, mode None, outputs []          <- the disable
+#   SetScreenSize  root, 1680x1050, 469mm x 293mm
+#   SetCrtcConfig  crtc 0x3a, mode 0x3f, outputs [0x3b]      <- the enable
+#   UngrabServer
+#
+# The order disable -> SetScreenSize -> enable is fixed whichever way the
+# framebuffer moves: measured in both directions, 1920x1080 <-> 1680x1050
+# [recon/wire.md 6], and confirmed in xrandr.c:1680 apply().
+24000100
+8c1507003a000000000000004b204a30000000000000000001000000
+8c0705002b02000090061a04d501000025010000
+8c1508003a000000000000004b204a30000000003f000000010000003b000000
+25000100

@@ -38,7 +38,8 @@ os.environ["W11_PASSTHROUGH"] = "never"
 
 from test_backend_kwin import UU, WID, XTERM_XID, _Base, _FakeX
 from test_wxprop_cli import _CapStdout
-from wxprop import cli, core
+from wxprop import cli
+from hacks.property import core
 
 #: the xterm as Xwayland reports it, matching the fixture's XWayland row
 XTERM_CLIENT = {"xid": XTERM_XID, "pid": 1201, "inst": "xterm",

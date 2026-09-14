@@ -25,7 +25,7 @@ EDITOR_TERM_EXEC=-x
 # the same shims to be worth anything: `session_kind()` answers `wayland` from WAYLAND_DISPLAY
 # plus a live socket before any other test, so no shim may ever be called
 # [recon2/xfce-wayland 2].
-SMOKE_PHASES="busrec install passthrough windows wm input display mirror root nodialog"
+SMOKE_PHASES="busrec install passthrough windows wm proxy input display mirror root nodialog"
 
 #: Where the shims record a call.  The same path xfce.sh uses, on purpose: the two files are
 #: the two halves of one measurement and a reader comparing their logs should not have to

@@ -192,6 +192,132 @@ class EveryLinkResolves(unittest.TestCase):
         self.assertGreater(len([1 for _n, _p, a, _t in found if a]), 40)
 
 
+class TheProxyDocument(unittest.TestCase):
+    """docs/XW11.md, the one document AGENTS.md asks for by shape rather than
+    by subject: a "What differs" table with a row per thing X does that we do
+    not do yet, each naming the route that would close it and what that route
+    costs.
+
+    `EveryLinkResolves` above already resolves its anchors against its
+    headings, along with every other document's.  What this class adds is the
+    claims that are about THIS document: that the tools' own contracts and the
+    README point at it (a contract that describes the clone's output without
+    saying when the clone runs is a contract that is now wrong half the time),
+    that its own table of contents resolves, and that the table has the shape
+    the rule asks for rather than merely the heading."""
+
+    DOC = "docs/XW11.md"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.docs = support.documents()
+        cls.text = cls.docs[cls.DOC]
+
+    def what_differs(self):
+        """Every row of every table under `## What differs`, as cell lists.
+        The section runs to the end of the document bar the `See also`."""
+        body = self.text.split("\n## What differs", 1)[1].split("\n## See also", 1)[0]
+        rows = []
+        for line in body.splitlines():
+            line = line.strip()
+            if not line.startswith("|") or set(line) <= set("|- :"):
+                continue
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if cells and cells[0].lower().startswith("x behaviour"):
+                continue                        # a header row
+            rows.append(cells)
+        return rows
+
+    def test_the_document_exists_and_carries_the_table_the_rule_asks_for(self):
+        self.assertIn("\n## What differs", self.text)
+        self.assertGreaterEqual(len(self.what_differs()), 30, len(self.what_differs()))
+
+    def test_every_row_of_it_has_the_four_columns_the_rule_names(self):
+        """X behaviour | what xw11 does | route | cost.  A three-column row is
+        a row that dropped one of them, and the one that gets dropped is the
+        cost."""
+        for row in self.what_differs():
+            with self.subTest(row[0][:60]):
+                self.assertEqual(len(row), 4, row)
+                for cell in row:
+                    self.assertTrue(cell.strip(), row)
+
+    def test_every_not_yet_row_names_a_rung_of_the_ladder(self):
+        """The positive half of AGENTS.md's rule, as this document's own gate:
+        a row that says a thing is not yet done owes the route number that
+        would do it.  A row whose route column is `--` is a CHOICE and not a
+        gap, and it says so in its own cost cell -- so the two are told apart
+        here by the column rather than by the prose."""
+        rungs = {"1", "2", "3", "4", "5", "6"}
+        choices, routed = 0, 0
+        for row in self.what_differs():
+            _x, ours, route, cost = row
+            with self.subTest(row[0][:60]):
+                if route.startswith("\u2014") or route.startswith("--"):
+                    # a choice, not a gap: it owes a cost and it may NOT be a
+                    # "not yet", because a not-yet is exactly the thing that
+                    # owes a rung
+                    choices += 1
+                    self.assertTrue(cost.strip(), row)
+                    self.assertNotIn("not yet", ours.lower(), row)
+                    continue
+                routed += 1
+                # The rung is the LEADING token of the column and one of six,
+                # not any digit anywhere in the cell: `route 10` and a cell
+                # carrying a date would both have satisfied `\d`, and neither
+                # names a rung of a six-rung ladder.  What follows the first one
+                # is free -- `4, or 1` and `2 for five of the six, 3 on GNOME`
+                # are both rows in the table.
+                lead = re.match(r"(?:routes?|rungs?)?\s*([0-9]+)\b", route)
+                self.assertTrue(lead, "route column names no rung: %r" % route)
+                self.assertIn(lead.group(1), rungs, "route column names no rung: %r" % route)
+                self.assertTrue(cost.strip(), row)
+        # the premise, from both sides: a document of nothing but choices would
+        # never check a rung, and one with no choice in it would never check
+        # the clause above
+        self.assertGreaterEqual(routed, 15, routed)
+        self.assertGreaterEqual(choices, 5, choices)
+
+    def test_its_own_contents_line_resolves(self):
+        """The header carries a hand-written contents line; `EveryLinkResolves`
+        checks it with every other link in the tree, and this is the premise --
+        that there is one, and that it names the sections a reader comes for."""
+        head = self.text.split("\n## ", 1)[0]
+        for want in ("#how-it-starts", "#the-request-policy", "#what-differs",
+                     "#the-wrapper-rules", "#randr"):
+            with self.subTest(want):
+                self.assertIn(want, head)
+                self.assertIn(want.lstrip("#"), anchors(self.text))
+
+    def test_every_document_that_owes_a_link_to_it_has_one(self):
+        """The README lists it in its document table, Technical.md's proxy
+        section points at it for the contract, and each of the four wrapped
+        tools' contracts points at the wrapper rules -- because since the proxy
+        landed, what those four documents describe is not always what runs."""
+        for name in ("README.md", "docs/Technical.md", "docs/WDOTOOL.md",
+                     "docs/WWMCTL.md", "docs/WXPROP.md", "docs/WXRANDR.md"):
+            with self.subTest(name):
+                self.assertIn("XW11.md", self.docs[name])
+        self.assertIn("| [docs/XW11.md](docs/XW11.md) |", self.docs["README.md"])
+        for name in ("docs/WDOTOOL.md", "docs/WWMCTL.md", "docs/WXPROP.md",
+                     "docs/WXRANDR.md"):
+            with self.subTest(name):
+                self.assertIn("XW11.md#the-wrapper-rules", self.docs[name])
+
+    def test_the_four_tool_documents_say_which_tool_runs_on_wayland(self):
+        """The sentence that stops each contract being wrong: with the original
+        installed, a Wayland session runs the ORIGINAL.  Named per tool, so a
+        paragraph copied into three files and left naming the fourth's variable
+        is a failure here."""
+        for name, var in (("docs/WDOTOOL.md", "WDOTOOL_PROXY"),
+                          ("docs/WWMCTL.md", "WWMCTL_PROXY"),
+                          ("docs/WXPROP.md", "WXPROP_PROXY"),
+                          ("docs/WXRANDR.md", "WXRANDR_PROXY")):
+            with self.subTest(name):
+                self.assertIn("W11_PROXY=never", self.docs[name])
+                self.assertIn(var, self.docs[name])
+
+
 class TheRigImages(unittest.TestCase):
     """vm/flavors/ is the fact; two documents and one Python table describe
     it.  Nothing below writes a count of its own down."""

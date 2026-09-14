@@ -1,0 +1,1354 @@
+# live-smoke recording: flavor=fedora43-gnome desktop=gnome distro=fedora mode=pkg remove=1 heads=3 stamp=20260912-103624
+# replay: 118 pass, 0 fail (mode pkg, remove 1, phases busrec,install,bridge,windows,wm,proxy,input,five,display,persistent,overlap,enablebridge,udev,root,nodialog,selinux,pkgverify, 2026-09-12)
+### true
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### printf 'w11-desktop-version: '; gnome-shell --version
+w11-desktop-version: GNOME Shell 49.9
+### rc=0
+### pkill -x dbus-monitor >/dev/null 2>&1; rm -f $HOME/w11-bus.log; true
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### pgrep -x dbus-monitor | head -1
+3143
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+4
+### rc=0
+### dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus            org.freedesktop.DBus.ListNames >/dev/null 2>&1; sleep 1; true
+### rc=0
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+405
+### rc=0
+### cd /tmp && dnf install -y ./w11-*.rpm ./gnome-shell-extension-w11-bridge-*.rpm ./gnome-shell-extension-w11-overlap-*.rpm 2>&1
+Updating and loading repositories:
+ Fedora 43 openh264 (From Cisco) - x86_ 100% |   2.5 KiB/s |   5.8 KiB |  00m02s
+ Fedora 43 - x86_64 - Updates           100% |   8.4 MiB/s |  21.0 MiB |  00m03s
+ Fedora 43 - x86_64                     100% |  10.6 MiB/s |  35.4 MiB |  00m03s
+Repositories loaded.
+Package                            Arch   Version      Repository        Size
+Installing:
+ gnome-shell-extension-w11-bridge  noarch 0.4.0-1.fc44 @commandline  89.9 KiB
+ gnome-shell-extension-w11-overlap noarch 0.4.0-1.fc44 @commandline  88.8 KiB
+ w11                               noarch 0.4.0-1.fc44 @commandline   6.2 MiB
+
+Transaction Summary:
+ Installing:         3 packages
+
+Total size of inbound packages is 2 MiB. Need to download 0 B.
+After this operation, 6 MiB extra will be used (install 6 MiB, remove 0 B).
+Running transaction
+[1/5] Verify package files              100% | 214.0   B/s |   3.0   B |  00m00s
+[2/5] Prepare transaction               100% |  18.0   B/s |   3.0   B |  00m00s
+[3/5] Installing w11-0:0.4.0-1.fc44.noa 100% |  14.8 MiB/s |   6.3 MiB |  00m00s
+[4/5] Installing gnome-shell-extension- 100% |   6.4 MiB/s |  91.1 KiB |  00m00s
+[5/5] Installing gnome-shell-extension- 100% |  69.8 KiB/s |  90.9 KiB |  00m01s
+Warning: skipped OpenPGP checks for 3 packages from repository: @commandline
+Complete!
+### rc=0
+### rpm -ql w11 2>/dev/null | grep -i readme
+/usr/share/doc/w11/README.Fedora
+/usr/share/doc/w11/README.md
+### rc=0
+### ( sleep 1; reboot ) >/dev/null 2>&1 &
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### gnome-shell --version
+GNOME Shell 49.9
+### rc=0
+### gnome-shell --version
+GNOME Shell 49.9
+### rc=0
+### gnome-extensions info w11-bridge@w11
+w11-bridge@w11
+  Name: w11 bridge
+  Description: Exports Mutter window, workspace and monitor control over D-Bus (org.w11.Bridge) so wdotool, wwmctl and wxprop can drive a GNOME Wayland session. wxrandr and warandr do not need it: monitors go through Mutter's own DisplayConfig.
+  Path: /usr/share/gnome-shell/extensions/w11-bridge@w11
+  URL: https://github.com/zardus/w11
+  Version: 3
+  Enabled: Yes
+  State: ACTIVE
+### rc=0
+### journalctl --user -b --no-pager 2>/dev/null               | grep -o '\[w11-bridge\].*' | tail -1
+[w11-bridge] acquired org.w11.Bridge
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.Bridge1.GetVersion 2>&1
+(uint32 3,)
+### rc=0
+### gdbus call --session --dest org.freedesktop.DBus                      --object-path /org/freedesktop/DBus                      --method org.freedesktop.DBus.ListNames 2>&1                    | tr ',' '\n' | grep w11
+ 'org.w11.Bridge']
+### rc=0
+### rm -f $HOME/w11-smoke.txt; touch $HOME/w11-smoke.txt
+### rc=0
+### setsid nohup gnome-text-editor $HOME/w11-smoke.txt >/dev/null 2>&1 </dev/null & sleep 3; true
+### rc=0
+### wdotool search --class TextEditor | head -1
+277365864
+### rc=0
+### wdotool getwindowname 277365864
+w11-smoke.txt (~/) - Text Editor
+### rc=0
+### wdotool windowmove 277365864 100 100; wdotool windowsize 277365864 800 600
+### rc=0
+### wdotool getwindowgeometry 277365864
+Window 277365864
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### wdotool windowactivate --sync 277365864
+### rc=0
+### wdotool getactivewindow
+277365864
+### rc=0
+### wdotool windowminimize 277365864
+### rc=0
+### wdotool getactivewindow 2>&1
+xdo_get_active_window reported an error
+### rc=1
+### wdotool windowactivate --sync 277365864
+### rc=0
+### wwmctl -d
+0  * DG: 5760x1080  VP: 0,0  WA: 0,32 5760x1048  Workspace 1
+1  - DG: 5760x1080  VP: N/A  WA: 0,32 5760x1048  Workspace 2
+### rc=0
+### wdotool set_desktop 1
+### rc=0
+### wdotool get_desktop
+1
+### rc=0
+### wdotool set_desktop 0
+### rc=0
+### wdotool get_desktop
+0
+### rc=0
+### wdotool windowactivate --sync 277365864
+### rc=0
+### wdotool mousemove 300 300
+### rc=0
+### wdotool getmouselocation
+x:300 y:300 screen:0 window:277365864
+### rc=0
+### wdotool mousemove 300 300 click 1
+### rc=0
+### wdotool windowactivate --sync 277365864; wdotool windowmove 277365864 100 100; wdotool windowsize 277365864 800 600
+### rc=0
+### wdotool getwindowgeometry 277365864
+Window 277365864
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### wwmctl -r :ACTIVE: -b add,maximized_vert,maximized_horz
+### rc=0
+### wdotool getwindowgeometry 277365864
+Window 277365864
+  Position: 0,32 (screen: 0)
+  Geometry: 1920x1048
+### rc=0
+### wxprop -id 277365864 _NET_WM_STATE
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_HORZ, _NET_WM_STATE_MAXIMIZED_VERT, _NET_WM_STATE_FOCUSED
+### rc=0
+### wwmctl -r :ACTIVE: -b remove,maximized_vert,maximized_horz
+### rc=0
+### wdotool getwindowgeometry 277365864
+Window 277365864
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### wwmctl -l
+0x10884468  0 fedora43-gnome-smoke w11-smoke.txt (~/) - Text Editor
+### rc=0
+### wwmctl -l -G
+0x10884468  0 200  200  800  600  fedora43-gnome-smoke w11-smoke.txt (~/) - Text Editor
+### rc=0
+### wwmctl -d
+0  * DG: 5760x1080  VP: 0,0  WA: 0,32 5760x1048  Workspace 1
+1  - DG: 5760x1080  VP: N/A  WA: 0,32 5760x1048  Workspace 2
+### rc=0
+### wxprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0x10884468
+### rc=0
+### command -v xw11
+/usr/sbin/xw11
+### rc=0
+### xprop -root >/dev/null 2>&1
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null
+:20 4813 :0
+### rc=0
+### xw11 --print-display
+:20
+### rc=0
+### pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l
+1
+### rc=0
+### DISPLAY=:20 xdotool getdisplaygeometry
+1920 1080
+### rc=0
+### DISPLAY=:20 xdotool search --class TextEditor | head -1
+10485761
+### rc=0
+### wdotool getwindowname 277365864
+w11-smoke.txt (~/) - Text Editor
+### rc=0
+### DISPLAY=:20 xdotool getwindowname 10485761
+w11-smoke.txt (~/) - Text Editor
+### rc=0
+### wdotool getwindowgeometry 277365864
+Window 277365864
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### DISPLAY=:20 xdotool getwindowgeometry 10485761
+Window 10485761
+  Position: 100,100 (screen: 0)
+  Geometry: 800x600
+### rc=0
+### DISPLAY=:20 xprop -id 10485761
+_NET_WM_NAME(UTF8_STRING) = "w11-smoke.txt (~/) - Text Editor"
+WM_NAME(STRING) = "w11-smoke.txt (~/) - Text Editor"
+WM_CLASS(STRING) = "org.gnome.TextEditor", "org.gnome.TextEditor"
+_NET_WM_PID(CARDINAL) = 2964
+WM_CLIENT_MACHINE(STRING) = "fedora43-gnome-smoke"
+_NET_WM_DESKTOP(CARDINAL) = 0
+_NET_WM_STATE(ATOM) = _NET_WM_STATE_FOCUSED
+_NET_WM_WINDOW_TYPE(ATOM) = _NET_WM_WINDOW_TYPE_NORMAL
+WM_STATE(WM_STATE):
+		window state: Normal
+		icon window: 0x0
+_NET_FRAME_EXTENTS(CARDINAL) = 0, 0, 0, 0
+WM_PROTOCOLS(ATOM): protocols  WM_DELETE_WINDOW
+### rc=0
+### wwmctl -l
+0x10884468  0 fedora43-gnome-smoke w11-smoke.txt (~/) - Text Editor
+### rc=0
+### DISPLAY=:20 wmctrl -l
+0x00a00001  0 fedora43-gnome-smoke w11-smoke.txt (~/) - Text Editor
+### rc=0
+### DISPLAY=:20 xdotool get_desktop
+0
+### rc=0
+### DISPLAY=:20 wmctrl -d
+0  * DG: 5760x1080  VP: 0,0  WA: 0,32 5760x1048  Workspace 1
+1  - DG: 5760x1080  VP: 0,0  WA: 0,32 5760x1048  Workspace 2
+### rc=0
+### DISPLAY=:20 xprop -root _NET_CLIENT_LIST
+_NET_CLIENT_LIST(WINDOW): window id # 0xa00001
+### rc=0
+### W11_PROXY=always wdotool search --class TextEditor | head -1
+10485761
+### rc=0
+### W11_PROXY=never wdotool search --class TextEditor | head -1
+277365864
+### rc=0
+### wdotool --version
+xdotool version 4.20260303.1
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x200
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,200
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-3 --pos 3840x0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### DISPLAY=:20 xrandr -q
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       73.70  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       73.70  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       73.70  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### tail -4 ${XW11_LOG:-/tmp/xw11-$(id -u).log}
+1789209522.053 xw11[4813] own connection to :0: root 0x2f4, ids 0xa00000|n, 70 atoms, 7 extensions
+1789209530.587 xw11[4813] xw11: RandR writes apply through the mutter backend (detection), state keyed by /run/user/1000/wayland-0
+1789209530.853 xw11[4813] xw11: applied a RandR batch of 1 crtc(s) in 278 ms through mutter (Virtual-3 on)
+1789209534.208 xw11[4813] xw11: applied a RandR batch of 1 crtc(s) in 326 ms through mutter (Virtual-3 on)
+### rc=0
+### DISPLAY=:20 xdotool windowactivate --sync 10485761
+### rc=0
+### wdotool windowactivate --sync 277365864; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### DISPLAY=:20 xdotool type --delay 30 -- 'proxy: yz@'
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+proxy: yz@
+### rc=0
+### DISPLAY=:20 xrandr --output Virtual-2 --primary                      >/dev/null 2>&1; wxrandr --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   2560x1080     50.00  
+   2048x1152     60.00  
+   1920x1440     60.00  
+   1920x1200     59.88  
+   1920x1080     75.00*+  60.00    50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   1680x1050     59.95  
+   1600x1200     60.00  
+   1440x900      59.89  
+   1400x1050     59.98  
+   1360x768      60.02  
+   1280x1024     60.02  
+   1280x960      60.00  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+Virtual-2 connected primary 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   2560x1080     50.00  
+   2048x1152     60.00  
+   1920x1440     60.00  
+   1920x1200     59.88  
+   1920x1080     75.00*+  60.00    50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   1680x1050     59.95  
+   1600x1200     60.00  
+   1440x900      59.89  
+   1400x1050     59.98  
+   1360x768      60.02  
+   1280x1024     60.02  
+   1280x960      60.00  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   2560x1080     50.00  
+   2048x1152     60.00  
+   1920x1440     60.00  
+   1920x1200     59.88  
+   1920x1080     75.00*+  60.00    50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   1680x1050     59.95  
+   1600x1200     60.00  
+   1440x900      59.89  
+   1400x1050     59.98  
+   1360x768      60.02  
+   1280x1024     60.02  
+   1280x960      60.00  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+### rc=0
+### DISPLAY=:20; export DISPLAY; s=$(date +%s%N); xdotool search --class TextEditor >/dev/null 2>&1; printf '%s ms\n' $(( ($(date +%s%N) - s) / 1000000 ))
+19 ms
+### rc=0
+### xw11 --stop
+### rc=0
+### printf "%s %s" "$(pgrep -u $(id -u) -f "xw11[^ ]* __[s]erve" | wc -l)" \                   "$(test -e $XDG_RUNTIME_DIR/xw11/display && echo 1 || echo 0)"
+0 0
+### rc=0
+### wdotool windowactivate --sync 277365864
+### rc=0
+### wdotool windowactivate --sync 277365864; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### wdotool type --delay 30 -- 'us: yz@'
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+us: yz@
+### rc=0
+### wdotool windowactivate --sync 277365864; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### wdotool type --delay 30 -- abc; wdotool key Return; wdotool type --delay 30 -- def
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+abc
+def
+### rc=0
+### gsettings set org.gnome.desktop.input-sources sources "[('xkb','us'),('xkb','de')]"
+### rc=0
+### wdotool windowactivate --sync 277365864
+### rc=0
+### sh /tmp/w11-layout.sh de
+de
+### rc=0
+### wdotool keys explain yz@ 2>&1
+layout: German -- group 2 of 3, from wayland + gnome input-sources
+level keys: shift = key 42 <LFSH>   level3 = key 100 <RALT>   level5 = key 195 <LVL5>   (what wdotool presses)
+'y' -- 1 press on German
+    press key 44 <AB01> -> 'y'
+    wdotool key 52                             (keycodes)
+    wdotool type 'y'                           (characters)
+'z' -- 1 press on German
+    press key 21 <AD06> -> 'z'
+    wdotool key 29                             (keycodes)
+    wdotool type 'z'                           (characters)
+'@' -- 1 press on German
+    press key 16 <AD01> with level3 (key 100 <RALT>, ISO_Level3_Shift) -> '@'
+    wdotool key 108+24                         (keycodes)
+    wdotool type '@'                           (characters)
+### rc=0
+### wdotool windowactivate --sync 277365864; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### wdotool type --delay 30 -- 'de: yz@ Straße'
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+de: yz@ Straße
+### rc=0
+### sh /tmp/w11-layout.sh us
+us
+### rc=0
+### wdotool windowactivate --sync 277365864; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### wdotool type --delay 30 -- 'us: yz@'
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+us: yz@
+### rc=0
+### gsettings set org.gnome.desktop.input-sources sources            "[('xkb','us'),('xkb','de'),('xkb','fr'),('xkb','gr'),('xkb','es')]"
+### rc=0
+### wdotool windowactivate --sync 277365864
+### rc=0
+### sh /tmp/w11-layout.sh es
+es
+### rc=0
+### wdotool keys explain yz@ 2>&1 | head -1
+layout: Spanish -- group 2 of 3, from wayland + gnome input-sources
+### rc=0
+### wdotool windowactivate --sync 277365864; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### wdotool type --delay 30 -- yz@ 2>&1 >/dev/null
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+yz@
+### rc=0
+### sh /tmp/w11-layout.sh gr
+gr
+### rc=0
+### wdotool keys explain yz@ 2>&1 | head -1
+layout: Greek -- group 1 of 3, from wayland + gnome input-sources
+### rc=0
+### wdotool windowactivate --sync 277365864; wdotool key ctrl+a; wdotool key BackSpace
+key 'a' is not reachable on the Greek layout. Ignoring it.
+key 'a' is not reachable on the Greek layout. Ignoring it.
+### rc=0
+### wdotool type --delay 30 -- yz@ 2>&1 >/dev/null
+Can't type character 'y' (not on the Greek layout). Skipping.
+Can't type character 'z' (not on the Greek layout). Skipping.
+### rc=0
+### wdotool key ctrl+s
+key 's' is not reachable on the Greek layout. Ignoring it.
+key 's' is not reachable on the Greek layout. Ignoring it.
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+yz@
+### rc=0
+### sh /tmp/w11-layout.sh fr
+fr
+### rc=0
+### wdotool keys explain yz@ 2>&1 | head -1
+layout: French -- group 3 of 4, from wayland + gnome input-sources
+### rc=0
+### wdotool windowactivate --sync 277365864; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### wdotool type --delay 30 -- yz@ 2>&1 >/dev/null
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+yz@
+### rc=0
+### sh /tmp/w11-layout.sh de
+de
+### rc=0
+### wdotool keys explain yz@ 2>&1 | head -1
+layout: German -- group 2 of 4, from wayland + gnome input-sources
+### rc=0
+### wdotool windowactivate --sync 277365864; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### wdotool type --delay 30 -- yz@ 2>&1 >/dev/null
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+yz@
+### rc=0
+### sh /tmp/w11-layout.sh us
+us
+### rc=0
+### wdotool keys explain yz@ 2>&1 | head -1
+layout: English (US) -- group 1 of 4, from wayland + gnome input-sources
+### rc=0
+### wdotool windowactivate --sync 277365864; wdotool key ctrl+a; wdotool key BackSpace
+### rc=0
+### wdotool type --delay 30 -- yz@ 2>&1 >/dev/null
+### rc=0
+### wdotool key ctrl+s
+### rc=0
+### cat $HOME/w11-smoke.txt 2>/dev/null
+yz@
+### rc=0
+### gsettings set org.gnome.desktop.input-sources sources "[('xkb','us'),('xkb','de')]"
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --listmonitors
+Monitors: 3
+ 0: +*Virtual-2 1920/480x1080/270+1920+0  Virtual-2
+ 1: +Virtual-1 1920/480x1080/270+0+0  Virtual-1
+ 2: +Virtual-3 1920/480x1080/270+3840+0  Virtual-3
+### rc=0
+### wxrandr --output Virtual-3 --off
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+### rc=0
+### wxrandr --output Virtual-3 --auto
+xrandr: output Virtual-3 enabled without a position; placing it right-of Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --output Virtual-3 --below Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,1080
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1920,1080
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### wxrandr --output Virtual-3 --pos 4000x0 2>&1
+xrandr: GNOME's Mutter refused this layout: Logical monitors not adjacent (GNOME allows neither a gap nor an overlap between outputs; re-place the neighbours in the same command)
+### rc=1
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### md5sum $HOME/.config/monitors.xml 2>/dev/null | cut -d' ' -f1
+### rc=0
+### wxrandr --output Virtual-3 --below Virtual-2 --persistent 2>&1
+xrandr: GNOME will ask "Keep changes?" for 20 s; confirm the dialog or the layout reverts
+### rc=0
+### md5sum $HOME/.config/monitors.xml 2>/dev/null | cut -d' ' -f1
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --output Virtual-3 --below Virtual-2 --persistent >/dev/null 2>&1 &
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.Bridge1.ConfirmDisplayChange true 2>&1
+(true,)
+### rc=0
+### md5sum $HOME/.config/monitors.xml 2>/dev/null | cut -d' ' -f1
+663b4845cdb2741d38ca8bd47795df51
+### rc=0
+### cp $HOME/.config/monitors.xml /tmp/w11-monitors-kept.xml
+### rc=0
+### wxrandr --output Virtual-3 --right-of Virtual-2 --persistent >/dev/null 2>&1 &
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.Bridge1.ConfirmDisplayChange true
+(true,)
+### rc=0
+### ls $HOME/.config/monitors.xml.wxrandr-backup 2>&1
+/home/test/.config/monitors.xml.wxrandr-backup
+### rc=0
+### wxrandr --output Virtual-3 --below Virtual-2 --persistent >/dev/null 2>&1 &
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.Bridge1.ConfirmDisplayChange false 2>&1
+(true,)
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### gdbus call --session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.Bridge1.ConfirmDisplayChange true 2>&1
+(false,)
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### sha256sum $HOME/.config/monitors.xml 2>/dev/null | cut -d' ' -f1
+0361d332c8de13291a65c1e97af9df898f3202e458797b328bdecc2d8b5052c9
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### gnome-extensions enable w11-overlap@w11 2>&1
+### rc=0
+### wxrandr --gnome-overlap-status 2>&1
+available
+shell: 49.9
+extension: running
+asks first: nothing is recorded
+file: /home/test/.config/w11/overlap-consent.json
+### rc=0
+### wxrandr --dryrun --unsafe-gnome-overlap --output Virtual-3 --pos 1000x0 2>&1
+xrandr: --unsafe-gnome-overlap: GNOME will not place these monitors, so they are going to be
+  placed by writing into the running gnome-shell instead of asking it.
+  What it does:         move Virtual-3 from +3840+0 to +1000+0
+                        by writing 8 bytes per monitor inside gnome-shell
+                        (GNOME Shell 49.9), through the w11-overlap@w11
+                        extension, and then asking Mutter to apply the result.
+  What it risks:        those 8 bytes go where this build of libmutter keeps a
+                        logical monitor's position.  The extension re-checks
+                        that this really is such a build before every write --
+                        struct size against the GType registry, a sentinel
+                        through Mutter's own setter, and every value it reads
+                        against what Mutter reports publicly -- and refuses if
+                        anything disagrees.  If all of that is wrong anyway,
+                        gnome-shell crashes, and on Wayland gnome-shell is the
+                        session: every program running in it goes with it.
+  What it saves:        nothing.  ~/.config/monitors.xml is never written on
+                        this path, so this layout does not survive a logout,
+                        and --persistent is refused together with this flag.
+  To undo:              wxrandr --output Virtual-1 --pos 0x0 --output Virtual-2 --pos 1920x0 --output Virtual-3 --pos 3840x0
+                        or log out and back in.
+  If the session dies:  gnome-shell is the session on Wayland, so you land at
+                        the login screen.  Log in again -- nothing was saved,
+                        so the layout is the one you started with.
+                        If a session will not start at all, switch to a text
+                        console with Ctrl+Alt+F3, log in and run
+                            gnome-extensions disable w11-overlap@w11
+                        (or delete whichever of these two is there:
+                            ~/.local/share/gnome-shell/extensions/w11-overlap@w11
+                            /usr/share/gnome-shell/extensions/w11-overlap@w11   <- from the .deb ),
+                        then Ctrl+Alt+F1 back to the login screen.
+xrandr: GNOME's rule this breaks: logical monitors not adjacent (an overlap counts, and so does a gap)
+xrandr: overlap check shell-version: GNOME Shell 49.9, libmutter-17.so.0 (build c7c9add6935d)
+xrandr: overlap check typelib: W11Overlap17, MetaMonitorsConfig 80 bytes as declared
+xrandr: overlap check sentinel: switch_config round-tripped at the declared offset
+xrandr: overlap check pending-dialog: nothing holds a modal grab, so GNOME is not asking "Keep changes?"
+xrandr: overlap check bounded-read: 3 logical monitors, every address range-checked
+xrandr: overlap check public-view: identical to Mutter's public view (global.display + MetaMonitorManager.get_monitors)
+xrandr: dryrun: nothing was written
+screen 0: 3840x1080 1013x285 mm  96.25dpi
+crtc 2:    1920x1080  75.00 +1000+0 "Virtual-3"
+### rc=0
+### wxrandr --gnome-overlap-forget >/dev/null 2>&1; true
+### rc=0
+### wxrandr --unsafe-gnome-overlap --output Virtual-3 --pos 1000x0 2>&1
+xrandr: --unsafe-gnome-overlap: GNOME will not place these monitors, so they are going to be
+  placed by writing into the running gnome-shell instead of asking it.
+  What it does:         move Virtual-3 from +3840+0 to +1000+0
+                        by writing 8 bytes per monitor inside gnome-shell
+                        (GNOME Shell 49.9), through the w11-overlap@w11
+                        extension, and then asking Mutter to apply the result.
+  What it risks:        those 8 bytes go where this build of libmutter keeps a
+                        logical monitor's position.  The extension re-checks
+                        that this really is such a build before every write --
+                        struct size against the GType registry, a sentinel
+                        through Mutter's own setter, and every value it reads
+                        against what Mutter reports publicly -- and refuses if
+                        anything disagrees.  If all of that is wrong anyway,
+                        gnome-shell crashes, and on Wayland gnome-shell is the
+                        session: every program running in it goes with it.
+  What it saves:        nothing.  ~/.config/monitors.xml is never written on
+                        this path, so this layout does not survive a logout,
+                        and --persistent is refused together with this flag.
+  To undo:              wxrandr --output Virtual-1 --pos 0x0 --output Virtual-2 --pos 1920x0 --output Virtual-3 --pos 3840x0
+                        or log out and back in.
+  If the session dies:  gnome-shell is the session on Wayland, so you land at
+                        the login screen.  Log in again -- nothing was saved,
+                        so the layout is the one you started with.
+                        If a session will not start at all, switch to a text
+                        console with Ctrl+Alt+F3, log in and run
+                            gnome-extensions disable w11-overlap@w11
+                        (or delete whichever of these two is there:
+                            ~/.local/share/gnome-shell/extensions/w11-overlap@w11
+                            /usr/share/gnome-shell/extensions/w11-overlap@w11   <- from the .deb ),
+                        then Ctrl+Alt+F1 back to the login screen.
+xrandr: GNOME's rule this breaks: logical monitors not adjacent (an overlap counts, and so does a gap)
+mutter's own validator on the result: refused: Logical monitors not adjacent
+/home/test/.config/monitors.xml: unchanged (0361d332c8de13291a65c1e97af9df898f3202e458797b328bdecc2d8b5052c9)
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1000,0
+### rc=0
+### wxrandr --output Virtual-1 --pos 0x0 --output Virtual-2 --pos 1920x0 --output Virtual-3 --pos 3840x0
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 3840,0
+### rc=0
+### wxrandr --gnome-overlap-allow >/dev/null 2>&1; true
+### rc=0
+### cat ${XDG_CONFIG_HOME:-$HOME/.config}/w11/overlap-consent.json 2>&1
+{
+  "agreed": "2026-09-12T10:42:31Z",
+  "format": 1,
+  "how": "wxrandr --gnome-overlap-allow",
+  "libmutter": "17",
+  "libmutter_build": "c7c9add6935dc47765f642c2e7315df628e12828",
+  "shell": "49.9",
+  "struct_size": 80
+}
+### rc=0
+### wxrandr --unsafe-gnome-overlap --output Virtual-3 --pos 1000x0 2>&1
+xrandr: --unsafe-gnome-overlap: applying a layout GNOME refuses ("logical monitors not adjacent (an overlap counts, and so does a gap)"), as agreed on 2026-09-12
+### rc=0
+### python3 $HOME/w11-oracle.py gnome
+Virtual-1 0,0
+Virtual-2 1920,0
+Virtual-3 1000,0
+### rc=0
+### wxrandr --output Virtual-1 --pos 0x0 --output Virtual-2 --pos 1920x0 --output Virtual-3 --pos 3840x0
+### rc=0
+### wxrandr --gnome-overlap-forget >/dev/null 2>&1; true
+### rc=0
+### cat ${XDG_CONFIG_HOME:-$HOME/.config}/w11/overlap-consent.json 2>&1
+cat: /home/test/.config/w11/overlap-consent.json: No such file or directory
+### rc=1
+### sha256sum $HOME/.config/monitors.xml 2>/dev/null | cut -d' ' -f1
+0361d332c8de13291a65c1e97af9df898f3202e458797b328bdecc2d8b5052c9
+### rc=0
+### c=$(ls /etc/gdm3/custom.conf /etc/gdm/custom.conf 2>/dev/null | head -1); sed -i 's/^AutomaticLoginEnable=.*/AutomaticLoginEnable=false/' $c 2>/dev/null;           grep -c AutomaticLoginEnable $c
+1
+### rc=0
+### ( sleep 1; reboot ) >/dev/null 2>&1 &
+### rc=0
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm gnome-shell >/dev/null && echo up
+### rc=1
+### pgrep -u gdm -a gnome-shell | head -1
+### rc=0
+### find $(ls -d /var/lib/gdm3 /var/lib/gdm 2>/dev/null | head -1) -name bridge-enabled 2>/dev/null
+### rc=0
+### id -u gdm >/dev/null 2>&1 && echo yes
+yes
+### rc=0
+### grep -ras w11 $(ls -d /var/lib/gdm3 /var/lib/gdm 2>/dev/null | head -1)/.config/dconf 2>/dev/null | head -2
+### rc=0
+### t=$(mktemp -d); chown gdm "$t" 2>/dev/null;                           runuser -u gdm -- env HOME=$(ls -d /var/lib/gdm3 /var/lib/gdm 2>/dev/null | head -1) XDG_RUNTIME_DIR=$t                                dconf read /org/gnome/shell/enabled-extensions 2>&1                                   || echo dconf-read-failed;                           rm -rf "$t"
+### rc=0
+### c=$(ls /etc/gdm3/custom.conf /etc/gdm/custom.conf 2>/dev/null | head -1); sed -i 's/^AutomaticLoginEnable=.*/AutomaticLoginEnable=true/' $c 2>/dev/null; true
+### rc=0
+### ( sleep 1; reboot ) >/dev/null 2>&1 &
+### rc=0
+### cp /tmp/w11-oracle.py $HOME/w11-oracle.py && chmod 0755 $HOME/w11-oracle.py
+### rc=0
+### setsid nohup dbus-monitor --session >> $HOME/w11-bus.log 2>&1 </dev/null & sleep 1; true
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+# file: /dev/uinput
+# owner: root
+# group: root
+user::rw-
+user:test:rw-
+group::---
+mask::rw-
+other::---
+
+### rc=0
+### sh /tmp/install-bridge.sh --udev --uninstall 2>&1
+install-bridge.sh: removed /etc/udev/rules.d/60-w11-uinput.rules and /etc/modules-load.d/w11-uinput.conf; /dev/uinput is root:root 0600 again, ACL cleared
+install-bridge.sh: the w11 package still owns /usr/lib/udev/rules.d/60-w11-uinput.rules, which udev reads too: the next uevent on /dev/uinput tags it uaccess again and logind hands the ACL back. To undo that as well: dnf remove w11
+### rc=0
+### ls /usr/lib/udev/rules.d/60-w11-uinput.rules 2>&1
+/usr/lib/udev/rules.d/60-w11-uinput.rules
+### rc=0
+### udevadm control --reload-rules; udevadm trigger --name-match=uinput; udevadm settle --timeout=5
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+# file: /dev/uinput
+# owner: root
+# group: root
+user::rw-
+user:test:rw-
+group::---
+mask::rw-
+other::---
+
+### rc=0
+### sh /tmp/install-bridge.sh --udev --uninstall >/dev/null 2>&1;           udevadm control --reload-rules; udevadm trigger --name-match=uinput;           udevadm settle --timeout=5; true
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+# file: /dev/uinput
+# owner: root
+# group: root
+user::rw-
+user:test:rw-
+group::---
+mask::rw-
+other::---
+
+### rc=0
+### ls /etc/udev/rules.d/ 2>/dev/null
+### rc=0
+### wwmctl -l | wc -l
+0
+### rc=0
+### wwmctl -l | wc -l
+0
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-1
+Virtual-2
+Virtual-3
+### rc=0
+### wxrandr --query | awk '$2=="connected"{print $1}'
+Virtual-1
+Virtual-2
+Virtual-3
+### rc=0
+### wmirror --list
+### rc=0
+### wxrandr --persistent --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   2560x1080     50.00  
+   2048x1152     60.00  
+   1920x1440     60.00  
+   1920x1200     59.88  
+   1920x1080     75.00*+  60.00    50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   1680x1050     59.95  
+   1600x1200     60.00  
+   1440x900      59.89  
+   1400x1050     59.98  
+   1360x768      60.02  
+   1280x1024     60.02  
+   1280x960      60.00  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+Virtual-2 connected primary 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   2560x1080     50.00  
+   2048x1152     60.00  
+   1920x1440     60.00  
+   1920x1200     59.88  
+   1920x1080     75.00*+  60.00    50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   1680x1050     59.95  
+   1600x1200     60.00  
+   1440x900      59.89  
+   1400x1050     59.98  
+   1360x768      60.02  
+   1280x1024     60.02  
+   1280x960      60.00  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   5120x2160     50.00  
+   4096x2160     50.00  
+   3840x2160     60.00    59.94    50.00  
+   2560x1080     50.00  
+   2048x1152     60.00  
+   1920x1440     60.00  
+   1920x1200     59.88  
+   1920x1080     75.00*+  60.00    50.00  
+   1856x1392     59.99  
+   1792x1344     60.00  
+   1680x1050     59.95  
+   1600x1200     60.00  
+   1440x900      59.89  
+   1400x1050     59.98  
+   1360x768      60.02  
+   1280x1024     60.02  
+   1280x960      60.00  
+   1280x768      59.87  
+   1024x768      60.00  
+   800x600       60.32  
+### rc=0
+### wwmctl -l
+### rc=0
+### wwmctl -l
+### rc=0
+### wxrandr --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       73.70  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected primary 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       73.70  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       73.70  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### wxrandr --query
+Screen 0: minimum 16 x 16, current 5760 x 1080, maximum 32767 x 32767
+Virtual-1 connected 1920x1080+0+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       73.70  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-2 connected primary 1920x1080+1920+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       73.70  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+Virtual-3 connected 1920x1080+3840+0 (normal left inverted right x axis y axis) 480mm x 270mm
+   1920x1080     74.91*+
+   1440x1080     74.92  
+   1400x1050     74.87  
+   1280x1024     74.90  
+   1280x960      74.86  
+   1152x864      74.82  
+   1024x768      74.90  
+   800x600       74.91  
+   640x480       74.77  
+   320x240       73.82  
+   1680x1050     74.89  
+   1440x900      74.98  
+   1280x800      74.93  
+   1152x720      74.72  
+   960x600       74.84  
+   928x580       74.58  
+   800x500       74.87  
+   768x480       74.71  
+   720x480       74.51  
+   640x400       74.23  
+   320x200       73.70  
+   1600x900      74.89  
+   1368x768      74.90  
+   1280x720      74.78  
+   1024x576      74.80  
+   864x486       74.45  
+   720x400       74.23  
+   640x350       74.53  
+### rc=0
+### ls /run/user/0/xw11/display /tmp/wdotool-0/xw11/display 2>/dev/null
+### rc=2
+### wc -l < $HOME/w11-bus.log 2>/dev/null || echo 0
+343685
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep -c 'interface=org.freedesktop.portal\.'
+139
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal.Inhibit' | sed -n 's/.*sender=\([^ ]*\).*/\1/p' | sort -u
+:1.94
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.portal\.'                  | grep -vE 'interface=org.freedesktop.portal.(Settings|Request|Session)'                  | grep -v 'interface=org.freedesktop.portal.Documents; member=GetMountPoint'                  | grep -vE 'sender=:1\.94' | head -5
+### rc=0
+### grep -E '^method call ' $HOME/w11-bus.log | grep 'interface=org.freedesktop.PolicyKit1' | head -3
+### rc=0
+### grep -Ec '^signal ' $HOME/w11-bus.log
+1132
+### rc=0
+### grep -o 'org.freedesktop.portal.[A-Za-z]*' $HOME/w11-bus.log | sort | uniq -c | sort -rn | head
+    552 org/freedesktop/portal/desktop
+    230 org.freedesktop.portal.Desktop
+    192 org.freedesktop.portal.Settings
+     71 org.freedesktop.portal.Documents
+     55 org.freedesktop.portal.IBus
+     19 org.freedesktop.portal.Request
+     15 org.freedesktop.portal.Inhibit
+     11 org.freedesktop.portal.Error
+### rc=0
+### getenforce 2>/dev/null
+Enforcing
+### rc=0
+### journalctl -b _TRANSPORT=audit --no-pager 2>/dev/null                 | grep -c 'AVC.*comm="\(wdotool\|python3\|udevadm\)"'
+0
+### rc=1
+### journalctl -b _TRANSPORT=audit --no-pager 2>/dev/null | wc -l
+1035
+### rc=0
+### rpm -V w11 2>&1
+### rc=0
+### dnf remove -y w11 2>&1
+Package                            Arch   Version      Repository        Size
+Removing:
+ w11                               noarch 0.4.0-1.fc44 @commandline   6.2 MiB
+Removing dependent packages:
+ gnome-shell-extension-w11-bridge  noarch 0.4.0-1.fc44 @commandline  89.9 KiB
+ gnome-shell-extension-w11-overlap noarch 0.4.0-1.fc44 @commandline  88.8 KiB
+
+Transaction Summary:
+ Removing:           3 packages
+
+After this operation, 6 MiB will be freed (install 0 B, remove 6 MiB).
+Running transaction
+[1/4] Prepare transaction               100% |  19.0   B/s |   3.0   B |  00m00s
+[2/4] Removing gnome-shell-extension-w1 100% |   1.8 KiB/s |  11.0   B |  00m00s
+[3/4] Removing gnome-shell-extension-w1 100% | 583.0   B/s |   7.0   B |  00m00s
+[4/4] Removing w11-0:0.4.0-1.fc44.noarc 100% | 680.0   B/s | 337.0   B |  00m00s
+Complete!
+### rc=0
+### ls -d /usr/libexec/w11 /var/lib/w11 /etc/xdg/autostart/w11-enable-bridge.desktop /usr/share/gnome-shell/extensions/w11-bridge@w11 /usr/share/gnome-shell/extensions/w11-overlap@w11  2>/dev/null | tr '\n' ' '
+### rc=0
+### for t in wdotool wwmctl wxprop wxrandr warandr wmirror; do command -v $t; done 2>/dev/null
+### rc=1
+### stat -c '%U:%G %a' /dev/uinput 2>/dev/null
+root:root 600
+### rc=0
+### getfacl -p /dev/uinput 2>/dev/null
+# file: /dev/uinput
+# owner: root
+# group: root
+user::rw-
+group::---
+other::---
+
+### rc=0
+### grep -l uinput /run/udev/tags/uaccess/* 2>/dev/null
+### rc=1
+### find /usr/libexec/w11 /usr/bin -name __pycache__ 2>/dev/null
+### rc=1
+### cd /tmp && dnf install -y ./w11-*.rpm ./gnome-shell-extension-w11-bridge-*.rpm ./gnome-shell-extension-w11-overlap-*.rpm 2>&1
+Updating and loading repositories:
+Repositories loaded.
+Package                            Arch   Version      Repository        Size
+Installing:
+ gnome-shell-extension-w11-bridge  noarch 0.4.0-1.fc44 @commandline  89.9 KiB
+ gnome-shell-extension-w11-overlap noarch 0.4.0-1.fc44 @commandline  88.8 KiB
+ w11                               noarch 0.4.0-1.fc44 @commandline   6.2 MiB
+
+Transaction Summary:
+ Installing:         3 packages
+
+Total size of inbound packages is 2 MiB. Need to download 0 B.
+After this operation, 6 MiB extra will be used (install 6 MiB, remove 0 B).
+Running transaction
+[1/5] Verify package files              100% | 300.0   B/s |   3.0   B |  00m00s
+[2/5] Prepare transaction               100% |  20.0   B/s |   3.0   B |  00m00s
+[3/5] Installing w11-0:0.4.0-1.fc44.noa 100% |  29.1 MiB/s |   6.3 MiB |  00m00s
+[4/5] Installing gnome-shell-extension- 100% |  14.8 MiB/s |  91.1 KiB |  00m00s
+[5/5] Installing gnome-shell-extension- 100% | 239.1 KiB/s |  90.9 KiB |  00m00s
+Warning: skipped OpenPGP checks for 3 packages from repository: @commandline
+Complete!
+### rc=0

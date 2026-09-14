@@ -1,0 +1,34 @@
+# xrandr --output HEADLESS-1 --primary, captured 2026-09-10 THROUGH the proxy: sway (headless, one HEADLESS-1 at
+# 1280x720) -> Xwayland 24.1.10 -> `python3 -m xw11 --foreground` -> the
+# recording forwarder scratchpad/b7/rec.py -> xrandr 1.5.3. RANDR major 139,
+# root 0x234, crtc 0x20, output 0x21.
+#
+# grab, one enable, SetOutputPrimary, ungrab, sync.
+#
+# Exit status 0, and sway's own outputs afterwards: unchanged at 800x600.
+# Captured through the proxy rather than against Xwayland directly because
+# these are the streams a write path sends when nothing REFUSES it: against
+# Xwayland alone, the same twenty-two requests go out (this path already succeeded)
+# 22 requests, one per line.
+620005000c0000004249472d5245515545535453
+85000100
+37000500000060003402000008000000ffffff00
+1400060034020000170000001f0000000000000000e1f505
+6200050009006000584b4559424f415244000000
+8700020001000000
+620004000500000052414e4452000000
+620008001700000047656e65726963204576656e7420457874656e73696f6e00
+8000020001000000
+8b0003000100000006000000
+8b06020034020000
+8b19020034020000
+8b14030020000000070b7d31
+8b1c020020000000
+8b1b020020000000
+8b09030021000000070b7d31
+8b17020020000000
+24000100
+8b1508002000000000000000070b7d31000000003c0200000100000021000000
+8b1e03003402000021000000
+25000100
+2b000100

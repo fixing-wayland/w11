@@ -35,10 +35,10 @@ os.environ["W11_PASSTHROUGH"] = "never"
 
 from w11common.errors import CmdError
 from support import FakeWayfire, fixture_json
-from wdotool import backend_wayfire, x11_mini
-from wdotool.backend_wayfire import GATE_METHOD, WayfireBackend, _WayfireIPC
+from hacks.window import backend_wayfire, x11_mini
+from hacks.window.backend_wayfire import GATE_METHOD, WayfireBackend, _WayfireIPC
 from wwmctl import cli as wwmctl_cli
-from wwmctl import core as wwmctl_core
+from hacks.window import wmctl as wwmctl_core
 
 from test_wwmctl_x11 import FakeXServer
 

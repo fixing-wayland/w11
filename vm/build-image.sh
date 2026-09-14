@@ -12,6 +12,9 @@
 #   dm_*       one per display manager, taking the session name or the command.
 #   desktop_*  the quiet-desktop settings, first-run suppression and the per-head
 #              layout contract (head 0 = Virtual-1 at (0,0)) of one desktop.
+#   build_hook the one seam that is NOT per-layer: /usr/local/sbin/vmctl-build-hook,
+#              written by a flavor's own yaml and run here after the desktop, for
+#              the thing one image needs that no other one may have (see it below).
 # The `case "$DESKTOP"` at the bottom is a dispatch table with one line per
 # `# vmctl-desktop:` token of vm/vmctl's DESKTOPS, and nothing else
 # (tests/test_vm_scripts.py R04 pins the two against each other).
@@ -1161,6 +1164,27 @@ EOF
     chown test:test "$TESTHOME/.config/i3/config"
 }
 
+build_hook() {   # /usr/local/sbin/vmctl-build-hook -- one flavor's own arm, if its yaml wrote one
+    # A seam, not a `case "$FLAVOR"` arm: what one image needs after its desktop is installed is
+    # that flavor's business, and a flavor name in this shared file is how an Arch or a Fedora
+    # golden ends up downloading a Debian .deb.  The yaml writes the script (write_files) and this
+    # runs it, once, after the desktop and before the golden markers -- so a hook that fails takes
+    # the whole build down through fail(), and VMCTL-BUILD-OK is never printed.  That is the reason
+    # it is not a second `runcmd:` entry: vm/vmctl:779 decides a build on that one marker, and a
+    # runcmd that fails AFTER it would leave a broken golden being cached as a good one.
+    # The network is re-checked first for the reason pkg_install's own comment gives: after the
+    # desktop install the NetworkManager/networkd hand-over may have taken it away.  It runs after
+    # relabel() and not before it because relabel only restorecons what written() recorded, which a
+    # hook cannot reach: a hook that writes files on a dnf flavor labels its own.
+    # Today exactly one flavor writes one -- resolute-cinnamon-wayland, whose Xwayland hold is a
+    # pinned Debian xwayland_24.1.13-1_amd64.deb over resolute's crashing 2:24.1.10-1.
+    local hook=$VMCTL_ROOT/usr/local/sbin/vmctl-build-hook
+    [ -x "$hook" ] || return 0
+    say "flavor hook: /usr/local/sbin/vmctl-build-hook"
+    wait_net || fail "no network for the flavor hook"
+    "$hook" || fail "the flavor hook /usr/local/sbin/vmctl-build-hook failed"
+}
+
 # ---------------------------------------------------------------- the dispatch table
 
 select_desktop() {
@@ -1215,6 +1239,7 @@ pkg_desktop $DESKTOP_PKG
 $DM $DM_ARGS
 $DESK
 relabel
+build_hook
 
 systemctl set-default graphical.target
 # NetworkManager (from the desktop) now manages the NIC via netplan; networkd's
@@ -1224,6 +1249,9 @@ systemctl set-default graphical.target
 if [ -x /usr/sbin/NetworkManager ]; then
   systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
 fi
+# a desktop arm that wrote nothing under ~/.config (river's config lives elsewhere) leaves
+# no directory to chown, and the build died on it (arch-river, CI run 34628780504)
+mkdir -p "$TESTHOME/.config"
 chown -R test:test "$TESTHOME/.config"
 
 say "disabling automatic updates ($PKG)"

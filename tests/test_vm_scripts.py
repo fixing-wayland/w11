@@ -65,6 +65,7 @@ SELFTEST = os.path.join(VM, "selftest.sh")
 ISO_GOLDEN = os.path.join(VM, "build-iso-golden.sh")
 BUILD = os.path.join(VM, "build-image.sh")
 VMCTL = os.path.join(VM, "vmctl")
+LIVE_SMOKE = os.path.join(VM, "live-smoke.sh")
 FLAVORS = os.path.join(VM, "flavors")
 
 #: The five bash scripts under vm/.  vmctl is Python and is covered elsewhere.
@@ -647,6 +648,307 @@ class TheFlavorHeaders(unittest.TestCase):
                     if re.match(r"^\s*runcmd:|^\s*power_state:", line):
                         break
                     self.assertNotRegex(line, r"^\s*(- )?owner:")
+
+
+#: A `curl` that writes bytes instead of fetching them, so the Xwayland hook's sha256
+#: gate can be RUN and not just read.  `CURL_FAIL_URLS` (space-separated) is the set of
+#: URLs it refuses with curl's own exit 22 -- which is how the snapshot.debian.org arm is
+#: made to run -- and `CURL_BODY` is what it writes for every other one.
+CURL_DOUBLE = """#!/bin/sh
+printf "%%s\\n" "curl $*" >> %s
+out=; url=
+while [ $# -gt 0 ]; do
+    case $1 in
+        -o) out=$2; shift 2 ;;
+        -*) shift ;;
+        *)  url=$1; shift ;;
+    esac
+done
+for bad in ${CURL_FAIL_URLS:-}; do
+    [ "$url" = "$bad" ] && exit 22
+done
+if [ -n "${CURL_FILE:-}" ]; then cp "$CURL_FILE" "$out"; else printf '%%s' "${CURL_BODY:-}" > "$out"; fi
+exit 0
+"""
+
+#: `dpkg -i` is the only thing that moves the version `dpkg-query` answers, here as in the
+#: guest: the pair share a state file, so a hook that read the version back before it
+#: installed, or never installed at all, fails the gate instead of passing it by accident.
+DPKG_DOUBLE = """#!/bin/sh
+printf "%%s\\n" "dpkg $*" >> %s
+[ "${1:-}" = "-i" ] && printf '%%s' "${FAKE_XW_AFTER:-}" > "$FAKE_XW_STATE"
+exit 0
+"""
+
+#: `dpkg-query -W -f=${Version} xwayland`, answering what the state file holds and exiting
+#: 1 when it holds nothing -- dpkg-query's own answer for a package that is not installed,
+#: which is the arm the hook's `|| echo nothing` covers.
+DPKG_QUERY_DOUBLE = """#!/bin/sh
+printf "%%s\\n" "dpkg-query $*" >> %s
+[ -s "$FAKE_XW_STATE" ] || exit 1
+cat "$FAKE_XW_STATE"
+"""
+
+#: A `sha256sum` that answers `$FAKE_SHA`, used ONLY to reach the install arm without the
+#: 992244 bytes themselves; the two mismatch tests run the real sha256sum over real bytes,
+#: and W11_XWAYLAND_DEB runs the whole thing over the real .deb when the box has it.
+SHA256SUM_DOUBLE = """#!/bin/sh
+printf "%%s\\n" "sha256sum $*" >> %s
+printf '%%s  %%s\\n' "$FAKE_SHA" "$1"
+"""
+
+#: The pinned .deb, its digest and the two URLs, as goal2/recon/gl.md 5 measured them
+#: (992244 bytes, both URLs serving the same bytes on 2026-09-12).
+XW_DEB = "xwayland_24.1.13-1_amd64.deb"
+XW_SHA = "a0633569cf2b65d5d4902a2b6213d59c7db7973faef0233df9ace48f334ba6c2"
+XW_URL = "http://deb.debian.org/debian/pool/main/x/xwayland/" + XW_DEB
+XW_FALLBACK = ("https://snapshot.debian.org/archive/debian/20260901T000000Z"
+               "/pool/main/x/xwayland/" + XW_DEB)
+
+
+def flavor_write_file(flavor, path):
+    """The `content: |` block one flavor yaml writes to `path`, dedented.
+
+    Read out of the yaml with no yaml parser, the way every other reader in this
+    tree does it: cloud-init's `write_files` entries here are all `- path:` /
+    `permissions:` / `content: |` with a six-space body, and the block ends at the
+    first line that is neither blank nor indented that far."""
+    with open(os.path.join(FLAVORS, flavor + ".yaml"), encoding="utf-8") as fh:
+        lines = fh.read().splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() != "- path: " + path:
+            continue
+        for j in range(i + 1, len(lines)):
+            if lines[j].strip() == "content: |":
+                body = []
+                for k in range(j + 1, len(lines)):
+                    if lines[k] and not lines[k].startswith("      "):
+                        break
+                    body.append(lines[k][6:])
+                return "\n".join(body) + "\n"
+    raise AssertionError("%s.yaml writes no %s" % (flavor, path))
+
+
+class TheXwaylandHold(unittest.TestCase):
+    """R01b.  resolute-cinnamon-wayland's Xwayland hold: AGENTS.md route 5 at its
+    cheapest end, a released fix installed into one golden.
+
+    Ubuntu 26.04 ships xwayland `2:24.1.10-1`, the one release carrying the
+    `damage_report()` NULL dereference that kills muffin's Xwayland (guest objdump,
+    offset 0x5be4a; fixed upstream in 24.1.11) [goal2/recon/gl.md 3].  The flavor
+    yaml writes /usr/local/sbin/vmctl-build-hook and vm/build-image.sh's `build_hook`
+    runs it after the desktop install, so the fix lands in the golden and a failed
+    download stops the BUILD instead of caching an image whose session cannot hold a
+    compositor (vm/vmctl:779 decides a build on VMCTL-BUILD-OK alone, which is
+    printed after this).
+
+    The two run tests below execute the shipped hook with a `curl` that writes
+    bytes: the digest gate is real sha256 over those bytes, so the mismatch arm is
+    measured and not read."""
+
+    HOOK = "/usr/local/sbin/vmctl-build-hook"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.hook = flavor_write_file("resolute-cinnamon-wayland", cls.HOOK)
+        with open(BUILD, encoding="utf-8") as fh:
+            cls.build = fh.read()
+
+    def run_hook(self, body="not the 992244 bytes", fail_urls=(), sha=None, deb=None,
+                 installed="2:24.1.10-1", after="2:24.1.13-1", timeout=60):
+        """The shipped hook, with curl/dpkg/dpkg-query stubbed and sha256sum real.
+
+        `deb` is a real file for curl to serve, `sha` replaces sha256sum with one
+        answering that digest -- the two ways to reach the arm past the gate, the
+        first with the real 992244 bytes and the second without them.  `installed`
+        is what dpkg-query answers before the install and `after` what the dpkg
+        double makes it answer once `dpkg -i` has run."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        log = os.path.join(tmp, "log")
+        open(log, "w").close()
+        state = os.path.join(tmp, "xwayland-version")
+        with open(state, "w") as fh:
+            fh.write(installed)
+        d = stubs(tmp, [], log)
+        doubles = {"curl": CURL_DOUBLE, "dpkg": DPKG_DOUBLE, "dpkg-query": DPKG_QUERY_DOUBLE}
+        if sha is not None:
+            doubles["sha256sum"] = SHA256SUM_DOUBLE
+        for name, text in doubles.items():
+            with open(os.path.join(d, name), "w") as fh:
+                fh.write(text % log)
+            os.chmod(os.path.join(d, name), 0o755)
+        script = os.path.join(tmp, "hook")
+        with open(script, "w") as fh:
+            fh.write(self.hook)
+        os.chmod(script, 0o755)
+        env = dict(os.environ, PATH=d + ":" + os.environ["PATH"], FAKE_LOG=log,
+                   CURL_BODY=body, CURL_FILE=deb or "", CURL_FAIL_URLS=" ".join(fail_urls),
+                   FAKE_SHA=sha or "", FAKE_XW_STATE=state, FAKE_XW_AFTER=after)
+        got = subprocess.run([script], capture_output=True, text=True,
+                             timeout=timeout, env=env)
+        with open(log) as fh:
+            return got, [ln for ln in fh.read().splitlines() if ln]
+
+    def test_the_hook_installs_the_pinned_deb_and_nothing_else(self):
+        """The name and the digest are the pin; `dpkg -i` takes the file the
+        download left, never a URL and never an apt package."""
+        self.assertIn(XW_DEB, self.hook)
+        self.assertIn(XW_SHA, self.hook)
+        # written with `$deb` in them, so the pin is the name, once
+        self.assertIn(XW_URL[:-len(XW_DEB)] + "$deb", self.hook)
+        self.assertIn(XW_FALLBACK[:-len(XW_DEB)] + "$deb", self.hook)
+        self.assertIn('dpkg -i "$tmp/$deb"', self.hook)
+        self.assertNotIn("apt-get install xwayland", self.hook)
+
+    def test_bytes_that_are_not_the_pinned_deb_stop_the_build_before_dpkg(self):
+        """The gate that makes a pinned URL safe.  A mirror serving something
+        else -- sid moving past 24.1.13-1, a captive portal's HTML -- must not
+        reach `dpkg -i`, and must say both digests so the next reader knows
+        which one moved."""
+        got, log = self.run_hook(body="HTTP 403, not a .deb")
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("sha256 mismatch", got.stdout)
+        self.assertIn(XW_SHA, got.stdout)
+        self.assertEqual([ln for ln in log if ln.startswith("dpkg ")], [])
+
+    def test_the_snapshot_url_is_tried_when_the_debian_pool_answers_nothing(self):
+        """sid moves past 24.1.13-1 in its own time and the pool drops the file
+        when it does; snapshot.debian.org's 20260901T000000Z keeps serving those
+        992244 bytes, and the digest below is what makes a second URL safe rather
+        than a second version.  Both were measured answering on 2026-09-12."""
+        got, log = self.run_hook(fail_urls=[XW_URL])
+        curls = [ln for ln in log if ln.startswith("curl ")]
+        self.assertEqual(len(curls), 2, curls)
+        self.assertIn(XW_URL, curls[0])
+        self.assertIn(XW_FALLBACK, curls[1])
+        # and the first URL has to be able to GIVE UP: snapshot.debian.org rate-limits,
+        # and a stalled connection with no cap holds the build until vmctl's own build
+        # timeout kills it instead of falling through to the line below
+        for curl in curls:
+            self.assertIn("--max-time", curl)
+            self.assertIn("--connect-timeout", curl)
+        # it got bytes from the fallback and then stopped on the digest, which is
+        # the proof the second download was really read and not merely attempted
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("sha256 mismatch", got.stdout)
+
+    def test_a_matching_digest_installs_the_deb_and_then_reads_the_version_back(self):
+        """The arm the golden takes, run end to end.  What it pins is what happens
+        AFTER the gate, which no mismatch test can reach: `dpkg -i` on the file the
+        download left (not a URL, not an apt name), the version read back from dpkg
+        AFTERWARDS, and 2:24.1.13-1 spelled the way Debian spells it -- an epoch
+        dropped here is a hook that fails every build on the version it has just
+        installed.  The digest is the stub's in this one; the two tests above run
+        the real sha256sum over real bytes, and the one below over the real .deb."""
+        got, log = self.run_hook(sha=XW_SHA)
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertNotIn("sha256 mismatch", got.stdout)
+        self.assertIn("installing " + XW_DEB + " over 2:24.1.10-1", got.stdout)
+        installs = [ln for ln in log if ln.startswith("dpkg -i")]
+        self.assertEqual(len(installs), 1, log)
+        self.assertTrue(installs[0].endswith("/" + XW_DEB), installs)
+        # the version the gate reads is the one dpkg answers AFTER that install
+        self.assertTrue(log[log.index(installs[0]) + 1].startswith("dpkg-query "), log)
+        self.assertIn("xwayland 2:24.1.13-1", got.stdout)
+
+    def test_an_install_that_left_the_old_xwayland_stops_the_build(self):
+        """`dpkg -i` exits 0 on a package that is held, diverted or already newer,
+        and the golden would then be cached carrying the 2:24.1.10-1 whose
+        damage_report() NULL kills muffin's Xwayland (goal2/recon/gl.md 3) -- with
+        nothing in the build log saying so.  The gate is what turns that into a
+        failed build, and it names both versions so the next reader knows which."""
+        got, log = self.run_hook(sha=XW_SHA, after="2:24.1.10-1")
+        self.assertEqual(got.returncode, 1, got.stdout + got.stderr)
+        self.assertIn("xwayland is 2:24.1.10-1 after the install, not 2:24.1.13-1", got.stdout)
+        self.assertTrue([ln for ln in log if ln.startswith("dpkg -i")], log)
+
+    @unittest.skipUnless(os.path.exists(os.environ.get("W11_XWAYLAND_DEB", "")),
+                         "W11_XWAYLAND_DEB is not a file on this box")
+    def test_the_real_deb_passes_the_gate_this_hook_puts_in_front_of_it(self):
+        """The same install arm with nothing stubbed but the network: the real
+        sha256sum over the real 992244 bytes, which is the one thing the two
+        mismatch tests cannot show -- that the digest written into the yaml is the
+        digest of the file those URLs serve.  Opt-in because the bytes are 992 KB
+        and belong in no fixture: point W11_XWAYLAND_DEB at a copy (goal2/gl/ has
+        one; `curl -fLO` off the pool URL above fetched them in 5.0 s on this box,
+        2026-09-12)."""
+        got, log = self.run_hook(deb=os.environ["W11_XWAYLAND_DEB"])
+        self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+        self.assertNotIn("sha256 mismatch", got.stdout)
+        self.assertEqual(len([ln for ln in log if ln.startswith("dpkg -i")]), 1, log)
+
+    def test_only_this_flavor_carries_a_build_hook_and_it_is_an_ubuntu_one(self):
+        """Per-flavor is the whole design: a Debian .deb belongs on no Arch,
+        Fedora or NixOS image, and a hook in one yaml moves only that golden's
+        cache key (scripts/ci-golden.sh hashes the yaml).  The shared build
+        script names no flavor and no package."""
+        hooked = []
+        for name in sorted(os.listdir(FLAVORS)):
+            if not name.endswith(".yaml"):
+                continue
+            with open(os.path.join(FLAVORS, name), encoding="utf-8") as fh:
+                text = fh.read()
+            if self.HOOK in text:
+                hooked.append(name[:-5])
+            else:
+                self.assertNotIn(XW_DEB, text, name)
+                self.assertNotIn(XW_SHA, text, name)
+        self.assertEqual(hooked, ["resolute-cinnamon-wayland"])
+        self.assertEqual(vmctl_module().flavor_distro(hooked[0]), "ubuntu")
+        # the shared script may EXPLAIN the hook in a comment -- what it must not do is
+        # act on it, so the tokens are looked for in what bash will run
+        code = "\n".join(ln for ln in self.build.splitlines() if not ln.lstrip().startswith("#"))
+        for token in (XW_DEB, XW_SHA, "deb.debian.org", "resolute-cinnamon-wayland", "dpkg -i"):
+            self.assertNotIn(token, code, token)
+
+    def test_a_hook_that_fails_takes_the_build_down_with_it(self):
+        """The reason the hook is a seam in build-image.sh and not a second
+        `runcmd:` entry: `vm/vmctl` decides a build on the VMCTL-BUILD-OK marker
+        alone, so a runcmd failing after that marker would cache a broken golden
+        as a good one.  Here the failure goes through fail(), which the PREAMBLE
+        makes exit 9."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        log = os.path.join(tmp, "log")
+        open(log, "w").close()
+        d = stubs(tmp, ["getent"], log)
+        hook = os.path.join(tmp, "usr", "local", "sbin", "vmctl-build-hook")
+        os.makedirs(os.path.dirname(hook))
+        env = dict(os.environ, PATH=d + ":" + os.environ["PATH"], FAKE_LOG=log,
+                   VMCTL_ROOT=tmp, NET_HOST="example.invalid", NET_FIX="true")
+        run = lambda: subprocess.run(                                   # noqa: E731
+            ["bash", "-c", PREAMBLE + sh_layer("wait_net", "build_hook") + "\nbuild_hook"],
+            capture_output=True, text=True, timeout=60, env=env)
+        # no hook: the build carries on, and nothing is said about a flavor arm
+        got = run()
+        self.assertEqual(got.returncode, 0, got.stderr)
+        with open(log) as fh:
+            self.assertNotIn("flavor hook", fh.read())
+        for rc, want_exit in ((0, 0), (3, 9)):
+            with self.subTest(rc=rc):
+                with open(hook, "w") as fh:
+                    fh.write('#!/bin/sh\necho "hook ran" >> %s\nexit %d\n' % (log, rc))
+                os.chmod(hook, 0o755)
+                open(log, "w").close()
+                got = run()
+                self.assertEqual(got.returncode, want_exit, got.stderr)
+                with open(log) as fh:
+                    text = fh.read()
+                self.assertIn("hook ran", text)
+                self.assertEqual(
+                    "fail: the flavor hook /usr/local/sbin/vmctl-build-hook failed" in text,
+                    rc != 0)
+
+    def test_the_hook_runs_after_the_desktop_and_before_the_golden_markers(self):
+        """Order is the whole safety of it: the .deb goes over a package the
+        desktop install put there, and the build's OK marker is printed after the
+        hook has had its say."""
+        call = self.build.index("\nbuild_hook\n")
+        self.assertLess(self.build.index("\npkg_desktop $DESKTOP_PKG\n"), call)
+        self.assertLess(self.build.index("\n$DESK\n"), call)
+        self.assertLess(call, self.build.index("con VMCTL-BUILD-OK"))
+        self.assertLess(call, self.build.index("VMCTL-PACKAGES-BEGIN"))
 
 
 class ThePackageLayer(unittest.TestCase):
@@ -1894,6 +2196,189 @@ class TheRigItself(unittest.TestCase):
                              capture_output=True, text=True, timeout=300)
         self.assertEqual(got.returncode, 0, got.stderr)
         self.assertIn("resolute-gnome", got.stdout)
+
+
+class TheLiveSmokeCosmicCrashProbe(unittest.TestCase):
+    """`cosmic_comp_crashed` in vm/live-smoke.sh, run offline against a fake
+    vmctl.
+
+    It is what decides whether a FAILED run exits 75 (retry me: an upstream
+    cosmic-comp SIGSEGV) or its plain FAILS count (a real w11 bug).  The three
+    exit codes were measured live on the fedora44-cosmic golden 2026-09-13
+    (crash->75, clean->0, w11-fail-no-crash->1, report-batch-24); this pins the
+    decision itself so a later edit cannot quietly widen it -- if the gate ever
+    said "true on any failing cosmic run" the retry would mask a w11 bug, which
+    is worse than a red.  The function is sliced out and sourced, so this runs
+    with no VM and no coredumpctl: the fake stands in for `vmctl ssh`."""
+
+    # a coredumpctl `list` row per signal; grep -iw SIGSEGV in the real script is
+    # what has to tell them apart, so the doubles carry a genuine SIGABRT beside the
+    # SIGSEGV rather than "a line" and "no line".
+    SEGV = "Sun 2026-09-13 00:52:15 UTC 1985 1000 1000 SIGSEGV present /usr/bin/cosmic-comp 31.1M"
+    ABRT = "Sun 2026-09-13 00:40:02 UTC 1727 1000 1000 SIGABRT present /usr/bin/cosmic-comp 22.4M"
+
+    def fn(self):
+        return support.sh_function(LIVE_SMOKE, "cosmic_comp_crashed")
+
+    def _boot_id(self):
+        """The guest-side script strips the dashes /proc keeps but the journal
+        drops; this is the same value the fake coredumpctl should be handed."""
+        with open("/proc/sys/kernel/random/boot_id", encoding="utf-8") as fh:
+            return fh.read().strip().replace("-", "")
+
+    def _fake_vmctl(self, tmp, name):
+        """A fake vmctl at <tmp>/<name>.  It logs its own name to $PROBE_LOG (so
+        "was it called at all" is an assertion, not an absence) and then -- unlike
+        a mock that prints a canned string and throws the guest command away --
+        actually RUNS the `sh -c` script cosmic_comp_crashed hands it, after the
+        `--`, with the fake coredumpctl first on PATH.  So the `_BOOT_ID=` filter,
+        the `cosmic-comp` COMM and the `grep -iw SIGSEGV` in that script are all
+        exercised for real here; only coredumpctl's own listing is a double."""
+        path = os.path.join(tmp, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(
+                '#!/bin/sh\n'
+                'echo "%s" >> "$PROBE_LOG"\n' % name +
+                'while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done\n'
+                '[ "$1" = -- ] && shift\n'
+                'PATH="$FAKE_BIN:$PATH" exec "$@"\n')
+        os.chmod(path, 0o755)
+        return path
+
+    def _fake_coredumpctl(self, tmp, rows):
+        """A fake `coredumpctl` on a private bin dir: append its whole argv to
+        $COREDUMPCTL_LOG and print `rows` (coredumpctl `list` lines, or none for a
+        boot with no matching core).  The real function pipes this through
+        `grep -iw SIGSEGV`, so what it prints is exactly what decides the verdict."""
+        binn = os.path.join(tmp, "bin")
+        os.makedirs(binn, exist_ok=True)
+        path = os.path.join(binn, "coredumpctl")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("#!/bin/sh\n")
+            fh.write('printf \'%s \' "$@" >> "$COREDUMPCTL_LOG"; printf \'\\n\' >> "$COREDUMPCTL_LOG"\n')
+            for row in rows:
+                fh.write("printf '%s\\n'\n" % row)
+        os.chmod(path, 0o755)
+        return binn
+
+    def run_probe(self, tmp, desktop, vm, rows, real=None, transcript=None):
+        log = os.path.join(tmp, "probe.log")
+        argv = os.path.join(tmp, "coredumpctl.argv")
+        open(log, "w").close()
+        open(argv, "w").close()
+        fakebin = self._fake_coredumpctl(tmp, rows)
+        env = dict(os.environ, DESKTOP=desktop, NAME="fake", VM=self._fake_vmctl(tmp, vm),
+                   PROBE_LOG=log, COREDUMPCTL_LOG=argv, FAKE_BIN=fakebin)
+        env.pop("FAKE_VMCTL_TRANSCRIPT", None)   # the host may carry one; the tests set it explicitly
+        if real is not None:
+            env["CAPTURE_REAL_VMCTL"] = self._fake_vmctl(tmp, real)
+        if transcript is not None:
+            env["FAKE_VMCTL_TRANSCRIPT"] = transcript
+        script = self.fn() + '\nif cosmic_comp_crashed; then echo CRASHED; else echo CLEAN; fi\n'
+        got = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                             timeout=60, env=env)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        with open(log, encoding="utf-8") as fh:
+            called = fh.read()
+        with open(argv, encoding="utf-8") as fh:
+            cd_argv = fh.read()
+        return got.stdout.strip(), called, cd_argv
+
+    def test_a_cosmic_comp_sigsegv_core_is_a_crash(self):
+        """A SIGSEGV row for cosmic-comp this boot -> CRASHED, and the guest command
+        really was `coredumpctl ... list _BOOT_ID=<this boot, dash-stripped> cosmic-comp`
+        -- the _BOOT_ID filter is the property that keeps a stale golden-build core, or
+        an earlier boot's, from turning a real w11 red into a retry."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        verdict, _, argv = self.run_probe(tmp, "cosmic", "vmctl", [self.SEGV])
+        self.assertEqual(verdict, "CRASHED")
+        self.assertIn("list", argv)
+        self.assertIn("_BOOT_ID=%s" % self._boot_id(), argv)
+        self.assertIn("cosmic-comp", argv)
+
+    def test_a_sigabrt_only_listing_is_not_a_crash(self):
+        """The grep really is `-iw SIGSEGV`, not "any core": a boot whose only
+        cosmic-comp core is a SIGABRT is CLEAN, so the retry rides the llvmpipe
+        SIGSEGV alone and not every way cosmic-comp can die."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        verdict, called, _ = self.run_probe(tmp, "cosmic", "vmctl", [self.ABRT])
+        self.assertEqual(verdict, "CLEAN")
+        self.assertIn("vmctl", called)   # it DID ask; SIGABRT just is not a SIGSEGV
+
+    def test_no_core_is_not_a_crash(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        # coredumpctl lists nothing: no cosmic-comp core at all this boot
+        verdict, called, _ = self.run_probe(tmp, "cosmic", "vmctl", [])
+        self.assertEqual(verdict, "CLEAN")
+        self.assertIn("vmctl", called)   # it DID ask -- the emptiness is the answer, not a skip
+
+    def test_a_non_cosmic_flavor_never_probes(self):
+        """The gate that keeps every other flavor's exit byte-for-byte
+        unchanged: `[ "$DESKTOP" = cosmic ] || return 1` returns before the
+        fake is ever called, so gnome/kde/sway never emit 75 and never grow a
+        coredumpctl round-trip."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        verdict, called, _ = self.run_probe(tmp, "gnome", "vmctl", [self.SEGV])
+        self.assertEqual(verdict, "CLEAN")
+        self.assertEqual(called, "", "a non-cosmic flavor must not invoke vmctl at all")
+
+    def test_a_replay_has_no_guest_to_probe(self):
+        """selftest-offline.sh / rig-recordings.sh drive live-smoke through the
+        strict-vmctl wrapper, which copies "nothing recorded for ..." to
+        $FAKE_VMCTL_MISSES before the probe's own 2>/dev/null can drop it.  So on
+        a FAILS>0 cosmic replay the probe must not run at all, or its coredumpctl
+        script counts as one unrecorded command and drifts the recording.
+        FAKE_VMCTL_TRANSCRIPT is the replay tell; with it set the fake is never
+        called (keeps both cosmic recordings replaying 70/0 and 68/0)."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        verdict, called, _ = self.run_probe(tmp, "cosmic", "vmctl", [self.SEGV],
+                                            transcript=os.path.join(tmp, "cap.txt"))
+        self.assertEqual(verdict, "CLEAN")
+        self.assertEqual(called, "", "a replay must not invoke vmctl -- there is no guest to ask")
+
+    def test_it_probes_through_the_real_vmctl_not_the_record_wrapper(self):
+        """Recording-neutral: under --record, VM is vm/live-smoke.d/capture-from-run
+        and CAPTURE_REAL_VMCTL is the true vmctl.  The probe must go through the
+        REAL one, so the teardown diagnostic enters no capture and no fixture --
+        here both fakes would run the SIGSEGV listing, yet only the real vmctl is
+        called, never the capture wrapper."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        verdict, called, _ = self.run_probe(tmp, "cosmic", "capture-from-run", [self.SEGV],
+                                            real="real-vmctl")
+        self.assertEqual(verdict, "CRASHED")
+        self.assertIn("real-vmctl", called)
+        self.assertNotIn("capture-from-run", called)
+
+
+class TheLiveSmokeCosmicExitWiring(unittest.TestCase):
+    """The tail of vm/live-smoke.sh that turns cosmic_comp_crashed into an exit
+    code, and the number the CI loop retries on.
+
+    cosmic_comp_crashed deciding "crash" is worth nothing unless a FAILED run
+    actually exits 75 for it, and unless ci.yml's `[ "$rc" = 75 ]` retries on the
+    SAME 75.  Change either number, or drop the `[ "$FAILS" -gt 0 ]` gate so a
+    clean cosmic run probes, and the crash->75 / clean->0 measurements
+    (report-batch-24) silently stop holding while every text pin stays green."""
+
+    def setUp(self):
+        with open(LIVE_SMOKE, encoding="utf-8") as fh:
+            self.src = fh.read()
+
+    def test_ex_tempfail_is_75(self):
+        self.assertRegex(self.src, r'(?m)^EX_COSMIC_SIGSEGV=75\s*$')
+
+    def test_a_failing_cosmic_crash_exits_ex_tempfail(self):
+        """The gate is FAILS>0 AND a crash (so a clean run never probes and never
+        emits 75), and the code it exits with is EX_COSMIC_SIGSEGV, not a literal
+        that could drift from the value ci.yml retries on."""
+        self.assertIn('if [ "$FAILS" -gt 0 ] && cosmic_comp_crashed; then', self.src)
+        self.assertRegex(self.src, r'(?m)^\s*exit "\$EX_COSMIC_SIGSEGV"\s*$')
 
 
 if __name__ == "__main__":

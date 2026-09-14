@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from w11common import passthrough
 from support import env
 from w11common import session
+from w11common.errors import CmdError
 from wxrandr import cli as wxrandr_cli
 
 # The suite never hands a tool over to the real X11 one: see
@@ -355,6 +356,96 @@ class WaylandDisplayNamesTheSocket(Tree):
             hit = session.find_wayland_socket()
         self.assertEqual(os.path.basename(hit[2]), "wayland-1")
 
+
+class RuntimeDirOfAnotherUser(Tree):
+    """`runtime_dir(uid=...)`: the seated user's session directory, asked for by
+    a process that is not that user -- root, and only root (xw11/wrap.py's
+    `_seated_uid`).
+
+    Measured before it existed (goal2/recon/gaps.md §3d): with $XDG_RUNTIME_DIR
+    unset `runtime_dir()` answers `/tmp/wdotool-1000` for uid 1000 and
+    `/tmp/wdotool-0` for root, and pam_systemd gives an `ssh root@box` login its
+    own empty `/run/user/0` -- so root's answer never had the session's proxy,
+    socket or state files in it. The keyword is the whole change: every call
+    without it is the answer it always was."""
+
+    def setUp(self):
+        super().setUp()
+        # never the real /tmp/wdotool-<uid>: this class asks about uids it does
+        # not own, and a directory created for one of them would outlive the run
+        self.fallback = os.path.join(self.tmp, "wdotool-%d")
+        self.patch(session, "FALLBACK_RUNTIME_DIR", self.fallback)
+
+    def as_root(self):
+        return mock.patch.object(session.os, "getuid", lambda: 0)
+
+    @unittest.skipIf(os.getuid() == 0, "the seated user has to be somebody root is not")
+    def test_the_seated_users_dir_is_the_one_holding_the_wayland_socket(self):
+        """`runtime_dir_candidates()` is the helper that already ranks them, and
+        the ranking -- not the uid filter -- is what picks the graphical
+        session out of two directories that both belong to the seated user.
+
+        The pair is the one a real box has: `$XDG_RUNTIME_DIR` (which enters the
+        candidates first, with its `os.stat().st_uid`) pointing at a directory
+        with no compositor socket in it, against `/run/user/<uid>` holding
+        `wayland-0`. `runtime_dir_candidates()` sorts `_has_wayland_socket`
+        first, so the socket one wins; with that sort off the environment's
+        answers, and root talks to no proxy.
+
+        The seated uid here is the runner's, because the XDG candidate's uid
+        comes from a real `os.stat()` and cannot be invented; the greeter's
+        socketless `/run/user/125` is in the tree too, for the uid filter."""
+        self.rtdir(self.OTHER)
+        seated = os.getuid()
+        seat = os.path.dirname(self.wsock(seated))
+        elsewhere = self.mkdir("xdg-no-socket")
+        with env(XDG_RUNTIME_DIR=elsewhere), self.as_root():
+            self.assertEqual(session.runtime_dir_candidates()[0][1], seat)
+            self.assertEqual(session.runtime_dir(uid=seated), seat)
+            self.assertNotEqual(session.runtime_dir(uid=self.OTHER), seat)
+
+    def test_a_session_with_no_run_user_dir_is_the_private_tmp_name(self):
+        """The /tmp fallback, uid'd: `wdotool` under `su -`, cron and a bare
+        container writes its socket there (the docstring above it), so that is
+        where root looks for that user's files too."""
+        with self.as_root():
+            self.assertEqual(session.runtime_dir(uid=self.UID),
+                             self.fallback % self.UID)
+
+    def test_it_creates_nothing_for_a_user_it_is_not(self):
+        """A root-owned `/tmp/wdotool-1000` is a directory uid 1000's own
+        `runtime_dir()` then refuses for the rest of the box's uptime -- it
+        checks the owner after creating it, because an attacker may have got
+        there first. So the uid'd lookup only ever reads."""
+        with self.as_root():
+            session.runtime_dir(uid=self.UID)
+        self.assertFalse(os.path.exists(self.fallback % self.UID))
+
+    def test_a_tmp_dir_that_is_not_that_users_is_refused(self):
+        """/tmp is world-writable: anyone may create `/tmp/wdotool-1000` before
+        the user does. Reading a display file or a state file out of it would be
+        reading what that anyone wrote, so it is a CmdError and not an answer --
+        the same rule `runtime_dir()` applies to our own.
+
+        `OTHER` and not `UID` because the directory is really made and really
+        owned by whoever runs the suite (often uid 1000 itself, which is UID):
+        the refusal under test is an ownership mismatch and has to be a real
+        one."""
+        planted = self.fallback % self.OTHER
+        os.makedirs(planted, 0o700)          # ours, which uid 125's it is not
+        with self.as_root(), self.assertRaises(CmdError) as caught:
+            session.runtime_dir(uid=self.OTHER)
+        self.assertIn(planted, str(caught.exception))
+
+    def test_our_own_uid_and_no_uid_are_the_same_answer_as_ever(self):
+        """Item 4 of the batch: every default path stays byte-identical. A
+        caller inside the session passes no uid, and one that passes its own
+        must not be sent down the foreign path either."""
+        mine = os.path.join(self.tmp, "mine")
+        os.makedirs(mine, 0o700)
+        with env(XDG_RUNTIME_DIR=mine):
+            self.assertEqual(session.runtime_dir(), mine)
+            self.assertEqual(session.runtime_dir(uid=os.getuid()), mine)
 
 if __name__ == "__main__":
     unittest.main()

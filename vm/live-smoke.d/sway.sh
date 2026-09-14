@@ -23,7 +23,7 @@
 # Neither changes a check here; both are why arch-sway is the flavor the
 # parity job runs on.
 
-SMOKE_PHASES="busrec install windows wm input display root nodialog"
+SMOKE_PHASES="busrec install windows wm proxy input display root nodialog"
 EDITOR_CLASS=foot
 
 # No text editor on this golden: the "editor" is a terminal running `cat`, which

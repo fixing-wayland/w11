@@ -48,7 +48,8 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 
 from test_gnome_overlap import Case, EXT_DIR, GIR_DIR, FakeOverlap, load_gen_gir
-from wxrandr import cli, gnome_overlap
+from wxrandr import cli
+from hacks.display import gnome_overlap
 
 os.environ["W11_PASSTHROUGH"] = "never"
 
@@ -283,26 +284,51 @@ class TheFlagOnAnXSession(unittest.TestCase):
         self.assertIn("only means anything on GNOME", rc.stderr)
         self.assertEqual(handed, [])
 
-    @unittest.expectedFailure
     def test_the_force_flag_alone_is_our_usage_error_too(self):
-        """Fix 22 (F1.9): `--unsafe-gnome-overlap-unmeasured` is not in
-        `OWN_APPLY_FLAGS`, so on an X11 session the whole command line is
-        handed to the distribution's xrandr.
+        """Fix 22 (F1.9), landed as T26.  The force flag is now in
+        `OWN_ARGV_FLAGS`, `own_flags_in` reports it, and main() keeps a
+        command line carrying it alone rather than handing it over -- so
+        `_check_force`'s sentence is what the user gets on an X11 session too.
 
-        Measured at HEAD, as a real process: `python3 -m wxrandr
+        What it did before, measured as a real process: `python3 -m wxrandr
         --unsafe-gnome-overlap-unmeasured 52 --output X --auto` with
         `W11_PASSTHROUGH=always`, DISPLAY set and WAYLAND_DISPLAY unset
         exec'd the stand-in with argv `["--unsafe-gnome-overlap-unmeasured",
-        "52", "--output", "X", "--auto"]` and exited 0.  Real xrandr would
-        answer "unrecognized option" and exit 1 with the layout unapplied --
-        the same wrong answer `--persistent` used to give and that
-        OWN_APPLY_FLAGS exists to prevent -- and `52` would be read as a
-        positional.  `_check_force`'s words are the right answer on every
-        session type, and this is the one where they are not given."""
+        "52", "--output", "X", "--auto"]` and exited 0; against a real xrandr
+        that is "unrecognized option", exit 1 and the layout unapplied -- the
+        same wrong answer `--persistent` used to give -- with `52` read as a
+        positional.  The rig saw the same thing on all nine X11 flavors of run
+        34628777544 [goal2/recon/gaps.md 1a #7], where the check at
+        vm/live-smoke.d/xfce.sh:95 XPASSed on the ORIGINAL's message because
+        its regex was the bare flag name, which that message contains."""
         rc, handed = self.run_wxrandr(FORCE, "52", "--output", "X", "--auto")
         self.assertEqual(rc.returncode, 1, rc.stdout + rc.stderr)
         self.assertIn("only means something together with %s" % FLAG, rc.stderr)
+        self.assertNotIn("unrecognized option", rc.stderr)
         self.assertEqual(handed, [])
+
+    def test_the_flag_and_its_value_both_stay_out_of_the_handover(self):
+        """The other half of the pair, true on both sides of T26 and pinned
+        here because T26 moved the code that decides it: with
+        `--unsafe-gnome-overlap` typed beside it the session's own refusal
+        comes first and is the whole answer, and neither the force flag nor its
+        `52` reaches the original -- a stripped argv that kept the value would
+        hand the original a screen size to apply."""
+        rc, handed = self.run_wxrandr(FLAG, FORCE, "52", "--output", "X", "--auto")
+        self.assertEqual(rc.returncode, 1, rc.stdout + rc.stderr)
+        self.assertIn("only means anything on GNOME", rc.stderr)
+        self.assertEqual(handed, [])
+
+    def test_own_flags_in_reports_the_force_flag_and_swallows_its_value(self):
+        """The seam main() asks, straight: `own_flags_in` names the flag, and
+        `scan_backend_argv`'s stripped argv has lost the pair -- the value
+        goes with the flag because `_ARITY` gives it one."""
+        argv = [FORCE, "52", "--output", "X", "--auto"]
+        self.assertEqual(cli.own_flags_in(list(argv)), {FORCE})
+        self.assertEqual(cli.scan_backend_argv(list(argv)),
+                         (None, False, ["--output", "X", "--auto"]))
+        # ...and an output NAMED like it is a value, not a flag
+        self.assertEqual(cli.own_flags_in(["--output", FORCE, "--auto"]), set())
 
 
 class NotADefault(Case):
@@ -323,8 +349,8 @@ class NotADefault(Case):
     def test_the_word_force_appears_in_no_environment_lookup(self):
         """Not a behaviour test: a proof from the source that there is no
         variable to find.  Every os.environ read in the two modules is named."""
-        for mod in ("wxrandr/cli.py", "wxrandr/mutter.py",
-                    "wxrandr/gnome_overlap.py"):
+        for mod in ("wxrandr/cli.py", "hacks/display/mutter.py",
+                    "hacks/display/gnome_overlap.py"):
             with open(os.path.join(ROOT, mod), encoding="utf-8") as fh:
                 src = fh.read()
             for m in re.finditer(r"environ(?:\.get)?\(?\[?[\"']([A-Z_]+)[\"']", src):
@@ -388,7 +414,7 @@ class NeverRemembered(Case):
     def test_the_applying_path_reads_the_agreement_only_when_not_forcing(self):
         """From the source, because this is a structural claim: there is one
         read of the agreement on the applying path and it is guarded."""
-        with open(os.path.join(ROOT, "wxrandr", "mutter.py"),
+        with open(os.path.join(ROOT, "hacks", "display", "mutter.py"),
                   encoding="utf-8") as fh:
             src = fh.read()
         body = src[src.index("def apply_overlap"):]
@@ -776,7 +802,7 @@ class TheTable(unittest.TestCase):
         code that *builds* a soname or a namespace from an integer, because
         mutter 51 stopped following the arithmetic that would make it right."""
         roots = [os.path.join(ROOT, p) for p in
-                 ("wxrandr", "warandr", "gnome", "w11common")]
+                 ("wxrandr", "warandr", "gnome", "w11common", "hacks")]
         for root in roots:
             for dirpath, _dirs, files in os.walk(root):
                 for name in files:

@@ -28,7 +28,11 @@ import sys
 import tokenize
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TOOLS = ["wdotool", "wwmctl", "wxprop", "wxrandr", "warandr", "wmirror"]
+TOOLS = ["wdotool", "wwmctl", "wxprop", "wxrandr", "warandr", "wmirror", "xw11"]
+
+#: where each tool's engine modules moved to: `options_in_code` reads these beside the tool's own directory
+HACKS = {"wdotool": ("hacks/input", "hacks/window"), "wwmctl": ("hacks/window",),
+         "wxrandr": ("hacks/display",), "wxprop": ("hacks/property",), "wmirror": ("hacks/mirror",)}
 OPT = re.compile(r"""["'](--[a-z][a-z0-9-]+)["']""")
 IN_TEXT = re.compile(r"(--[a-z][a-z0-9-]+)")
 
@@ -59,6 +63,34 @@ SILENT = {
     # `wxrandr --help` is xrandr 1.5.4's own usage text, byte for byte, so
     # every option of ours is missing from it on purpose.  They are documented
     # in docs/WXRANDR.md, "Command surface".
+    # `xw11 --help` prints all six of its own options.  What this table holds
+    # is the other thirteen strings `options_in_code` finds under `xw11/`: the
+    # word the daemonised child is re-exec'd with, and the twelve clone-only
+    # tokens of `xw11/wrap.py:CLONE_ONLY`, which are not options of `xw11` at
+    # all -- they are the argv words that make a wrapped tool run OUR code
+    # instead of the original, and each is an option of the clone that owns it.
+    # Measured 2026-09-11: without these thirteen entries this script reports
+    # thirteen disagreements for a tree in which nothing disagrees.
+    "xw11": {
+        "__serve": "not an option: the argv the daemonised child is re-exec'd "
+                   "with, the way `wdotool __daemon` is.  It is deliberately "
+                   "absent from --help -- nobody types it",
+        "--layout": "wdotool's, read here to recognise it: xw11/wrap.py's "
+                    "CLONE_ONLY is the table of argv words that keep the clone",
+        "--vkbd": "wdotool's, the same",
+        "--true-geometry": "wwmctl's own flag (a flag wmctrl never had, batch 17), read here "
+                           "to recognise it: xw11/wrap.py's CLONE_ONLY[\"wmctrl\"] keeps the "
+                           "wmctrl clone on our code for it, and it is documented in docs/WWMCTL.md",
+        "--backend": "wxrandr's, the same",
+        "--backends": "wxrandr's, the same",
+        "--print-backend": "wxrandr's, the same",
+        "--persistent": "wxrandr's, the same",
+        "--gnome-overlap-status": "wxrandr's, the same",
+        "--gnome-overlap-allow": "wxrandr's, the same",
+        "--gnome-overlap-forget": "wxrandr's, the same",
+        "--unsafe-gnome-overlap": "wxrandr's, the same",
+        "--unsafe-gnome-overlap-unmeasured": "wxrandr's, the same",
+    },
     "wxrandr": {
         "--backend": "ours, not xrandr's",
         "--backends": "ours, not xrandr's",
@@ -135,12 +167,13 @@ LONGOPT = re.compile(r'(?<=[\[,)])\s*\(\s*"([a-z][a-z0-9-]*)"\s*,\s*(?:True|Fals
 def options_in_code(tool):
     """Every long option spelled in the package's own source, code only."""
     found = set()
-    d = os.path.join(ROOT, tool)
-    for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-        if name.endswith(".py"):
-            src = code_only(os.path.join(d, name))
-            found |= set(OPT.findall(src))
-            found |= {"--" + n for n in LONGOPT.findall(src)}
+    for sub in (tool,) + HACKS.get(tool, ()):
+        d = os.path.join(ROOT, sub)
+        for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if name.endswith(".py"):
+                src = code_only(os.path.join(d, name))
+                found |= set(OPT.findall(src))
+                found |= {"--" + n for n in LONGOPT.findall(src)}
     return found
 
 

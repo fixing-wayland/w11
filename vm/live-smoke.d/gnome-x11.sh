@@ -54,6 +54,10 @@ SMOKE_PHASES="install passthrough bridge display root uinput"
 EDITOR_CLASS=gnome-text-editor
 BRIDGE_UUID=w11-bridge@w11
 BR='--session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.Bridge1'
+# The bridge's reload method, and the file it re-reads.  Deliberately NOT a method of
+# org.w11.Bridge1: that interface is the client surface the tools and MockBridge are pinned to.
+RL='--session -d org.w11.Bridge -o /org/w11/Bridge -m org.w11.BridgeReload1.Reload'
+EXTJS=/usr/share/gnome-shell/extensions/$BRIDGE_UUID/extension.js
 
 # xfce.sh's editor is an xterm, which this image does not carry.  A GUI started in the foreground over
 # ssh never returns: detach it.
@@ -126,13 +130,14 @@ bridge_owned() {
 #
 # So `--replace` is not run here any more.  What replaces it is a better measurement of the same claim: an
 # extension the running shell already knows can be taken out and put back IN THAT PROCESS, which is what
-# "no logout" means for a bridge that is already installed.  The half that really does need something
-# nobody has -- reloading CHANGED extension code without a logout -- is the xwant at the end, and it is
-# asked of the shell's own D-Bus method rather than asserted about.
+# "no logout" means for a bridge that is already installed.  The other half -- reloading CHANGED
+# extension code without a logout -- used to be an xwant asked of GNOME's own ReloadExtension; it is
+# route 3 in the tree now (the bridge re-reads its own file), and the block at the end measures both:
+# that GNOME's method still refuses, and that ours works.
 phase_bridge() {
     note "gnome-shell $(guest 'gnome-shell --version' | tr -d '\r\n' || true), session $(guest \
          'echo $XDG_SESSION_TYPE' | tr -d '\r' || true)"
-    local pid0 pid1 info owned ownerpid ours oid xid
+    local pid0 pid1 pid2 info owned ownerpid ours oid xid v0 i rl3
     # A window first: it is the thing the id checks below are about, and phase_install's reboot may have
     # left none.
     editor_start
@@ -170,29 +175,65 @@ phase_bridge() {
          "$(bridge_owned '\(true,\)')"
     pid1=$(guest 'pgrep -x gnome-shell | head -1' | tr -d ' \r\n' || true)
     same "...in the same gnome-shell process, which never restarted" "$pid0" "$pid1"
-    # The half that is NOT YET: a bridge whose extension.js has CHANGED needs the shell to re-read the
-    # file, and nothing on this session does that today.  The ladder, lowest first.  Route 2 (the
-    # compositor's own scripting surface) has the method and refuses: `org.gnome.Shell.Extensions.
-    # ReloadExtension` answers `NotSupported: ReloadExtension is deprecated and does not work` on 46.2 --
-    # that is what the xwant below asks, so it goes XPASS the day GNOME un-deprecates it.  Route 3 (code
-    # we install into the compositor) is the next one and it is OURS to write: extension.js is an ES
-    # module and GJS re-reads a module when it is imported under a URL it has not seen, so a two-file
-    # bridge -- a stub enable()/disable() that dynamic-imports the real module with a cache-busting query
-    # (`?v=<mtime>`) and a Reload method that drops the old instance and imports it again -- reloads
-    # changed code inside the running shell with no logout.  Cost: the bridge splits in two, every method
-    # gains a hop through the stub, and the old module's closures stay alive in the JS heap for the life
-    # of the session (GJS has no way to unload one), so the stub has to disconnect every signal and drop
-    # every timeout in disable() or a reloaded bridge leaks a listener per reload.  Nobody has written it
-    # and nobody has measured it against a live shell, so it is NOT YET and not a claim.  Route 6 (a
-    # package of ours that patches the shell or its unit) is below that, and only there because
-    # `--replace` costs the session's extensions (see the header) and the unit refuses `systemctl --user
-    # restart`.
-    xwant "the shell reloads the bridge's own code with no logout (until GNOME's ReloadExtension works \
-again, or AGENTS.md route 3 splits the bridge into a stub that dynamic-imports the real module, or \
-route 6 patches org.gnome.Shell@x11.service, which is RefuseManualStart with \
-Restart=always/RestartSec=0ms)" "^\(\)$" \
-          "$(guest "gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell \
+    # The other half, and it is in the tree now: a bridge whose extension.js has CHANGED, re-read by the
+    # shell that is already running it, with nobody logged out.  The ladder, lowest first.  Route 2 (the
+    # compositor's own scripting surface) has the method and refuses -- which is the check below, kept as
+    # a check because the day GNOME un-deprecates ReloadExtension is a day this phase should notice.
+    # Route 3 (code we install into the compositor) is ours and is what ships: the object gnome-shell
+    # constructs is a ROOT that keeps org.w11.BridgeReload1 and hands the session to a copy of the file,
+    # and a reload re-reads extension.js under a path gjs has not imported yet -- see the route-3 block
+    # in extension.js for what `?v=<mtime>` does on gjs 1.80.2, which is why the copy goes through
+    # $XDG_RUNTIME_DIR.  Measured on this flavor, 2026-09-11 (GNOME Shell 46.0, gjs 1.80.2): `Reload`
+    # answers `{"version":4,...,"reread":true}` about a second after an edit, `GetVersion` then answers
+    # `(uint32 4,)`, gnome-shell's pid never moves, ten reloads cost gnome-shell 996 kB of RSS (~100 kB
+    # a copy, which is the module gjs cannot unload), and the runtime dir is empty again afterwards.
+    # Route 6 (a package of ours that patches the shell or its unit) stays unwritten, and is not needed.
+    want "ReloadExtension is still the deprecated no-op GNOME 46 made of it" \
+         "NotSupported: ReloadExtension is deprecated and does not work" \
+         "$(guest "gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell \
                     --method org.gnome.Shell.Extensions.ReloadExtension $BRIDGE_UUID 2>&1" || true)"
+    # A Reload that follows no edit must not read the file again: the copy would be one more module in a
+    # heap gjs never gives back.
+    want "a reload with nothing edited does not read the file again" '"reread":false' \
+         "$(guest "gdbus call $RL 2>&1" || true)"
+    # ...and now the edit.  The version number is read out of the installed file rather than assumed, so
+    # this still measures a reload the day the bridge's own version moves.
+    v0=$(root "sed -n 's/^const VERSION = \([0-9]*\);/\1/p' $EXTJS" | tr -d ' \r\n')
+    root "sed -i 's/^const VERSION = [0-9]*;/const VERSION = 99;/' $EXTJS" >/dev/null
+    want "the shell re-reads the bridge's own code with no logout (AGENTS.md route 3)" '"reread":true' \
+         "$(guest "gdbus call $RL 2>&1" || true)"
+    want "...and the edited file is the code answering on the bus" "^\(uint32 99,\)$" \
+         "$(guest "gdbus call $BR.GetVersion 2>&1" || true)"
+    pid2=$(guest 'pgrep -x gnome-shell | head -1' | tr -d ' \r\n' || true)
+    same "...in the same gnome-shell process, which never restarted either" "$pid0" "$pid2"
+    # The leak that would make this trick unshippable is a handler the replaced copy left connected: gjs
+    # unloads no module, so one of those fires for the rest of the session and every WindowEvent arrives
+    # twice, then four times.  It is NOT checked here, and the reason is honest rather than an omission:
+    # counted on the bus (`gdbus monitor`, one minimize and one unminimize of the editor through the real
+    # xdotool), the number is Mutter's and it moves with the desktop's state -- by hand on this flavor it
+    # was 4 before three reloads and 4 after, twice over, but inside this phase the same two calls read 2
+    # and then 0, because what a minimize emits depends on what the shell was doing at the time.  A check
+    # that reads 2, 4 or 0 for reasons that are not the bridge's is a red CI run waiting to happen, so
+    # the claim is pinned where it can be counted exactly instead: tests/test_bridge_js.py
+    # (`test_a_reload_leaves_no_listener_no_timeout_and_no_export_behind`) counts the handlers on the
+    # doubles after three reloads -- 2 on the display, 3 on the workspace manager, 10 per window, the
+    # same before and after -- and one WindowEvent, on one exported object, for one window-created.
+    # Three reloads also happen right here, with three mtimes that are three different numbers whatever
+    # the clock says (the reload key is the file's mtime AND the SHA256 of its bytes, and two `touch`es
+    # in the same second move neither, so they would not re-read -- see _read() in extension.js for the
+    # measurement that put the sum in the key): the bridge has to survive all three, which the checks
+    # below it go on to use.
+    for i in 1 2 3; do
+        root "touch -d '2030-01-0$i 00:00:00' $EXTJS" >/dev/null
+        rl3=$(guest "gdbus call $RL 2>&1" || true)
+    done
+    want "...and three more re-reads leave a bridge that still answers" '"reread":true' "$rl3"
+    # Put the file back the way it was found and read it again, so the instance ends the phase running
+    # the tree's own bridge and not a version this check invented.
+    root "sed -i 's/^const VERSION = 99;/const VERSION = $v0;/' $EXTJS" >/dev/null
+    guest "gdbus call $RL" >/dev/null 2>&1 || true
+    same "...and the file restored is read back too, so the session ends on the tree's own bridge" \
+         "(uint32 $v0,)" "$(guest "gdbus call $BR.GetVersion 2>&1" | tr -d '\r\n' || true)"
     # And now the point of the whole phase: with all three GNOME names on the bus, the tools are still
     # the originals.  `--version` is the shortest proof -- the answer is the INSTALLED xdotool's version
     # string (3.x on Ubuntu), never our 4.20260303.1.

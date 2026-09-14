@@ -1,0 +1,6 @@
+# Captured 2026-09-10 on this box: sway 1.11 headless with one
+# HEADLESS-1 at 1280x720, Xwayland 24.1.10, through the recording
+# forwarder scratchpad/b7/rec.py. RANDR major 139, root 0x234,
+# crtc 0x20, output 0x21.
+# GetMonitors reply -- what `--listmonitors` prints from.
+01000d0007000000d0df633101000000010000000000000000000000000000003601000000010100000000000005d00253010000be00000021000000

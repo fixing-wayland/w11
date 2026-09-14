@@ -86,19 +86,42 @@ phase_passthrough() {
     out=$(guest "wxrandr --output Virtual-1 --auto --persistent 2>&1" || true)
     want "--persistent is stripped before the handover" "^xrandr:--output Virtual-1 --auto$" \
          "$(guest "cat $ARGV_LOG" || true)"
-    xwant "--persistent on X11 says in one line that nothing is saved here (fix T43)" \
-          "saves nothing|no layout is saved|X11" "$out"
+    # T43: XPASSed on all nine X11 flavors of run 34628777544, so it is a plain want now
+    # [goal2/recon/gaps.md 1a #2].  main()'s pre-handover branch in wxrandr/cli.py prints it.
+    want "--persistent on X11 says in one line that nothing is saved here (T43)" \
+         "saves nothing|no layout is saved|X11" "$out"
     out=$(guest "wxrandr --unsafe-gnome-overlap --output Virtual-1 --pos 100x0 2>&1" || true)
     want "--unsafe-gnome-overlap is refused here, in this session's own words" \
          "x11|not GNOME|only means anything on GNOME" "$out"
     out=$(guest "wxrandr --unsafe-gnome-overlap-unmeasured 51 2>&1" || true)
-    xwant "the force flag alone gets OUR usage error, not the original's (fix T26)" \
-          "unsafe-gnome-overlap-unmeasured" "$out"
+    # T26, and the regex is the fix as much as the code is: this line used to ask for
+    # `unsafe-gnome-overlap-unmeasured`, which is a substring of the ORIGINAL's `unrecognized option
+    # '--unsafe-gnome-overlap-unmeasured'` -- so it XPASSed on all nine X11 flavors on exactly the evidence it
+    # was written to reject [goal2/recon/gaps.md 1a #7].  Our own wording is the only thing that tells the two
+    # apart.  The force flag is in `OWN_ARGV_FLAGS` since, so the handover keeps the command line and
+    # `_check_force` answers; measured here on the guest's own X server (:355) after the change.
+    want "the force flag alone gets OUR usage error, not the original's (T26)" \
+         "only means something together with" "$out"
+    wantnot "...and the original's unrecognized-option line is not what came back" \
+            "unrecognized option" "$out"
     # 3. wmirror has no original at all and says so before it names an apt line.
     out=$(guest "wmirror --check 2>&1" || true)
     want "wmirror --check says this is an X11 session" "this is an X11 session" "$out"
     local firstline; firstline=$(printf '%s\n' "$out" | head -1)
-    xwant "...and says it before any apt line, not after the helper line (fix 40, T21)" "X11" "$firstline"
+    # T21.  The session's own problem is line 1 now, above `helper:` and the install hint under it
+    # [goal2/recon/gaps.md 1b #9; measured here on :355 after the reorder in wmirror/cli.py's _cmd_check].
+    want "...and says it before any apt line, not after the helper line (T21)" \
+         "problem: +this is an X11 session" "$firstline"
+    # 4. ...and no X11 proxy was started on the way.  Rule 3 of xw11/wrap.py:
+    # on an X11 session `maybe_exec_real` has already replaced the process one
+    # line above, so xw11 is never started, never spawned and never imported.
+    # The pid file is the check, not a process pattern: a proxy that exists
+    # writes $XDG_RUNTIME_DIR/xw11/display with its own `:N` and pid, and a
+    # proxy that was never started leaves the path absent.  This file is sourced
+    # by every other X11 step file (cinnamon, gnome-x11, i3, kde-x11, lxqt,
+    # mate), so this is that claim on all seven.
+    want "the X11 handover starts no proxy: there is no xw11 display file" "^none$" \
+         "$(guest 'cat $XDG_RUNTIME_DIR/xw11/display 2>/dev/null || echo none' | tr -d ' \r\n' || true)"
     guest "pkill xterm; true" >/dev/null 2>&1 || true
     root "rm -f /usr/local/bin/xdotool /usr/local/bin/wmctrl /usr/local/bin/xprop /usr/local/bin/xrandr" \
         >/dev/null 2>&1 || true

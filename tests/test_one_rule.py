@@ -38,9 +38,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from wdotool import (backend, backend_cosmic, backend_wayfire, backend_wlr,   # noqa: E402
-                     daemon, window_cmds)
-from wxrandr import gnome_overlap                               # noqa: E402
+from wdotool import daemon, window_cmds  # noqa: E402
+from hacks.window import backend, backend_cosmic, backend_wayfire, backend_wlr  # noqa: E402
+from hacks.display import gnome_overlap  # noqa: E402
 
 #: the file suffixes that carry sentences a human reads -- code, shell, the
 #: extension's JS, the rig's yaml and nix, and every document
@@ -73,8 +73,6 @@ ALLOWED_BY_DESIGN = {
     "geometry/rotation words, monitor listings — the mode TABLES differ by design:",
     # KWin's own JS API, described
     "return w.captionNormal;                   /* 6.x: no suffix, by design */",
-    # our own choice of which pointer getmouselocation reports
-    "// the daemon-tracked injected pointer by design; this is how the two are",
     "| `GetPointer` | `() → (iiu)` | the real pointer and Clutter modifier mask. Diagnostic only "
     "(`GnomeBackend.real_pointer()`, no command uses it): `getmouselocation` reports the daemon-tracked "
     "injected pointer by design, and this is how the two are checked against each other |",
@@ -159,11 +157,16 @@ class TheBannedSentences(unittest.TestCase):
     def test_no_file_says_the_compositor_is_right_to_refuse(self):
         self.assertEqual(self.hits(BANNED[2]), [])
 
-    def test_every_by_design_is_one_of_the_seven_that_earned_it(self):
-        """Not a ban: a review gate.  Seven lines in the tree say "by design"
+    def test_every_by_design_is_one_of_the_six_that_earned_it(self):
+        """Not a ban: a review gate.  Six lines in the tree say "by design"
         and every one is about our own design or a documented third-party API,
-        which is the opposite of citing a compositor's design as our reason.  An
-        eighth has to be written down here with its sentence.
+        which is the opposite of citing a compositor's design as our reason.  A
+        seventh has to be written down here with its sentence.
+
+        It was seven until 2026-09-12: the bridge's GetPointer comment said the
+        daemon-tracked injected pointer was left out "by design"; the live-
+        reload rewrite says "deliberately", which is the same fact in a word the
+        grep never stops on.
 
         It was eight until 2026-09-09: wxrandr/core.py's `_container` docstring
         said the state file was "hand-editable by design", which is our own
@@ -345,7 +348,7 @@ class ARefusalCarriesItsRoute(unittest.TestCase):
         for wrong in ("sandbox", "route 1"):
             self.assertNotIn(wrong, seat, "the seat is not behind cosmic-comp's filter")
         self.assertNotIn("sandbox", backend_wlr.NO_SEAT)
-        with open(os.path.join(ROOT, "wdotool", "backend_cosmic.py"), encoding="utf-8") as f:
+        with open(os.path.join(ROOT, "hacks", "window", "backend_cosmic.py"), encoding="utf-8") as f:
             src = f.read()
         self.assertIn("unsandboxed run of the protocol", src,
                       "the manager refusals keep the sandbox rung -- this is a split, not a ban")
@@ -366,7 +369,7 @@ class ARefusalCarriesItsRoute(unittest.TestCase):
         self.assertIn("no window geometry on wlr", s)
         self.assertIn("on cosmic", s)
         self.assertNotIn("no window geometry to put a click in", s)
-        with open(os.path.join(ROOT, "wdotool", "backend_cosmic.py"), encoding="utf-8") as f:
+        with open(os.path.join(ROOT, "hacks", "window", "backend_cosmic.py"), encoding="utf-8") as f:
             src = f.read()
         self.assertTrue(re.search(r"_CH_EV_GEOMETRY[\s\S]{0,120}?rec\.geometry\s*=", src),
                         "cosmic parses the geometry event; a sentence saying it has none is wrong")
@@ -386,6 +389,88 @@ class ARefusalCarriesItsRoute(unittest.TestCase):
         self.assertIn("route 6", warning)
         self.assertIn("ignoring", warning)
         self.assertTrue(hasattr(window_cmds, "cmd_windowreparent"))
+
+
+#: A row of docs/XW11.md's "What differs" table that says a gap is "not yet".  The
+#: table is pipe-delimited with four columns (X behaviour | what xw11 does | route |
+#: cost), and the wave's harvest closed every gap it measured -- so what is left saying
+#: "not yet" is the honest remainder, and the one-rule says each of those names a rung
+#: of AGENTS.md's ladder (a digit 1..6, in the route or cost column).
+_WD_NOT_YET = re.compile(r"not yet", re.I)
+#: A rung named in the ROUTE column, and only there.  Every real route cell of the
+#: not-yet rows starts with the digit (`5`, `1 for the native half`, `2/3`, `4, or 1`,
+#: `2, and **not yet** on every backend`), so the rung is anchored at the head of that
+#: cell -- which keeps a duration in the COST column (`a 5 s poll`, `2 minutes of
+#: scripting`) from being mistaken for a rung, the weakness the old `[1-6]`-anywhere
+#: pattern had.  The optional `route `/`rung ` prefix covers a cell that spells it out.
+_RUNG = re.compile(r"^(?:route |rung )?[1-6]\b")
+
+
+def _what_differs_not_yet_rows():
+    """(section, route-cell, cost-cell) for every `| … |` row of docs/XW11.md's What-
+    differs table that carries a 'not yet'.  Read out of the shipped doc, not
+    transcribed, so a row reworded in the sweep comes back through this test."""
+    path = os.path.join(ROOT, "docs", "XW11.md")
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln.strip().startswith("## What differs"))
+    sec = ""
+    rows = []
+    for ln in lines[start:]:
+        if ln.startswith("### "):
+            sec = ln[4:].strip()
+        elif ln.startswith("| ") and _WD_NOT_YET.search(ln):
+            cols = [c.strip() for c in ln.strip().strip("|").split("|")]
+            if len(cols) >= 4:
+                rows.append((sec, cols[-2], cols[-1]))
+    return rows
+
+
+class TheWhatDiffersTableCarriesTheRuleToo(unittest.TestCase):
+    """docs/XW11.md's What-differs table is the proxy's own list of where it and X
+    part ways, and the batch-16 harvest closed every quadrant it measured (the
+    viewport column, the XWayland half of geometry, the primary verb on Mutter and
+    KWin, the pointer on the five backends that answer for their cursor).  What is left
+    saying 'not yet' is the honest remainder, and the one rule applies to a document as
+    much as to a refusal in code: a gap is 'not yet' PLUS a rung, never a bare lack."""
+
+    def test_every_not_yet_row_names_a_rung(self):
+        """The positive half of AGENTS.md, in the doc: a row that stops at 'not yet'
+        with no route is the wrong answer written in a table instead of in code."""
+        bare = [(sec, route) for sec, route, cost in _what_differs_not_yet_rows()
+                if not _RUNG.search(route)]
+        self.assertEqual(bare, [], "a What-differs 'not yet' row with no rung: %r" % bare)
+
+    def test_the_geometry_class_has_exactly_the_one_surviving_not_yet(self):
+        """design.md A0 names two xwant classes that outlive the wave, each on a rung
+        the runner cannot reach: the render-node GROW (route 4, a KMS device the CI box
+        has not got -- a rig/`wxrandr` xwant, in docs/WXRANDR.md, not a proxy row) and
+        the NATIVE foreign-toplevel geometry (route 1, no Wayland protocol carries a
+        rect).  The second is a proxy row, and this pins it: after B12 took the XWayland
+        half out (route 5, the X plane), the 'Properties, geometry and the lists' class
+        has exactly one 'not yet' left, and it names route 1."""
+        geo = [(route, cost) for sec, route, cost in _what_differs_not_yet_rows()
+               if "geometr" in sec.lower()]
+        self.assertEqual(len(geo), 1, "the geometry class should have one surviving 'not yet': %r" % geo)
+        route, cost = geo[0]
+        self.assertRegex(route + " " + cost, r"\b1\b", "the geometry survivor is route 1")
+        self.assertIn("foreign-toplevel", cost, "route 1 here is a foreign-toplevel protocol with a rect")
+
+    def test_the_render_node_grow_survivor_is_documented_with_its_rung(self):
+        """The OTHER design.md A0 survivor: the render-node GROW mode, which is a
+        rig/`wxrandr` xwant and not a proxy row (the geometry test's docstring points
+        here).  It lives in docs/WXRANDR.md as a `not yet` naming route 4 -- the KMS
+        device the runner has not got -- so the class is documented rather than left as
+        the bare gap the one rule forbids."""
+        path = os.path.join(ROOT, "docs", "WXRANDR.md")
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        # the bullet that carries the GROW gap; it wraps over several lines, so read a
+        # window from the word GROWS and match loosely, so a reword survives
+        self.assertIn("GROWS", text, "no GROW gap documented in docs/WXRANDR.md")
+        block = text[text.index("GROWS"):text.index("GROWS") + 1200]
+        self.assertTrue(_WD_NOT_YET.search(block), "the GROW gap must be a 'not yet'")
+        self.assertRegex(block, r"route 4", "the GROW survivor must name route 4")
 
 
 if __name__ == "__main__":

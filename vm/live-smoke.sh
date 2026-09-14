@@ -52,6 +52,17 @@
 #                     and the grant on /dev/uinput.  Only meaningful with --pkg:
 #                     the default mode installs the working tree over the
 #                     package into /usr/local/bin, which no package manager owns
+#     --record        write every guest command and the bytes it answered next
+#                     to the log, as <flavor>-<stamp>-capture.txt: the run goes
+#                     through vm/live-smoke.d/capture-from-run instead of vmctl.
+#                     That file IS a recording -- scripts/rig-recordings.sh
+#                     names it after the log's phase list and the run's own
+#                     `w11-desktop-version:` note, replays it through fake-vmctl
+#                     and keeps it as tests/fixtures/live/*-replay.txt.  CI runs
+#                     the vm job with it (the artifact already ships the whole
+#                     of vm/live-smoke.out/, so the capture rides along; 23 KB
+#                     and 114 commands on resolute-sway, measured 2026-09-11,
+#                     recon/recordings.md 1.4b)
 #
 # The default mode (neither --pkg nor --deb) deploys the WORKING TREE over the
 # package: scripts/build-pyz.sh into /usr/local/bin the way repro/deploy-to-vm.sh
@@ -93,7 +104,7 @@ case ${1:-} in -h|--help) usage; exit 0 ;; esac
 FLAVOR=${1:-}
 [ -n "$FLAVOR" ] || { usage; exit 2; }
 shift
-NAME=""; MODE=tree; REUSE=0; HEADS=2; CPUS=2; MEM=3G; KEEP=0; SCALE=0; REMOVE=0
+NAME=""; MODE=tree; REUSE=0; HEADS=2; CPUS=2; MEM=3G; KEEP=0; SCALE=0; REMOVE=0; RECORD=0
 # seconds vmctl waits for the guest's ssh: an ISO-installed desktop on a loaded runner has
 # taken more than the 240 s default (CI run 34388409584); --boot-timeout or the env knob
 BOOT_TIMEOUT=${LIVE_SMOKE_BOOT_TIMEOUT:-240}
@@ -117,6 +128,7 @@ while [ $# -gt 0 ]; do
         --scale)  SCALE=1; shift ;;
         --keep)   KEEP=1; shift ;;
         --remove) REMOVE=1; shift ;;
+        --record) RECORD=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "live-smoke.sh: unknown option $1" >&2; exit 2 ;;
     esac
@@ -270,6 +282,23 @@ OUTDIR=${LIVE_SMOKE_OUT:-$HERE/live-smoke.out}
 SHOTDIR=$OUTDIR/$FLAVOR-$STAMP-shots
 LOG=$OUTDIR/$FLAVOR-$STAMP.log
 mkdir -p "$SHOTDIR"
+# --record: every `vmctl user`/`vmctl ssh` of this run, and the bytes it answered,
+# appended to a capture beside the log in the transcript format fake-vmctl replays.
+# It is wired HERE and not at the flag, because $OUTDIR and $STAMP are what pair the
+# capture with the log -- scripts/rig-recordings.sh takes the phase list out of
+# <stamp>.log and the version out of <stamp>-capture.txt, and a capture whose log is
+# a different run would name the file after the wrong phases.  The first line is a
+# comment fake-vmctl's parser drops (it keeps nothing before the first `### `) and
+# rig-recordings.sh reads: it is the MODE the recording was taken in, which decides
+# the mode it must be replayed in -- a `--reuse` replay of a `--pkg --remove` run
+# silently skips 14 of its 56 checks (recon/recordings.md 1.6.2, measured).
+if [ "$RECORD" = 1 ]; then
+    CAPLOG=$OUTDIR/$FLAVOR-$STAMP-capture.txt; export CAPLOG
+    CAPTURE_REAL_VMCTL=$VM; export CAPTURE_REAL_VMCTL
+    VM=$STEPS/capture-from-run
+    printf '# live-smoke recording: flavor=%s desktop=%s distro=%s mode=%s remove=%s heads=%s stamp=%s\n' \
+        "$FLAVOR" "$DESKTOP" "$DISTRO" "$MODE" "$REMOVE" "$HEADS" "$STAMP" > "$CAPLOG"
+fi
 exec > >(tee -a "$LOG") 2>&1
 
 T0=$(date +%s)
@@ -302,14 +331,89 @@ xwant()   { local w=$1 re=$2; shift 2
             if printf '%s\n' "$*" | grep -Eq -- "$re"
             then echo "XPASS $PHASE: $w (the fix has landed: promote this to want)"
             else echo "XFAIL $PHASE: $w (not in the tree yet) [$(ev "$*")]"; fi; }
+# What a `sleep N` inside a phase costs.  Every one of them is there for a real
+# compositor -- a modeset needs a frame, a hot-plugged head needs the next probe, an
+# extension goes ACTIVE about 12 s after the session -- and a replay against a
+# transcript has neither.  LIVE_SMOKE_SLEEP=0 takes them out: one full-phase replay of
+# the resolute-sway run costs 48.4 s, most of it literal sleep, and 38 of those is 20-30
+# minutes (recon/recordings.md 1.6.5, measured 2026-09-11).  A function and not a flag,
+# because the sleeps are spread over common.sh and every step file, and this is the one
+# place all of them go through.  Anything other than 0 is the real sleep(1).
+sleep()   { [ "${LIVE_SMOKE_SLEEP:-}" = 0 ] || command sleep "$@"; }
 
 # ---------------------------------------------------------------- the guest
 # Never let a guest command's own status abort the run: a FAIL is a result, not
 # an accident.  Callers that care take the status from `$?` after `|| st=$?`.
-guest()  { "$VM" user "$NAME" -- sh -c "$1" 2>&1; }          # as user test, session env
-root()   { "$VM" ssh  "$NAME" -- sh -c "$1" 2>&1; }          # as root, no session env
-guestq() { "$VM" user "$NAME" -- sh -c "$1" >/dev/null 2>&1; }
+# As user test, in the session's environment, with W11_PROXY pinned: the smoke's window
+# and wm phases measure the CLONES, and on a Wayland flavor with the originals installed
+# the wrapper would otherwise hand every one of them to the original through the proxy
+# (measured by batch 9 of issue 1). phase_proxy names DISPLAY and W11_PROXY on its own
+# commands, and SMOKE_PROXY=always is the knob for a phase that wants the wrapper.
+guest()  { "$VM" user "$NAME" -- env W11_PROXY="${SMOKE_PROXY:-never}" sh -c "$1" 2>&1; }
+# as root, no session env -- and W11_PROXY pinned for the same reason as guest(): the root
+# phase measures the CLONES finding the seated session.  SMOKE_PROXY=always is what turns the
+# same commands into the wrapper's, which since batch 3 attaches to the SEATED user's proxy
+# with the seated user's cookie and starts none of root's own (docs/XW11.md, How it starts).
+root()   { "$VM" ssh  "$NAME" -- env W11_PROXY="${SMOKE_PROXY:-never}" sh -c "$1" 2>&1; }
+guestq() { "$VM" user "$NAME" -- env W11_PROXY="${SMOKE_PROXY:-never}" sh -c "$1" >/dev/null 2>&1; }   # guest(), quiet
+# An ISO-installed golden still runs unattended-upgrades at boot (its own timers are
+# off, but the desktop's shutdown/boot hook took the dpkg lock 531 s into the smoke:
+# resolute-gnome-iso, CI run 34628780504). Wait for the lock, then stop the service,
+# as a command of its own so the recorded install command stays byte-identical.
+apt_lock_free() {
+    [ "$DISTRO" = ubuntu ] || return 0
+    root 'for i in $(seq 1 120); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done; \
+          systemctl stop unattended-upgrades.service 2>/dev/null; true' >/dev/null 2>&1 || true
+}
 shot()   { "$VM" shot "$NAME" --all "$SHOTDIR/$1" >/dev/null 2>&1 && note "shots: $SHOTDIR/$1-*.png" || true; }
+
+# ------------------------------------------------ cosmic-comp crash probe (teardown)
+# fedora44-cosmic and arch-cosmic run cosmic-comp on Mesa llvmpipe with no GPU, and it
+# SIGSEGVs in lp_setup_* on a full-output re-render (a maximize/fullscreen toggle) MID-WM-
+# PHASE -- about 1/3 of CI runs under the runner's scheduling contention, and 8/8 rounds
+# under stress-ng load on this rig at mesa 26.1.8 (batches 22/23; backtrace #0
+# lp_setup_alloc_triangle in libgallium-26.1.8.so <- OutputDamageTracker::render_output <-
+# cosmic_comp SurfaceThreadState::redraw, the per-surface KMS render thread). greetd
+# restarts the compositor (Restart=always), so the crash is upstream Mesa, NOT a w11
+# defect -- the reliable fix is rung 6 (a fixed/downgraded Mesa golden) or rung 4 (a GL
+# render node the CI runner has none of; gl.md section 4 costs the QMP pixel oracle and the
+# -display dbus head control the display phase leans on), neither yet in hand.
+#
+# So when the run FAILED we ask the guest whether a cosmic-comp SIGSEGV core landed IN THIS
+# BOOT, and if it did the caller may retry the WHOLE fresh-boot smoke (route 2, the
+# compositor's own recovery -- the honest way CI rides a known-flaky external dependency).
+# The probe is a teardown-time diagnostic, NOT a recorded phase command: it goes through the
+# REAL vmctl (CAPTURE_REAL_VMCTL when --record swapped VM for the capture wrapper, else VM),
+# so it enters no capture and changes no fixture. It is gated on FAILS>0, so a green cosmic
+# replay in selftest-offline.sh never reaches it (nothing extra to record, no drift), and a
+# real w11 bug -- which fails deterministically with NO cosmic-comp core -- exits its FAILS
+# count, never 75, so the retry can never absorb it. Boot-scoped because a --fresh run boots
+# the overlay once and the WM-phase crash is in the final post-reboot boot: filtering on the
+# guest's own _BOOT_ID keeps a stale core (from the golden build, or a --reuse overlay's
+# earlier boot) from counting. Measured on the fedora44-cosmic golden 2026-09-13: a fresh
+# boot lists 0 cosmic-comp cores; crashprobe8's maximize workload writes a SIGSEGV core the
+# probe then finds; a run that fails with none present is not absorbed (report-batch-24).
+EX_COSMIC_SIGSEGV=75
+cosmic_comp_crashed() {
+    [ "$DESKTOP" = cosmic ] || return 1
+    # A replay has no guest to ask. selftest-offline.sh / rig-recordings.sh drive live-smoke
+    # through the strict-vmctl wrapper, which copies every "nothing recorded for ..." line to
+    # $FAKE_VMCTL_MISSES BEFORE the probe's own 2>/dev/null can drop it (the wrapper tees, then
+    # redirects) -- so on a FAILS>0 cosmic replay the coredumpctl script would count as one
+    # extra unrecorded command and drift the recording. FAKE_VMCTL_TRANSCRIPT is set only on a
+    # replay (selftest-offline.sh sets it beside LIVE_SMOKE_SLEEP), so its presence is the tell.
+    [ -z "${FAKE_VMCTL_TRANSCRIPT:-}" ] || return 1
+    local real=${CAPTURE_REAL_VMCTL:-$VM} out
+    # coredumpctl takes a journal-field MATCH (_BOOT_ID, dash-stripped -- /proc keeps the
+    # dashes the journal drops) and a COMM together; the COMM matches on both fedora and arch
+    # where a /usr/bin path would tie us to one layout. grep keeps only the SIGSEGVs of the
+    # SIG column ("SIGSEGV" on systemd 259, measured on the golden).
+    out=$("$real" ssh "$NAME" -- sh -c \
+        'bid=$(tr -d - < /proc/sys/kernel/random/boot_id); \
+         coredumpctl --no-pager -q list _BOOT_ID="$bid" cosmic-comp 2>/dev/null | grep -iw SIGSEGV' \
+        2>/dev/null) || true
+    [ -n "$out" ]
+}
 
 # ---------------------------------------------------------------- steps
 # shellcheck source=live-smoke.d/common.sh
@@ -374,6 +478,14 @@ wait_session || { echo "no graphical session"; exit 2; }
 # than left in /tmp, because /tmp does not survive a reboot on 24.04 and this
 # smoke reboots up to three times.
 install_oracle
+# The compositor's own word for its version, beside the session banner and nowhere else
+# (common.sh: desktop_version_cmd/desktop_version_note).  It is a recorded guest command
+# like every other, which is the point: the version token in a recording's NAME comes out
+# of the capture and never out of a human reading vm/README.md.  The committed
+# resolute-sway-1.11-... and resolute-labwc-0.9.3-... tokens were read from a doc
+# (recon/recordings.md 1.3); `sway --version` through the capture wrapper printed
+# `sway version 1.11` on the same golden, which reproduces that name exactly.
+desktop_version_note
 shot 00-session
 
 cleanup() {
@@ -434,6 +546,7 @@ phase_remove() {
         [ -n "$defsys" ] || defsys=/run/booted-system
         note "the default system to switch back into is $defsys"
     fi
+    command -v apt_lock_free >/dev/null 2>&1 && apt_lock_free   # defined by the driver; a sliced phase runs without it
     cmd=$(pkg_remove_cmd)
     out=$(root "$cmd") || st=$?
     ok "$cmd" "$st"
@@ -526,5 +639,19 @@ fi
 step "done: $PASSES pass, $FAILS fail"
 echo "log:  $LOG"
 echo "shots: $SHOTDIR"
+# The guest is still up here (cleanup runs on EXIT, after this): a FAILED cosmic run whose
+# failure was a cosmic-comp SIGSEGV in this boot exits EX_TEMPFAIL (75) -- so the CI caller can
+# retry the whole fresh-boot smoke. 75 is a value `exit "$FAILS"` below can itself emit, but
+# only for a run of exactly 75 failures, and no cosmic phase list reaches that count (the
+# fedora44-cosmic-1.0.0 recording is 70 checks, arch-cosmic 68 -- report-batch-24), so on the
+# only flavors that ever probe, 75 means the crash and nothing else. A clean run (FAILS=0)
+# never probes and exits 0; a w11 failure with no cosmic-comp core exits its FAILS count
+# exactly as before, so the retry cannot absorb a real bug. cosmic_comp_crashed
+# is a no-op returning false on every non-cosmic flavor, so their exit is byte-for-byte
+# unchanged. See the probe's own comment above for the route and the measurements.
+if [ "$FAILS" -gt 0 ] && cosmic_comp_crashed; then
+    echo "cosmic-comp SIGSEGV during the run -- upstream Mesa llvmpipe, not a w11 failure; the caller may retry"
+    exit "$EX_COSMIC_SIGSEGV"
+fi
 if [ "$FAILS" -gt 125 ]; then exit 125; fi
 exit "$FAILS"

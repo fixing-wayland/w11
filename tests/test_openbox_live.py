@@ -38,7 +38,7 @@ os.environ["W11_PASSTHROUGH"] = "never"
 
 import support
 from w11common import session
-from wdotool import x11_mini
+from hacks.window import x11_mini
 
 #: the same four pairs tests/test_i3_live.py compares, which are the report's own four
 PARITY = (

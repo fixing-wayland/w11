@@ -121,7 +121,90 @@ and the bytes are named wherever a number is.
   into a `without-w11` specialisation. Two phases belong to a distribution
   rather than to a desktop and the driver appends them itself: `selinux` on Fedora and
   `pkgverify` (`rpm -V`, `pacman -Qkk`) on both.
-- **4302 tests**, up from 4146, the new ones being the four new window and display
+- **An X11 proxy, so the originals work on Wayland.** `xw11` is a seventh command and it
+  is not a clone of anything: it binds a display number, forwards every byte to the
+  session's X server, and answers the requests that server has no answer for, because the
+  windows they are about are native Wayland toplevels that were never X windows.
+  Measured on headless sway with Xwayland 24.1.10 on 2026-09-11: the pinned, unmodified
+  `xdotool 4.20260303.1` printed `6291457` for `search --class footw` — a `foot` window
+  with no Xwayland window at all — and then `getwindowname` on that id printed its title.
+  `xdotool get_desktop`, `set_desktop`, `get_num_desktops` and `wmctrl -d` exited **1** on
+  sway with *Your windowmanager claims not to support `_NET_CURRENT_DESKTOP`* and exit
+  **0** through the proxy; `xprop -spy -id <window> WM_NAME`, `xprop -spy -root
+  _NET_ACTIVE_WINDOW` and `xdotool behave <window> mouse-enter` were RC 124 under a
+  timeout and now print their line; `xrandr --output HEADLESS-1 --mode 800x600` was
+  `BadMatch` and exit 1 and now moves sway's own output. `xrandr -q` through the proxy is
+  byte-identical to `xrandr -q` without one, and the whole parity oracle runs through a
+  pass-through proxy differing only in the `Ran N tests in` lines
+  (`W11_PARITY_PROXY=1 sh scripts/parity-oracle.sh`). What it does not do yet is a table
+  with a route and a cost per row, in [docs/XW11.md](docs/XW11.md). The rig has a `proxy`
+  phase of its own now, after `wm` on every Wayland flavor and on none of the X11 ones,
+  and its first run was **resolute-sway (sway 1.11, Xwayland 24.1.10) on 2026-09-11: 27
+  pass, 0 fail** -- the original xdotool, wmctrl and xprop answering about a `foot`
+  window with no X window behind it, and `xrandr --output Virtual-2 --pos 1920x200`
+  moving sway's own head and moving it back.
+- **On a Wayland session the four wrapped tools now run the originals.** `wdotool`,
+  `wwmctl`, `wxprop` and `wxrandr` hand over on Wayland the way they already did on X11,
+  with `DISPLAY` pointing at `xw11`, and the first call that needs a proxy starts one —
+  53 to 203 ms over six measured runs, 105 ms typical, then nothing until it idles out
+  fifteen minutes after its last client. Six rules decide it and the first five cost no
+  process at all; `W11_PROXY=never` (or `WDOTOOL_PROXY=never`, and the three siblings)
+  asks for our own code, `W11_PROXY=always` says the original's bytes or exit 127, and a
+  command carrying one of our own options — `--layout`, `--vkbd`, `wdotool keys`,
+  `--persistent`, `--backend`, the five `--*gnome-overlap*` flags — always runs the clone.
+  A help or version request runs the original and starts nothing, because a usage string
+  is not worth a process that outlives the command by fifteen minutes. The package now
+  **Recommends** `xdotool`, `wmctrl`, `x11-utils` and `x11-xserver-utils` rather than
+  suggesting them, on all three packagings.
+- **The rig records itself, and a second job replays it.** `vm/live-smoke.sh --pkg --remove
+  --record` runs on every flavor on every push and leaves a `<flavor>-<stamp>-capture.txt`
+  beside its log — every guest command and the bytes it answered — and `scripts/rig-recordings.sh
+  <run-id>` turns those captures into `tests/fixtures/live/*-replay.txt`, named after the log's
+  phase list and the run's `w11-desktop-version:` note and kept only when the replay reproduces
+  the tally the log recorded. `LIVE_SMOKE_SLEEP=0` takes the phases' sleeps out (they are for a
+  real compositor), so a full 38-recording replay costs minutes, not half an hour. The wave's
+  harvest closed `tests/fixtures/live/NOT-YET-RUN` down to the flavors whose version command still
+  prints nothing (kde, river, lxqt) and the one that replays a check short (wayfire), each named.
+- **CI: the nine `continue-on-error` keys are gone.** The Ubuntu, Fedora and Arch base images are
+  pinned by digest (and declared in each Dockerfile, so the pin is part of the image key), Arch
+  syncs against an `archive.archlinux.org` snapshot of the base tag's date, Arch's `wmctrl --help`
+  was counted (6801 bytes, the nixpkgs 1.07 size), and the headless-sway proxy probe gates the four
+  jobs that run it. `scripts/parity-oracle.sh` gained `W11_PARITY_PROXY=native` and
+  `W11_PARITY_SWAY=1` — the byte-parity set through the proxy in its synthesizing mode over a
+  compositor's Xwayland, byte-identical, +5.3 s (measured by the proxy batch on this box,
+  2026-09-12; the set itself runs 6.4 s, per `scripts/parity-oracle.sh` and recon/recordings.md 2.2).
+- **RandR `--primary` moves the compositor's own primary** on the two backends that have one:
+  Mutter's `ApplyMonitorsConfig` primary flag and KWin's `set_priority`. Measured on KWin 6.5
+  (resolute-kde): `xrandr --output Virtual-2 --primary` reads back `Virtual-2`, grabbed and
+  `--nograb` alike. On sway, the wlr floor and Hyprland the flag stays Xwayland's, both planes agree,
+  and no compositor is told — not yet, route 1, a foreign primary verb no protocol carries.
+- **X-plane geometry for XWayland windows on the wlr floor** (labwc, river, Budgie, Xfce-on-Wayland,
+  LXQt-on-Wayland): `WlrBackend.list()` folds the X server's rectangle and pid into every row it can
+  pair with `_NET_CLIENT_LIST`, so `getwindowgeometry`/`getwindowpid` on an xterm answer `718,395
+  484x316` where the floor said `0,0 1920x1080`. A native toplevel is still the output rectangle —
+  the one surviving geometry not-yet, route 1, a foreign-toplevel protocol that carries a rect.
+- **COSMIC:** `getactivewindow`, `wxprop -id _NET_WM_STATE`, `getwindowgeometry` and
+  `set_desktop`/`get_desktop` answer on a live cosmic-comp — the backend waits for the `state` and
+  `geometry` events cosmic-comp sends 150 ms after the request, and numbers desktops group by group
+  (one workspace group per output). `zcosmic_toplevel_handle_v1.geometry` carries a rect, so COSMIC
+  leaves the no-rectangle class.
+- **Hyprland:** `wxrandr` applies on a 0.56.2 session that stores `hyprctl keyword monitor` and does
+  not apply it, by writing `~/.config/hypr/w11-monitors.conf`, sourcing it and reloading (route 2);
+  `--persistent` is the first Hyprland one that does anything. `wdotool windowsize` no longer moves a
+  0.56 window (0.56 resizes about the centre), and `wdotool type` types the session's layout through
+  `/dev/uinput` by putting the injected device in the group the text is encoded for.
+- **The GNOME bridge re-reads its own `extension.js`** without a logout (`org.w11.BridgeReload1.Reload`,
+  route 3), and the overlap extension has a record for GNOME 49 (libmutter-17), measured on Fedora 43:
+  `MetaMonitorsConfig` 80 bytes, three tail slots, the shared region byte-identical on three heads.
+  Overlap has now run on GNOME 46, 49, 50 and 51.
+- **rig: `resolute-cinnamon-wayland`'s golden installs Debian's pinned `xwayland_24.1.13-1`** (route 5)
+  — Ubuntu 26.04's `2:24.1.10-1` segfaults in `damage_report()` and takes the Cinnamon session with
+  it (not the GPU: `/dev/dri/renderD128` is present and the same crash happens with `-glamor off`).
+  Four of the flavor's xwants became plain checks with it (the mixed X/native window list,
+  `_NET_CLIENT_LIST`, `_NET_WM_STATE_SHADED`, and the `--vkbd` refusal naming Muffin). `wmctrl
+  --true-geometry` — a flag wmctrl never had — prints the compositor's own rectangle instead of
+  wmctrl's doubled `absolute + parent-relative` origin.
+- **5464 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and

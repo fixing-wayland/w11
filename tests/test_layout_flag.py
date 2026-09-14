@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # the code under test
 os.environ["W11_PASSTHROUGH"] = "never"
 
-from wdotool import cli, ctx as ctxmod, daemon, xkbmap
+from wdotool import cli, ctx as ctxmod, daemon
+from hacks.input import xkbmap
 
 
 class _Spy:

@@ -29,8 +29,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ["W11_PASSTHROUGH"] = "never"
 
 from support import FakeEvdev, MOUSE_CAPS, env
-from wdotool import (cli, commands, daemon, keymap, keys_cmds,
-                     keystate, xkbmap)
+from wdotool import cli, commands, daemon, keys_cmds
+from hacks.input import keymap, keystate, xkbmap
 
 KEYMAPS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                        "fixtures", "keymaps")

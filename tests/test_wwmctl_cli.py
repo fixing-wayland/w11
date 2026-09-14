@@ -26,11 +26,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from w11common.errors import CmdError
-from wdotool.backend import Window
-from wdotool.backend_cosmic import CosmicBackend
-from wdotool.backend_sway import SwayBackend
-from wdotool.backend_wlr import WlrBackend
-from wwmctl import cli, core
+from hacks.window.backend import Window
+from hacks.window.backend_cosmic import CosmicBackend
+from hacks.window.backend_sway import SwayBackend
+from hacks.window.backend_wlr import WlrBackend
+from wwmctl import cli
+from hacks.window import wmctl as core
 from wwmctl.cli import WMCTRL_VERSION
 
 # The suite never hands a tool over to the real X11 one: see
@@ -414,12 +415,79 @@ class ListTest(unittest.TestCase):
         ])
 
     def test_lG(self):
+        """The `-G` column is the ORIGINAL's arithmetic: `2x, 2y`, and the size untouched.
+
+        wmctrl 1.07 feeds the window's own x,y into `XTranslateCoordinates` instead of 0,0, so the origin
+        is counted twice on any window manager that does not reparent -- every wlroots xwm, and the shadow
+        plane xw11 publishes. Measured 2026-09-12 on a headless labwc 0.9.3 on this guest, one xterm at
+        398,215 484x316: pinned wmctrl 1.07 and Ubuntu's both printed `796 430 484 316`, through the proxy
+        it was `796 430 484 316` again, and the pinned xdotool and xwininfo both read `398,215`
+        [core.Core._geometry_column, goal2/requests-batch-12.md 2]. So the fixture's second window at
+        640,0 prints 1280, and the third at -5,2 prints -10,4."""
         rc, out, _e, _b = run(["-lG"])
+        self.assertEqual(out.splitlines(), [
+            "0x0040000c  0 0    0    640  720  testhost Mail inbox",
+            "0x00000006  0 1280 0    640  720  testhost FootWin",
+            "0x00000007 -1 -10  4    10   20   testhost N/A",
+        ])
+
+    def test_lG_with_true_geometry_prints_the_rectangle_xwininfo_agrees_with(self):
+        """The flag wmctrl never had, named the way `wxrandr --persistent` is. Same three windows, same
+        sizes, the origins un-doubled -- 640,0 and -5,2, which is where the compositor really put them."""
+        rc, out, _e, _b = run(["--true-geometry", "-lG"])
+        self.assertEqual(rc, 0)
         self.assertEqual(out.splitlines(), [
             "0x0040000c  0 0    0    640  720  testhost Mail inbox",
             "0x00000006  0 640  0    640  720  testhost FootWin",
             "0x00000007 -1 -5   2    10   20   testhost N/A",
         ])
+
+    def test_true_geometry_changes_nothing_but_the_two_origin_columns(self):
+        """The size columns come straight off `XGetGeometry` in the original and are not doubled there, so
+        they must not move here either -- and neither must the id, desktop, pid, class or title columns."""
+        _rc, doubled, _e, _b = run(["-lGpx"])
+        _rc, true_, _e, _b = run(["--true-geometry", "-lGpx"])
+        for a, b in zip(doubled.splitlines(), true_.splitlines()):
+            self.assertEqual(a.split()[:3], b.split()[:3], "id, desktop and pid")
+            self.assertEqual(a.split()[5:], b.split()[5:], "width, height, class, machine, title")
+
+    def test_L_on_one_window_doubles_the_same_way(self):
+        """`-r <WIN> -L -G` prints one row through the very same builder, so the original's arithmetic has
+        to reach it too: a script that reads `-lG` and one that reads `-L -G` must see the same numbers."""
+        rc, out, _e, _b = run(["-i", "-r", "6", "-L", "-G"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.splitlines(), ["0x00000006  0 1280 0    640  720  testhost FootWin"])
+        rc, out, _e, _b = run(["--true-geometry", "-i", "-r", "6", "-L", "-G"])
+        self.assertEqual(out.splitlines(), ["0x00000006  0 640  0    640  720  testhost FootWin"])
+
+    def test_an_x_row_whose_compositor_gives_no_workspace_prints_0_like_the_original(self):
+        """wmctrl prints 0, never -1, for a window carrying neither `_NET_WM_DESKTOP` nor
+        `_WIN_WORKSPACE` -- measured on Xvfb :79 with both properties removed by `xprop -remove`, and on
+        the `resolute-cinnamon` golden where muffin's own X11 path publishes neither on `nemo-desktop`
+        and real `wmctrl -l` printed `0x02a00030  0 ... Desktop` (2026-09-12). Our backends say -1 for
+        "on all workspaces, or no workspace object", and printing that was the one red proxy check on
+        resolute-cinnamon-wayland: six sticky background X windows, `-1` from us and `0` from the
+        original [core.Core._desktop_column]."""
+        specs = [dict(SPECS[0], desktop=-1)]
+        rc, out, _e, _b = run(["-l"], backend=FakeSwayBackend(specs))
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.splitlines(), ["0x0040000c  0 testhost Mail inbox"])
+
+    def test_a_native_row_keeps_the_minus_one_the_shadow_publishes(self):
+        """The other half, and why the 0 is not a blanket. The only original that can see a native window
+        reads it through the proxy, whose shadow publishes `_NET_WM_DESKTOP = 0xFFFFFFFF` for a row with
+        no desktop (`xw11/shadow.py`) -- and wmctrl prints that as -1. Measured on a headless labwc on
+        this guest, 2026-09-12: `wmctrl -l` through xw11 printed `0x00600001 -1 ... gfoot` for the very
+        foot this column prints -1 for, while the XWayland xterm was `0` on both sides."""
+        rc, out, _e, _b = run(["-l"])
+        self.assertEqual(out.splitlines()[2], "0x00000007 -1 testhost N/A")
+
+    def test_a_real_workspace_number_is_printed_as_it_is(self):
+        """The guard: only a NEGATIVE desktop moves. A window muffin really put on desktop 2 prints 2 --
+        which is what `wmctrl -t 2` then `wmctrl -l` printed for the xterm on the Cinnamon X11 golden."""
+        specs = [dict(SPECS[0], desktop=2)]
+        rc, out, _e, _b = run(["-l"], backend=FakeSwayBackend(specs))
+        self.assertEqual(out.splitlines(), ["0x0040000c  2 testhost Mail inbox"])
 
     def test_lx(self):
         rc, out, _e, _b = run(["-lx"])
@@ -441,13 +509,15 @@ class ListTest(unittest.TestCase):
         # list. wmctrl 1.07 uses the last row's width instead -- a main.c
         # bug that is invisible on its creation-ordered list and would
         # re-flow ours (stacking order) on every raise.
+        # The origins are the original's doubled ones (test_lG's paragraph): the X plane puts this window
+        # at 7,8, so the column says 14,16.
         x11 = FakeX11(machines={0x40000C: "longmachine.example"})
         rc, out, _e, _b = run(["-lG"], x11=x11)
         self.assertEqual(out.splitlines(), [
-            "0x0040000c  0 7    8    111  222  longmachine.example "
+            "0x0040000c  0 14   16   111  222  longmachine.example "
             "Mail inbox",
-            "0x00000006  0 640  0    640  720             testhost FootWin",
-            "0x00000007 -1 -5   2    10   20              testhost N/A",
+            "0x00000006  0 1280 0    640  720             testhost FootWin",
+            "0x00000007 -1 -10  4    10   20              testhost N/A",
         ])
 
     def test_l_generic_backend(self):
@@ -477,14 +547,31 @@ class DesktopTest(unittest.TestCase):
             ])
 
     def test_d_format(self):
-        # VP is per-current-desktop, like wmctrl under EWMH: the single
-        # viewport pair applies to the current desktop, the rest print N/A
+        # VP is `0,0` on EVERY row, which is what real wmctrl prints against a
+        # WM that publishes `_NET_DESKTOP_VIEWPORT` as one pair per desktop --
+        # and what it prints through xw11, whose root now publishes exactly
+        # that [M goal2/recon/gaps.md 3a, Xvfb :77, 2026-09-11]. It used to be
+        # `N/A` on the non-current rows, which no X WM with viewports prints.
         rc, out, _e, _b = run(["-d"], backend=self._backend())
         self.assertEqual(rc, 0)
         self.assertEqual(out.splitlines(), [
-            "0  - DG: 1280x720  VP: N/A  WA: 0,0 1280x690  1",
+            "0  - DG: 1280x720  VP: 0,0  WA: 0,0 1280x690  1",
             "1  * DG: 1280x720  VP: 0,0  WA: 0,0 1280x720  web",
         ])
+
+    def test_d_viewport_is_the_origin_on_every_row_not_only_the_current_one(self):
+        """The clone reads no X property here (no X plane in this rig), and the
+        column is still the one real `wmctrl -d` prints through the proxy: the
+        proxy publishes `[0, 0]` per desktop (xw11/shadow.py:root_props), so
+        `VP: N/A` on a non-current row would be the clone alone inventing an
+        absence. Asserted per row rather than on the whole line so that a WA or
+        a name change cannot make this one pass by accident."""
+        rc, out, _e, _b = run(["-d"], backend=self._backend())
+        self.assertEqual(rc, 0)
+        rows = out.splitlines()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual([ln.split("VP: ")[1].split()[0] for ln in rows],
+                         ["0,0", "0,0"])
 
     def test_s(self):
         rc, _o, _e, b = run(["-s", "1"])
@@ -520,6 +607,74 @@ class WlrFloorBackend(FakeSwayBackend):
 class CosmicFloorBackend(FakeSwayBackend):
     name = CosmicBackend.name
     wm_name = CosmicBackend.wm_name
+
+
+class FramingXwmBackend(FakeSwayBackend):
+    """The same three rows under a backend whose Xwayland window manager FRAMES its windows.
+
+    Only `name` differs from `FakeSwayBackend`, and that is the whole point: the two quirks below are
+    keyed on `core.NON_REPARENTING_XWM` / `core.NO_NET_WM_DESKTOP_XWM`, and `gnome` is in neither.
+    Measured on `noble-gnome` (mutter 46.2, GNOME Wayland, 2026-09-12): an xterm at absolute 398,252 sat
+    under `Parent window id: 0xa00004` against a root of `0x221`, both originals printed `412 301`
+    (`absolute + parent-relative`, not `796 504`), and after `wmctrl -b add,sticky` it carried
+    `_NET_WM_DESKTOP(CARDINAL) = 4294967295` and `wmctrl -l` printed `-1`
+    [M goal2/recon/b17-review-measurements.md 1]."""
+
+    name = "gnome"
+
+
+class TheOriginalsQuirksAreConfinedToWhereTheyWereMeasured(unittest.TestCase):
+    """Both of batch 17's parity quirks against a framing xwm, which is what mutter is.
+
+    A blanket rule would have regressed the 13 GNOME flavors in opposite directions: `2x,2y` where the
+    original prints `absolute + parent-relative` (398,252 -> 796,504 against the measured 412,301), and
+    `0` where the original prints `-1` off a real `_NET_WM_DESKTOP = 0xFFFFFFFF`. Each test below is
+    paired with the same row on a non-reparenting xwm, so neither is a tautology of its double."""
+
+    def placed(self):
+        """SPECS with the X row where the labwc measurement put its xterm: 398,215 484x316."""
+        rows = [dict(s) for s in SPECS]
+        rows[0].update(x=398, y=215, w=484, h=316)
+        return rows
+
+    def test_an_x_row_on_a_framing_xwm_prints_the_absolute_origin(self):
+        """mutter's Xwayland windows are reparented, so the original's doubling collapses to the frame
+        offset there and this column must not double. 398,215 stays 398,215."""
+        rc, out, _e, _b = run(["-lG"], backend=FramingXwmBackend(self.placed()))
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.splitlines()[0].split()[2:6], ["398", "215", "484", "316"])
+
+    def test_the_same_x_row_doubles_on_a_non_reparenting_one(self):
+        """The contrast, off the same fixture: on sway's xwm (parent == root, measured) the original
+        printed `796 430 484 316` for exactly this rectangle and the clone owes it."""
+        rc, out, _e, _b = run(["-lG"], backend=FakeSwayBackend(self.placed()))
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.splitlines()[0].split()[2:6], ["796", "430", "484", "316"])
+
+    def test_a_native_row_doubles_on_the_framing_xwm_too(self):
+        """The native half does not turn off with the X half: the only original that can see a native
+        window reads it through xw11, whose shadows are root children on every compositor. The FootWin
+        row is at 640,0 and prints 1280 under both backends."""
+        rc, out, _e, _b = run(["-lG"], backend=FramingXwmBackend(self.placed()))
+        self.assertEqual(out.splitlines()[1].split()[2:4], ["1280", "0"])
+        rc, out, _e, _b = run(["--true-geometry", "-lG"],
+                              backend=FramingXwmBackend(self.placed()))
+        self.assertEqual(out.splitlines()[1].split()[2:4], ["640", "0"],
+                         "the flag is not a no-op on a framing xwm")
+
+    def test_a_sticky_x_row_on_a_framing_xwm_keeps_the_minus_one_mutter_publishes(self):
+        """mutter writes `_NET_WM_DESKTOP = 0xFFFFFFFF` for a window on all workspaces and wmctrl prints
+        that as -1, which is what the gnome backend's own -1 already produced."""
+        rc, out, _e, _b = run(["-l"], backend=FramingXwmBackend([dict(SPECS[0], desktop=-1)]))
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.splitlines(), ["0x0040000c -1 testhost Mail inbox"])
+
+    def test_the_same_row_prints_0_where_the_xwm_publishes_no_property(self):
+        """The contrast: the wlroots xwm never interns `_NET_WM_DESKTOP` (`no such atom on any window`
+        on a headless sway 1.11 and labwc 0.9.3, 2026-09-12) and muffin publishes none either, so the
+        original falls through to 0 on those."""
+        rc, out, _e, _b = run(["-l"], backend=FakeSwayBackend([dict(SPECS[0], desktop=-1)]))
+        self.assertEqual(out.splitlines(), ["0x0040000c  0 testhost Mail inbox"])
 
 
 class WmInfoTest(unittest.TestCase):
@@ -1216,7 +1371,7 @@ class BuildScriptTest(unittest.TestCase):
     def test_build_emits_both_zipapps(self):
         with tempfile.TemporaryDirectory(prefix="wwmctl-build-") as tmp:
             for d in ("w11common", "wdotool", "wwmctl", "wxprop", "wxrandr",
-                      "warandr", "wmirror", "scripts"):
+                      "warandr", "wmirror", "xw11", "hacks", "scripts"):
                 shutil.copytree(os.path.join(ROOT, d), os.path.join(tmp, d),
                                 ignore=shutil.ignore_patterns("__pycache__"))
             p = subprocess.run(["sh", os.path.join(tmp, "scripts",
@@ -1322,7 +1477,7 @@ class BrokenStdoutTest(unittest.TestCase):
             raise BrokenPipeError(32, "Broken pipe")
 
     def test_broken_pipe_exits_1_quietly(self):
-        from wwmctl import core
+        from hacks.window import wmctl as core
         old_detect = core._detect_backend
         core._detect_backend = lambda: FakeSwayBackend(
             [dict(s) for s in SPECS])
@@ -1350,7 +1505,7 @@ class BrokenStdoutTest(unittest.TestCase):
             opened.close()
 
     def test_stdout_none_list_exits_0(self):
-        from wwmctl import core
+        from hacks.window import wmctl as core
         old_detect = core._detect_backend
         core._detect_backend = lambda: FakeSwayBackend(
             [dict(s) for s in SPECS])
@@ -1377,7 +1532,7 @@ class NoSessionErrorTest(unittest.TestCase):
     wmctrl's diagnostics. wmctrl itself never says another program's name."""
 
     def _run_with(self, exc):
-        from wdotool import backend
+        from hacks.window import backend
         backend.set_program("wdotool")           # as a wdotool run leaves it
 
         def detect():

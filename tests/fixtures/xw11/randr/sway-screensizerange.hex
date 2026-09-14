@@ -1,0 +1,7 @@
+# Captured 2026-09-10 on this box: sway 1.11 with WLR_BACKENDS=headless
+# and one HEADLESS-1 at 1280x720, Xwayland 24.1.10 on :0, through the
+# recording forwarder scratchpad/b7/rec.py. RANDR major 139, root 0x234,
+# crtc 0x20, output 0x21 named HEADLESS-1, sixteen modes 0x41..0x50,
+# config timestamp 0x3163dfd0.
+# GetScreenSizeRange reply: 16x16 minimum, 32767x32767 maximum.
+01000b000000000010001000ff7fff7f00000000000000000000000000000000
