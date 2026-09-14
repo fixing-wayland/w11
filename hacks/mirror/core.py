@@ -16,6 +16,12 @@ the same position already mirror on sway, byte-identical, with no helper at
 all, so wmirror refuses that case by name and points at `wxrandr --same-as`.
 
 wmirror never changes an output. It starts a client window and watches it.
+
+On Cinnamon there is no wl-mirror capture protocol, so the same two pictures
+are produced without capturing anything: a `Clutter.Clone` of the on-screen
+actors, built inside muffin over `org.Cinnamon.Eval` (AGENTS.md route 2). That
+path lives in `hacks/mirror/cinnamon.py`; this module owns the policy
+(`decide`), the region parsing and the record store both paths share.
 """
 
 import contextlib
@@ -213,13 +219,22 @@ def capture_support(conn) -> list:
 
 
 def no_capture_lines() -> list:
-    """Why there is nothing to mirror here, in three lines.
+    """Why there is nothing to mirror here, and the route out for each desktop that answers this.
 
-    The second one used to read `wl-mirror needs wlroots ... or a compositor with ext-image-copy-capture-v1`,
+    The second line used to read `wl-mirror needs wlroots ... or a compositor with ext-image-copy-capture-v1`,
     which put the second protocol in a footnote. It is not a footnote: `wmirror --check` passed on COSMIC on
     `ext_image_copy_capture_manager_v1` alone, with no screencopy manager in cosmic-comp's 53 globals at all
     [M recon2/cosmic.md §3], and labwc 0.9.3 and sway 1.12 publish both. The code path already accepted
-    extcopy on its own; only these words denied it."""
+    extcopy on its own; only these words denied it.
+
+    The last line is the route out for the desktops this is reached on. It is reached on GNOME and KDE, whose
+    desktop portal has ScreenCast -- it exists, and the only work is to wire it (route 4). It is NOT reached on
+    Cinnamon: Cinnamon publishes neither capture protocol either, but `wmirror` mirrors there over a different
+    rung-2 surface -- `org.Cinnamon.Eval` and a Clutter clone (hacks/mirror/cinnamon.py, measured AE 0 on the
+    rig) -- so the start and `--check` take that path before this refusal is ever built, and Cinnamon is not in
+    these words. (The ScreenCast machinery IS compiled out of muffin 6.4, measured on `resolute-cinnamon-
+    wayland` 2026-09-14 -- no `org.cinnamon.Muffin.ScreenCast`, no portal ScreenCast, `libmuffin.so` carries
+    only a vestigial `MetaScreenCastWindow` -- but that route was never needed once the Eval clone works.)"""
     return ["this compositor advertises neither %s nor %s, so wl-mirror "
             "cannot capture here" % (SCREENCOPY, EXTCOPY),
             "wl-mirror needs a compositor with %s (sway, Hyprland, labwc, "
@@ -236,21 +251,58 @@ def require_capture(conn) -> list:
     return have
 
 
+def _layout_state() -> "wxcore.State":
+    """The wxrandr state store, keyed by the wayland socket like wxrandr's own, so the snapshot readers that
+    consult it (Mutter's primary, the custom modes) see exactly what `wxrandr --query` would.  wmirror only
+    ever reads it: it never calls `.save()`, so a missing or unreadable store degrades to an empty one and
+    changes nothing on disk."""
+    hit = session.find_wayland_socket()
+    key = hit[2] if hit else "?"
+    return wxcore.State(key)
+
+
 def read_outputs(conn) -> list:
-    """The live layout, or Refusal. Uses wxrandr's own wlr client, so
-    wmirror and `wxrandr --query` can never disagree about the geometry."""
+    """The live layout, or Refusal.  Reads it through the chooser wxrandr picks from (`wxcore.pick_backend`):
+    the wlr floor wherever `zwlr_output_manager_v1` is advertised, else the reader `wxrandr --query` would
+    use -- KWin's kde_output_management_v2, Mutter's or Muffin's DisplayConfig, or sway/Hyprland IPC.
+
+    So on the desktops with no wlr manager wmirror and `wxrandr --query` are the identical reader and cannot
+    disagree; on sway and Hyprland `wxrandr --query` reads the IPC while wmirror keeps the wlr floor, so there
+    the two agree on the geometry in practice rather than by sharing one reader.
+
+    Was, until this closed: only the wlroots floor, refusing every session without zwlr_output_manager_v1 as a
+    documented route-2 gap.  It is a gap no longer -- Cinnamon (Muffin) and the bus/IPC desktops are read
+    through the same readers wxrandr picks (`wxcore.pick_backend`), which is that route-2 work done."""
     try:
-        wlr = wxcore.WlrOutputs(conn=conn)
-    except wxcore.Fatal:
-        raise Refusal(["this compositor does not advertise %s, so wmirror "
-                       "cannot read the output layout" % OUTPUT_MANAGER,
-                       "not yet here: the route is the compositor's own "
-                       "display bus or IPC, which wxrandr already speaks on "
-                       "Mutter, KWin, Hyprland and sway (AGENTS.md route 2), "
-                       "at the cost of one layout reader per compositor"])
+        impl = wxcore.pick_backend(conn)
+    except wxcore.NoBackend as e:
+        # Genuinely nothing to read: not one of the six output protocols is here.  Across sway, Hyprland,
+        # KWin, GNOME, Cinnamon and every wlroots compositor that is only a session that speaks no output
+        # protocol we know -- there is no route left to name, so this is a dead end and not a "not yet".
+        raise Refusal(["this compositor speaks no output protocol wmirror can "
+                       "read the layout from, so it cannot place a mirror",
+                       "tried, in order: %s" % ", ".join(e.tried)])
+    except wxcore.Fatal as e:
+        raise Refusal([str(e).rstrip("\n") or "cannot read the output layout"])
     except OSError as e:
         raise Refusal(["lost the compositor connection: %s" % e])
-    return wxcore.snapshot_wlr(wlr)
+    try:
+        # the wlr floor is read exactly as it was before this backend choice existed -- snapshot_wlr with no
+        # state -- so every desktop that advertises the manager prints the geometry it already did, byte for
+        # byte.  The route-2 readers (Mutter, Muffin, KWin) consult the state store for the primary and any
+        # custom modes, the way `wxrandr --query` does, so they are handed one; wmirror only ever reads it.
+        state = None if getattr(impl, "name", "") == "wlroots" else _layout_state()
+        return impl.snapshot(state)
+    except (wxcore.Fatal, OSError) as e:
+        raise Refusal([str(e).rstrip("\n") or "cannot read the output layout"])
+    finally:
+        # the wlr floor reuses the caller's conn (closed by _cmd_check/_cmd_start); the IPC/bus readers open
+        # their own and must not leak it -- close() is idempotent and never closes a conn it did not open
+        if impl is not None and getattr(impl, "conn", None) is not conn:
+            try:
+                impl.close()
+            except OSError:
+                pass
 
 
 # -- policy -------------------------------------------------------------------
@@ -481,7 +533,13 @@ def recorded(target: str, rec: dict) -> bool:
 
 
 def fmt_record(target: str, rec: dict) -> str:
-    """One `--list` line -- also what a successful start prints."""
+    """One `--list` line -- also what a successful start prints.
+
+    A cinnamon mirror (`kind == "cinnamon"`) has no wl-mirror pid: it lives inside muffin as a Clutter actor,
+    stopped over Eval, so its line names the Eval route and the token instead (hacks/mirror/cinnamon.py)."""
+    if rec.get("kind") == "cinnamon":
+        from hacks.mirror import cinnamon
+        return cinnamon.fmt_record(target, rec)
     bits = ["%s <- %s" % (target, rec.get("source", "?"))]
     region = rec.get("region")
     if region:

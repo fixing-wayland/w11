@@ -89,9 +89,12 @@ check the backend-specific entry before relying on it.
 | `windowraise` / `windowlower` | Backend-dependent | Support and focus side effects vary; see [backend notes](#backend-notes) and the [KDE differences](#what-differs-from-x-on-kde-plasma). |
 | `set_window`, `windowreparent` | Current Wayland command handlers | Warn and return success without applying the operation. XWayland support needs X property/reparent requests (route 5); native support needs compositor hooks (routes 2–3, or 6), implemented per operation. |
 | Desktop count / viewport setters | Backend-dependent | Some backends change workspaces; others warn and return success. KWin changes the desktop count subject to its limits. See [KDE differences](#what-differs-from-x-on-kde-plasma) and [base-class fallbacks](#what-the-base-class-answers-and-for-whom). |
-| `behave`, `behave_screen_edge` | Current Wayland handlers | Not yet implemented; they fail. Per-window events need backend event subscriptions (routes 1–3); screen edges need pointer tracking, with a compositor hook or input-device access where no query exists (routes 2–4). These require persistent listeners and mapping events to xdotool semantics. |
-| `selectwindow` | GNOME / KWin | Uses the compositor's picker. Cancellation and concurrent-picker behavior differ; see the backend notes. |
-| `selectwindow` | sway / i3 | Waits for the next focus change. Selecting the already focused window does not complete it. A dedicated picker needs an input-grabbing surface or compositor integration (routes 1–3), with a temporary UI and event handling. |
+| `behave` — `focus` / `blur` | Backends with an event stream | Watches the backend's `events()` (every backend has one; the wlr/cosmic floors poll the toplevel protocol's own `activated` change, route 1) and runs the action on the focus transition. As in xdotool, both names share one focus subscription and fire on **both** the watched window's FocusIn and its FocusOut (`cmd_behave.c`), so `behave W focus` also fires when W loses focus and `behave W blur` when it gains it — the original's behaviour, reproduced. |
+| `behave` — `mouse-enter` / `mouse-leave` | Backends with a pointer query | Polls the pointer (the compositor's query where it has one, else wdotool's tracked position) and hit-tests `list()`; runs the action on the enter/leave transition. On the first outside sample rather than xdotool's `mouse-leave` re-query (a 100 ms sleep then a second pointer read to swallow the spurious LeaveNotify X sends at screen edges — no such event exists here, so the poll fires straight away). |
+| `behave` — `mouse-click` | Every backend | **Not yet** wired: a button release wdotool did not itself inject is not in any window protocol; the route is an evdev read on `/dev/input` (route 4, the access the uinput typing path already takes), else the GNOME bridge's captured-event signal (route 3). |
+| `behave_screen_edge` | Backends with a pointer | Polls the pointer against the layout box with xdotool's `--delay` dwell and `--quiesce` cooldown. Where the backend publishes no cursor position and wdotool has moved none (sway/wlr/cosmic), it is **not yet** watched here: route 1, a 1‑px `zwlr_layer_shell_v1` strip per edge whose `wl_pointer.enter` is the crossing (the waycorner shape), at the cost of a surface that eats a click on that line. |
+| `selectwindow` | GNOME / KWin / Cinnamon | Uses the compositor's picker (Cinnamon's is a reactive full-stage Clutter actor pushed in over `org.Cinnamon.Eval`, route 2 — it grabs the click and hit-tests `list()`). Cancellation and concurrent-picker behavior differ; see the backend notes. |
+| `selectwindow` | sway / i3 / wlr / cosmic | Waits for the next focus change. Selecting the already focused window does not complete it. A click-to-pick picker needs an input-grabbing surface (route 1, the layer-shell overlay) over a geometry source, with a temporary UI and event handling. |
 
 ### Pointer queries
 
@@ -1587,12 +1590,13 @@ Hyprland (route 6). `selectwindow` waits for the next focus as it does on sway; 
 click-to-pick would be evdev for the press (route 4) plus `j/cursorpos` and `j/clients`
 for the hit test (route 2).
 
-**The layout gap on the uinput path, measured and not yet fixed.** On Hyprland XKB state
-is per device. `xkbmap.HyprLayouts` reads the PHYSICAL keyboard's group and is right about
-the session, and that is exactly what makes `type` wrong when the text goes through
-`/dev/uinput`, because wdotool's own device is a fresh keyboard to Hyprland with layout
-state of its own. Measured on `resolute-hypr` 2026-09-09 with `kb_layout = us,de`, after
-`hyprctl switchxkblayout at-translated-set-2-keyboard 1`:
+**The layout on the uinput path types byte-exact, at route 2.** On Hyprland XKB state is
+per device, so the session's group and the injected device's group are two questions.
+`xkbmap.HyprLayouts` reads the PHYSICAL keyboard's group, which is right about the session,
+and `keys explain` and every other reader still answer that. But it is the wrong group for
+`type`, because wdotool's own device is a fresh keyboard to Hyprland with layout state of
+its own. The diagnosis, `resolute-hypr` / Hyprland 0.53.3, 2026-09-09, `kb_layout = us,de`,
+after `hyprctl switchxkblayout at-translated-set-2-keyboard 1`:
 
 ```console
 $ hyprctl -j devices     # abridged
@@ -1605,11 +1609,20 @@ zyq Strasse
 ```
 
 The `@` was encoded as the German AltGr+Q and landed in the injected device's US group as
-a plain `q`. Before the reader existed wdotool said it was guessing and typed correctly.
-**Not yet implemented:** this requires a change in wdotool itself: the uinput encoder must
-ask for the group ITS OWN device is in. Below that sits route 2,
-`hyprctl switchxkblayout wdotool-virtual-keyboard <n>` around the injection, which moves
-the session's own state and would have to put it back. On the virtual-keyboard path the
+a plain `q`. `xkbmap.HyprLayouts`' fourth rule (`_group_of_our_device`) closes it: the one
+process that holds `/dev/uinput` open -- the daemon, and nothing else in this tree -- puts
+ITS OWN device into the group it is about to encode for, over the socket it is already
+holding (route 2), then encodes. Our device alone moves, so there is nothing of the
+session's to put back, and the session keeps the group the user chose; `keys explain` still
+answers about the SESSION. The request is the bare `switchxkblayout wdotool-virtual-keyboard
+<n>` and NOT a dispatcher: the `dispatch switchxkblayout ...` spelling shipped first,
+answered `Invalid dispatcher`, and typed `yz@ Strae` (the ASCII right off the fallback, the
+sharp s dropped), while the bare form answers `ok` with the new index in the very next
+`j/devices`. When the switch does not take, the fallback is the group our device really is
+in -- what wdotool typed correctly with before any reader existed. Measured green,
+`wdotool type "yz@ Straße"` byte-exact on `resolute-hypr` 0.53.3 (2026-09-14, CI) and
+`arch-hypr` 0.56.2 (2026-09-11), the live `want "German types byte-exact after a switch on
+the physical keyboard"` in vm/live-smoke.d/hypr.sh. On the virtual-keyboard path the
 question is moot, because wdotool uploads its own keymap.
 
 ### Wayfire
@@ -1687,12 +1700,19 @@ question is moot, because wdotool uploads its own keymap.
   publishes no window signal. A window that is already focused in the poll that first sees
   it gets both `new` and `focus`, the way sway sends them, because the rising edge a later
   poll would look for has already gone by.
-* `selectwindow` is **not yet**: `global.stage.grab` does not exist in muffin's Clutter
-  (`global.begin_modal` does, and is a keyboard grab, not a click). The route is a reactive
-  full-stage Clutter actor pushed in through `org.Cinnamon.Eval`, which installs nothing
-  (route 2); shipping the same actor as a Cinnamon extension is route 3 and only buys
-  surviving a Cinnamon restart. Either way the cost is a modal grab that must be released
-  even when wdotool dies holding it.
+* `selectwindow` **works** (route 2): `global.stage.grab` does not exist in muffin's Clutter
+  (`global.begin_modal` does, and is a keyboard grab, not a click), so the picker is a reactive
+  full-stage Clutter actor pushed in through `org.Cinnamon.Eval`, which installs nothing. It
+  records the next button press into `global.__w11_pick`; wdotool polls Eval for it and
+  hit-tests the coordinates against `list()`, and a Ctrl-C or the 60 s timeout tears the actor
+  down (its own `GLib` timeout tears it down even if wdotool dies holding it — the cost this
+  rung carries). Measured on resolute-cinnamon-wayland 2026-09-14: install answered `ok`, a
+  QMP-injected left click at ~520,360 came back `[519,359,1]`, destroy answered `ok`. Shipping
+  the same actor as a Cinnamon extension would be route 3 and only buys surviving a restart. One
+  divergence from xdotool: a click on the desktop or a panel (no managed window under it) hit-tests
+  to nothing and returns `0`, where `xdo_select_window_with_click` would return the root/desktop
+  window itself; `wwmctl -l` does list a `Desktop` window, so hit-testing against it too would
+  match X, at the cost of every empty-space pick resolving to the desktop.
 * No `--vkbd`: Cinnamon 6.4 advertises no virtual-keyboard protocol, so input is
   `/dev/uinput`, i.e. the udev rule or root. Muffin master (the 6.6/6.8 line) adds
   `virtual-keyboard-unstable-v1` and `wlr-layer-shell`, so a future Cinnamon gets a
@@ -1705,21 +1725,36 @@ The `wlr` backend is what answers on labwc, Budgie, Xfce-on-Wayland, LXQt-on-Way
 river, and on sway or Wayfire when `WDOTOOL_BACKEND=wlr` forces it. What it can and cannot
 do is `zwlr_foreign_toplevel_management_v1`'s shape and is stated as such:
 
-* `windowmove`, `windowsize`, `windowraise` and `windowlower` refuse by naming the
-  protocol, `zwlr_foreign_toplevel_management_v1 carries no geometry and no stacking`, and not by borrowing sway's tiling excuse, which is wrong for labwc, a stacking
-  compositor. **Not yet**, route 5 for an XWayland window (`ConfigureWindow` over the X
-  plane) and route 6 for a native one.
-* Native-window geometry is `0,0` plus the output rectangle, for the same reason.
+* `windowmove`, `windowsize`, `windowraise` and `windowlower` on an **XWayland** window go
+  through the X plane — AGENTS.md route 5, a real `ConfigureWindow`, exactly what `xdotool`
+  sends. Measured 2026-09-14: on labwc 0.9.3 `windowmove 300 200` lands (`300,200`),
+  `windowsize 640 400` lands (`640x394`, one character cell), and `windowraise` does not
+  restack (the wlroots xwm drops the stack mode); on cosmic-comp 1.8.0 the resize lands and
+  the move is a no-op (the Smithay xwm drops it), byte for byte what `xdotool` gets there.
+  A **native** toplevel refuses by naming the protocol,
+  `zwlr_foreign_toplevel_management_v1 carries no geometry and no stacking` — not by
+  borrowing sway's tiling excuse, which is wrong for labwc, a stacking compositor. **Not
+  yet** for the native half, route 6, a patched compositor (`wlroots xwayland/xwm.c` drops
+  `XCB_CONFIG_WINDOW_STACK_MODE`, so even the XWayland `windowraise` needs it to restack).
+* Native-window geometry is `0,0` plus the output rectangle, for the same reason the native
+  half of move/resize refuses: no foreign-toplevel protocol carries a rectangle (route 1).
 * Desktops work where the compositor publishes `ext_workspace_manager_v1` (labwc, Budgie
   10.10, Xfce 4.20 on Wayland) and the refusal stands where it does not (sway 1.11,
   Wayfire 0.10), route 1 where the compositor grows the protocol, else route 2, the
   compositor's own IPC, which is one backend per compositor. `window_desktop` stays -1 on
   every one of them, because neither foreign-toplevel protocol carries a workspace
   association.
-* `windowstate` SHADED/ABOVE/BELOW/SKIP_* is **not yet**, route 6: the handle's state
-  array has exactly maximized, minimized, activated and fullscreen, so it is one state bit
-  and one request in the compositor. `FULLSCREEN` against a v1 manager is route 1, version 2 of the protocol, which it already defines: a newer compositor build and no
-  code of ours.
+* `windowstate` SHADED/ABOVE/BELOW/SKIP_* on an **XWayland** window is the `_NET_WM_STATE`
+  ClientMessage `wmctrl -b` sends, over the X plane (route 5). Measured 2026-09-14: on labwc
+  0.9.3 all of `add,{above,below,shaded,skip_taskbar,skip_pager}` land in `_NET_WM_STATE`
+  and read back on, `remove` takes them out; on cosmic-comp 1.8.0 they are dropped by the
+  Smithay xwm, byte for byte what `wmctrl -b` gets there — rc 0 either way, no visible
+  restack. A **native** toplevel is **not yet**, route 6: the handle's state array has
+  exactly maximized, minimized, activated and fullscreen, so it is one state bit and one
+  request in a patched compositor (`wlroots xwayland/xwm.c`'s `xwm_handle_net_wm_state_message`
+  has no `request_above`/`below`/`shade` to hand labwc). `FULLSCREEN` against a v1 manager is
+  route 1, version 2 of the protocol, which it already defines: a newer compositor build and
+  no code of ours.
 * `windowminimize` on a compositor with no minimized state (sway forced onto this backend,
   river-classic 0.3.17) warns after waiting 0.5 s for the handle to say otherwise. On sway
   the route is 2, its own scratchpad, which the sway backend already takes.
@@ -1757,15 +1792,16 @@ IPC (route 2).
 
 ### What the base class answers, and for whom
 
-Four gaps live in `hacks/window/backend.py:WindowBackend`'s defaults rather than in any one
-backend: a backend reaches them by not overriding the method. Measured 2026-09-09 against
-the eight backend modules, gnome and kwin reach none of them.
+Two gaps live in `hacks/window/backend.py:WindowBackend`'s defaults rather than in any one
+backend: a backend reaches them by not overriding the method. Measured 2026-09-14 against
+the eight backend modules, gnome and kwin reach neither. `selectwindow` and `events()` used
+to sit here for the wlr and cosmic floors too; both now come off the foreign-toplevel
+protocol's own changes (`XPlaneViews.events`/`select_window`, route 1), so no shipped backend
+reaches those two defaults any more.
 
 | command | which backends land here | not yet, with its route and cost |
 |---|---|---|
 | `set_num_desktops`, `wwmctl -n` | sway, wlr, cosmic, hypr, cinnamon, wayfire | counting workspaces into existence. Route 1 on wlr and cosmic, the same `ext_workspace_manager_v1` `set_desktop` already drives, whose group creates a workspace and whose handle removes one; route 2 on sway, hypr, cinnamon and wayfire, each compositor's own IPC or bus. The cost is honouring the per-workspace capability that gates both, and a count that does not read back where a compositor drops a workspace as soon as it empties |
-| `selectwindow` | wlr, cosmic | a picker. Neither protocol carries a pointer position or a window geometry to put a click in, so the route is a wlr-layer-shell overlay that takes the press (route 1) over a geometry source, at the cost of a surface that eats the click it reads |
-| `behave`, window events | wlr, cosmic | an event stream. The toplevel protocol already delivers title, app_id, state and closed, so the route is that same protocol (route 1), at the cost of a connection held open for the whole wait and its vocabulary mapped onto sway's |
 | `set_desktop_for_window` | wlr | binding a toplevel to a workspace. The handle has no such request and `ext_workspace_manager_v1` names workspaces without taking windows, so the route is a protocol that does both, cosmic-comp ships `move_to_ext_workspace` and the COSMIC backend already sends it (route 1), else a patched compositor (route 6) |
 
 ### i3
@@ -1810,16 +1846,42 @@ Wayland too:
   gnome-shell's pid never changes. That is what the package's autostart uses.
 * The logout is for a shell that has never **scanned** the extension directory, i.e. a
   fresh install.
-* A bridge whose `extension.js` has **changed** still needs one, and that is **not yet**.
-  `org.gnome.Shell.Extensions.ReloadExtension` answers `NotSupported: ReloadExtension is
-  deprecated and does not work` on 46.2, so route 2 refuses. The lowest route left is 3,
-  code we install into the compositor: `extension.js` is an ES module and GJS re-reads a
-  module imported under a URL it has not seen, so a stub extension that dynamic-imports
-  the real module with a cache-busting query and re-imports it on a `Reload` method would
-  do it, at the cost of splitting the bridge in two, a hop through the stub on every
-  method, and a `disable()` that drops every signal and timeout by hand, because GJS
-  cannot unload the old module. Below that is route 6, a package of ours that patches the
-  shell or its unit. Nobody has written or measured either.
+* A bridge whose `extension.js` has **changed** is re-read with no logout too, and that
+  is **route 3, code we install into the compositor**. Route 2, the compositor's own
+  scripting surface, has the method and refuses: `org.gnome.Shell.Extensions.ReloadExtension`
+  answers `NotSupported: ReloadExtension is deprecated and does not work` on 46. So the
+  extension reloads itself. The object gnome-shell constructs at login is a **ROOT** that
+  keeps the reload interface -- `org.w11.BridgeReload1.Reload` on `/org/w11/Bridge`,
+  deliberately its own interface and not a method of `org.w11.Bridge1`, the client surface
+  the tools and `MockBridge` are pinned to -- and hands the session to a **copy** of the
+  file that runs `org.w11.Bridge1`. `Reload` re-reads `extension.js`, and because GJS
+  re-reads a module only under a URL it has not imported yet, it writes the bytes into
+  `$XDG_RUNTIME_DIR` under a name keyed by the file's mtime **and** the SHA256 of its bytes
+  (the clock alone is not evidence: two saves in one second move neither, see `_read()`),
+  imports that, and swaps the session onto a fresh instance. The reply is JSON --
+  `{"version", "mtime", "reread", "path"}` -- so a caller tells a reload from a no-op.
+  The costs are three. A split in two. A heap that only grows: GJS unloads no module, so
+  every reload leaves the old copy's bytes behind and its `disable()` -- the same one the
+  shell calls -- has to drop every signal and timeout by hand, or a stale listener fires
+  for the rest of the session; `tests/test_bridge_js.py`
+  (`test_a_reload_leaves_no_listener_no_timeout_and_no_export_behind`) counts the handlers
+  on the doubles after three reloads and finds them unchanged. And two things a `Reload`
+  cannot help with: `org.w11.Bridge` is unowned for the milliseconds between the old copy's
+  `disable()` and the new copy's `enable()`, so a client that dials in that window gets
+  `NameHasNoOwner` (the same hole `gnome-extensions disable` then `enable` always had); and
+  the **ROOT**'s own code -- `enable()`, `disable()`, `_install()`, `_swap()` and the
+  route-3 block that carries them -- is the copy the shell read at login, so editing *that*
+  still needs a new session. Everything under `_enableHere()` is what a reload picks up.
+  Measured by the committed recording, which CI replays --
+  `tests/fixtures/live/noble-gnome-x11-46.0-install-passthrough-bridge-display-root-uinput-replay.txt`,
+  `noble-gnome-x11`, GNOME Shell 46.0, gjs 1.80.2: a `Reload` with nothing edited answers `"reread":false`
+  and reads no file; the phase then edits the shipped `const VERSION = 3` to `99`, and a
+  `Reload` answers `{"version":99,...,"reread":true}` about a second later while `GetVersion`
+  then answers `(uint32 99,)`; three `touch`es to three future dates each re-read; and
+  `pgrep -x gnome-shell` reads the same pid across all of it (the file is put back to
+  version 3 at the end). One reading is by hand rather than recorded: ten reloads cost
+  gnome-shell about 996 kB of RSS, ~100 kB a copy, the module GJS cannot unload. Route 6,
+  a package of ours that patches the shell or its unit, stays unwritten and is not needed.
 
 **Do not run `gnome-shell --replace` to reload it.** On a systemd-managed GNOME session
 that is not a reload, it is a way to lose your extensions:

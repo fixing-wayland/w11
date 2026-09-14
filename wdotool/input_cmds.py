@@ -9,8 +9,9 @@ import sys
 import time
 
 from w11common.errors import CmdError
+from hacks.input.edges import EDGES as _EDGES, EdgeMachine
 from hacks.window import backend as _backend
-from wdotool import commands
+from wdotool import cli, commands
 from wdotool.cli import ChainAbort, _opts
 from wdotool.cnum import atoi as _atoi, strtol as _strtonum
 
@@ -591,7 +592,59 @@ edge-or-corner can be any of:
 The action is any valid xdotool command (chains OK here)
 """
 
-_EDGES = {"left", "top-left", "top", "top-right", "right", "bottom-right", "bottom", "bottom-left"}
+# The one sentence for a backend with no pointer source at all: sway/wlroots/COSMIC, whose IPC/toplevel
+# protocols carry no cursor position, on a daemon that has injected no motion. Named with its rung so it is a
+# gap and not a refusal of the feature -- test_one_rule pins it. The waycorner shape is the route: a 1-px
+# zwlr_layer_shell_v1 strip per edge/corner whose `wl_pointer.enter` IS the edge crossing, which needs no
+# pointer poll at all; the cost is a surface that eats a click landing on that line.
+EDGE_NO_POINTER = (
+    "behave_screen_edge has no pointer to poll here: this backend publishes no cursor position and wdotool "
+    "has moved none, so the edge is not yet watched here by polling.  The route is a 1-px zwlr_layer_shell_v1 "
+    "strip bound per edge and corner, whose wl_pointer.enter is the edge crossing (AGENTS.md route 1, the "
+    "waycorner shape), at the cost of a surface that eats a click on that line")
+
+
+def _screen_box(ctx) -> "tuple[int, int, int, int]":
+    """The layout bounding box (x, y, w, h) the edge is measured against, the way `getdisplaygeometry` finds
+    the size: the daemon's wl_output query first, then the window backend, then xdotool's 1920x1080 last resort
+    (an edge on the wrong box is still an edge, so this warns nowhere and never fails)."""
+    try:
+        w, h, guessed = ctx.daemon().geometry_status()
+        if not guessed:
+            return (0, 0, w, h)
+    except (CmdError, OSError):
+        pass
+    try:
+        w, h = ctx.backend().display_size()
+        return (0, 0, w, h)
+    except (CmdError, OSError):
+        return (0, 0, 1920, 1080)
+
+
+def _edge_sample(ctx):
+    """One pointer sample for the edge watch: the compositor's own query where it has one, else the daemon's
+    tracked position when it knows one, else None (unknown -- not on any edge)."""
+    real = _backend_pointer(ctx)
+    if real is not None:
+        return real
+    x, y, known = ctx.daemon().pointer()
+    return (x, y) if known else None
+
+
+def _behave_edge_loop(ctx, source, machine, action, poll=0.02,
+                      clock=time.monotonic, sleep=time.sleep):
+    """Feed `source()` samples into `machine` for ever, running `action` on every sample it fires. `source()`
+    raising StopIteration ends the loop -- which only a finite test source does; the real one polls the pointer
+    without end, the way `xdotool behave_screen_edge` runs until it is killed."""
+    while True:
+        try:
+            pos = source()
+        except StopIteration:
+            return
+        x, y = pos if pos else (None, None)
+        if machine.feed(x, y, clock()):
+            cli.run_behave_action(ctx, action)
+        sleep(poll)
 
 
 def cmd_behave_screen_edge(ctx, args):
@@ -608,7 +661,11 @@ def cmd_behave_screen_edge(ctx, args):
         raise CmdError("Invalid number of arguments (minimum is 2)\n" + usage.rstrip("\n"))
     if args[i] not in _EDGES:
         raise CmdError(f"Invalid edge or corner, '{args[i]}'\n" + usage.rstrip("\n"))
-    raise CmdError(
-        "behave_screen_edge is not supported on Wayland: compositors do not "
-        "expose global pointer motion"
-    )
+    edge, action = args[i], list(args[i + 1:])
+    delay = _atoi(opts.get("delay", "0"))
+    quiesce = _atoi(opts["quiesce"]) if "quiesce" in opts else 2000
+    if _edge_sample(ctx) is None:
+        raise CmdError(EDGE_NO_POINTER)
+    machine = EdgeMachine(edge, _screen_box(ctx), delay, quiesce)
+    _behave_edge_loop(ctx, lambda: _edge_sample(ctx), machine, action)
+    return len(args)

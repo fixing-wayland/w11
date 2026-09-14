@@ -191,6 +191,23 @@ def run_chain(ctx: Context, prog: str, tokens: list[str]) -> int:
     return ret
 
 
+def run_behave_action(ctx: Context, tokens: list[str], wid: "int | None" = None) -> int:
+    """Run one `behave` / `behave_screen_edge` action, which is itself a chain (`xdotool`'s `context_execute`
+    on the sub-argv). `wid` is the window that fired the event, pushed as the whole window stack so the action's
+    `%1`/`%@` name it -- exactly how `xdotool` runs a behave action against the window it matched; a screen edge
+    has no window, so it keeps whatever stack was there. The stack is restored afterwards, and an error in the
+    action is printed by `run_chain` and does not end the watch, the way `xdotool` keeps watching after a failed
+    action."""
+    prog = getattr(ctx, "prog", "wdotool")
+    saved = ctx.stack
+    if wid is not None:
+        ctx.stack = [wid]
+    try:
+        return run_chain(ctx, prog, list(tokens))
+    finally:
+        ctx.stack = saved
+
+
 def _opts(cmd, args, shortopts, longopts, usage, shortmap=None, invalid_usage=False):
     """Leading-option parse via getopt_long_only, the way every command wants it. Returns (opts, nopts) with
     short chars canonicalized through shortmap, or None after printing usage for --help (caller returns
@@ -487,6 +504,7 @@ def _main(argv: list[str] | None = None) -> int:
     ctx = Context()
     ctx.layout_mode = layout_mode
     ctx.vkbd_mode = vkbd_mode
+    ctx.prog = prog  # behave actions run their sub-chain under the same program name
     ret = run_chain(ctx, prog, argv[1:])
     return ret if ret else ctx.exit_code
 

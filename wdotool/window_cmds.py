@@ -9,7 +9,8 @@ import sys
 import time
 
 from w11common.errors import CmdError
-from wdotool import commands
+from hacks.window import backend as _wbackend
+from wdotool import cli, commands
 from wdotool.cli import ChainAbort, GetoptError, _opts, getopt_long_only
 from wdotool.cnum import atoi as _atoi, strtol as _strtol
 from wdotool.ctx import SoftCmdError
@@ -838,9 +839,75 @@ _USAGE_BEHAVE = (
 )
 
 
+_BEHAVE_EVENTS = ("mouse-enter", "mouse-leave", "mouse-click", "focus", "blur")
+
+# The one sentence for the click event, named with its rung so it is a gap and not a decline -- test_one_rule
+# pins it.  A released button wdotool did not itself press is not in any window-management protocol; it is on
+# the input device, which is a rung-4 read.
+MOUSE_CLICK_NO_EVDEV = (
+    "behave mouse-click is not yet wired here: a button release wdotool did not itself inject is not in any "
+    "window protocol -- the route is an evdev read on /dev/input (AGENTS.md route 4, the same device access "
+    "the uinput typing path already takes), else the GNOME bridge's captured-event signal (route 3); until "
+    "one is wired the click event is a gap, not a decline")
+
+
+def _current_focus(ctx) -> int:
+    """The window id that has focus now, or 0 -- the seed for focus/blur, so the first `focus` event that names
+    another window is a blur of this one and not a spurious focus of it."""
+    for w in ctx.backend().list():
+        if w.focused:
+            return w.id
+    return 0
+
+
+def _behave_focus_loop(ctx, targets, event, action, events_iter, focused):
+    """`focus`/`blur` from the backend's event stream: every backend's `events()` yields `focus` on the rising
+    edge (the window that just took focus), so a `focus` naming another window is the blur of whoever held it.
+
+    xdotool subscribes both names to the one FocusChangeMask and runs the action on the watched window on BOTH
+    its FocusIn and its FocusOut regardless of which name was asked (`cmd_behave.c` lines 10-11, 124-127), so
+    `behave W focus cmd` also fires when W loses focus and `behave W blur cmd` also fires when it gains it.  We
+    reproduce that (AGENTS.md: the originals' bugs are features), so `event` picks nothing here -- a target that
+    either takes or loses focus runs the action, against that target.  Never returns on a live stream; a finite
+    test stream ends it."""
+    for wid, change in events_iter:
+        if change != "focus":
+            continue
+        prev = focused
+        focused = wid
+        if wid in targets and wid != prev:      # a target took focus (FocusIn)
+            cli.run_behave_action(ctx, action, wid)
+        if prev in targets and prev != wid:     # a target lost focus (FocusOut)
+            cli.run_behave_action(ctx, action, prev)
+
+
+def _behave_mouse_loop(ctx, targets, event, action, source, list_fn,
+                       poll=0.02, sleep=time.sleep):
+    """`mouse-enter`/`mouse-leave` from a pointer poll hit-tested against `list()` -- `backend.hit_test` is the
+    one rule the desktop uses everywhere.  Seeds each target's inside/outside from the first sample so a window
+    the pointer already sits in does not fire an enter.  `source()` raising StopIteration ends the loop (a test
+    source); the real one polls without end."""
+    inside = dict.fromkeys(targets)  # None until seeded
+    while True:
+        try:
+            pos = source()
+        except StopIteration:
+            return
+        cur = _wbackend.hit_test(list_fn(), pos[0], pos[1]) if pos else 0
+        for t in targets:
+            now_in = cur == t
+            was = inside[t]
+            if was is not None:
+                if event == "mouse-enter" and now_in and not was:
+                    cli.run_behave_action(ctx, action, t)
+                elif event == "mouse-leave" and was and not now_in:
+                    cli.run_behave_action(ctx, action, t)
+            inside[t] = now_in
+        sleep(poll)
+
+
 def cmd_behave(ctx, args):
-    # Help and a wrong argument count are answered before the refusal: they are ours to get right, not something
-    # the compositor declines (behave_screen_edge has done it this way all along).
+    # Help and a wrong argument count are answered before anything else: they are ours to get right.
     cmd = getattr(ctx, "cmd_name", "behave")
     usage = _USAGE_BEHAVE % cmd
     parsed = _opts(cmd, args, "h", [("help", False)], usage)
@@ -849,7 +916,18 @@ def cmd_behave(ctx, args):
     _o, nopts = parsed
     if len(args) - nopts < 3:
         raise CmdError("Invalid number of arguments (minimum is 3)\n" + usage.rstrip("\n"))
-    raise CmdError(
-        "behave is not supported on Wayland: compositors do not expose "
-        "per-window enter/leave/focus event taps to clients"
-    )
+    window_arg, event = args[nopts], args[nopts + 1]
+    action = list(args[nopts + 2:])
+    if event not in _BEHAVE_EVENTS:
+        raise CmdError("Unknown event name: %s\n%s" % (event, usage.rstrip("\n")))
+    if event == "mouse-click":
+        raise CmdError(MOUSE_CLICK_NO_EVDEV)
+    targets = ctx.resolve_windows(window_arg)
+    if event in ("focus", "blur"):
+        _behave_focus_loop(ctx, targets, event, action,
+                           ctx.backend().events(), _current_focus(ctx))
+    else:
+        from wdotool.input_cmds import _edge_sample
+        _behave_mouse_loop(ctx, targets, event, action,
+                           lambda: _edge_sample(ctx), ctx.backend().list)
+    return len(args)

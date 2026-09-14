@@ -388,8 +388,10 @@ class States(WlrTest):
         self.assertEqual(comp.opcodes(2), [UNSET_MINIMIZED])
 
     def test_a_state_this_protocol_has_no_word_for(self):
-        """SHADED is a state wmctrl and xdotool both take, so the refusal owes a route and not a full stop:
-        the handle's state array has four members and a fifth is the compositor's to add."""
+        """SHADED on a NATIVE window: wmctrl and xdotool both take it, so the refusal owes a route and not a
+        full stop -- the handle's state array has four members and a fifth is the compositor's to add. An
+        XWayland window no longer reaches here; it takes the X plane (test_backend_wlr_xplane).  WlrTest.setUp
+        patches `xwayland_running` off, so `_xid_of` is 0 and this is the native path."""
         _comp, b = self.backend()
         with self.assertRaises(CmdError) as cm:
             b.set_state(BASE_ID, "SHADED", 1)
@@ -397,8 +399,11 @@ class States(WlrTest):
         self.assertEqual(str(cm.exception),
                          "windowstate SHADED is not supported by the wlr backend: "
                          "zwlr_foreign_toplevel_management_v1 carries maximized, minimized, activated and "
-                         "fullscreen and no other state; not yet here, and the route is a patched "
-                         "compositor (AGENTS.md route 6), one state bit and one request each")
+                         "fullscreen and no other state; an XWayland window goes through the X plane instead "
+                         "(AGENTS.md route 5, the _NET_WM_STATE ClientMessage wmctrl -b sends). Not yet for a "
+                         "native toplevel, and the route is a patched compositor (route 6): wlroots "
+                         "xwayland/xwm.c's xwm_handle_net_wm_state_message has no request_above/below/shade to "
+                         "hand labwc, one state bit and one request each")
 
     def test_a_version_gap_is_told_apart_from_a_missing_feature(self):
         """`set_fullscreen` is version 2 of the protocol this manager speaks at 1: nobody has to write it,

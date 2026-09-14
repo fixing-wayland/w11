@@ -164,3 +164,39 @@ STATES = {
 
 def state(wid: int, name: str, add: bool) -> str:
     return _window(wid, STATES[name][0 if add else 1])
+
+
+# -- selectwindow, AGENTS.md route 2 --------------------------------------
+#
+# muffin has no `global.stage.grab` and `global.begin_modal` is a keyboard grab, so a click picker is a
+# reactive full-stage Clutter actor pushed in over Eval, which installs nothing. `PICK_INSTALL` destroys any
+# actor a previous, abandoned pick left, then adds a reactive actor covering the whole stage; its
+# `button-press-event` records `[x, y, button]` from `global.get_pointer()` into `global.__w11_pick` and
+# destroys the actor (so the click ends the pick and the grab is gone). A 60 s `GLib.timeout` destroys it even
+# if wdotool dies holding it -- the cost AGENTS.md names for this rung. wdotool polls `PICK_POLL` until it is
+# non-null and then hit-tests the coordinates against `list()`; a Ctrl-C runs `PICK_DESTROY`. Measured on a
+# live Cinnamon 6.4 (resolute-cinnamon-wayland, 2026-09-14): install answered "ok", a QMP-injected left click
+# at ~520,360 was read back as `[519,359,1]`, and destroy answered "ok". No interpolation, so the rule that
+# only integers ever enter a program is kept trivially.
+PICK_INSTALL = r"""(function(){
+const C=imports.gi.Clutter;const G=imports.gi.GLib;
+if(global.__w11_pick_actor){try{global.__w11_pick_actor.destroy();}catch(e){}}
+global.__w11_pick=null;global.__w11_pick_actor=null;
+let a=new C.Actor({reactive:true,x:0,y:0,width:global.stage.width,height:global.stage.height});
+global.stage.add_child(a);global.__w11_pick_actor=a;
+a.connect('button-press-event',function(actor,ev){
+  let p=global.get_pointer();
+  global.__w11_pick=[p[0],p[1],ev.get_button()];
+  try{actor.destroy();}catch(e){}global.__w11_pick_actor=null;return C.EVENT_STOP;});
+G.timeout_add(G.PRIORITY_DEFAULT,60000,function(){
+  if(global.__w11_pick_actor){try{global.__w11_pick_actor.destroy();}catch(e){}global.__w11_pick_actor=null;}
+  return false;});
+return "ok";})()"""
+
+#: the captured [x, y, button], or null while the pick is still pending.
+PICK_POLL = "JSON.stringify(global.__w11_pick)"
+
+#: tear the actor down (Ctrl-C, or a caller that gives up); harmless if it is already gone.
+PICK_DESTROY = r"""(function(){
+if(global.__w11_pick_actor){try{global.__w11_pick_actor.destroy();}catch(e){}global.__w11_pick_actor=null;}
+global.__w11_pick=null;return "ok";})()"""

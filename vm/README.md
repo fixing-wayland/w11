@@ -978,7 +978,7 @@ The point of the extra flavors is to see where `wxrandr`, `wwmctl`, `wdotool`, `
 and `warandr` stand outside GNOME. `wmirror` has no column here because it has no
 per-flavor answer to give: it is wlroots only by construction, `--check` says so on
 everything else, and *Where it does not exist* in
-[docs/WMIRROR.md](../docs/WMIRROR.md#where-it-does-not-exist) is the whole of it.
+[docs/WMIRROR.md](../docs/WMIRROR.md#where-wl-mirror-does-not-exist) is the whole of it.
 
 This is the measured state, honest gaps included: the
 branch's own checkout copied into each guest and run as `python3 -m <tool>` **inside the

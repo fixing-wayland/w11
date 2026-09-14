@@ -354,10 +354,19 @@ class ActionTest(unittest.TestCase):
         rc, out, _e, _ = run(["windowreparent", "11", "22", "getwindowname", "22"])
         self.assertEqual((rc, out), (0, "Beta Two\n"))
 
-    def test_behave_unsupported(self):
-        rc, _o, err, _ = run(["behave", "%@", "mouse-enter", "getmouselocation"])
+    def test_behave_mouse_click_is_a_rung_four_gap(self):
+        # mouse-click is the one behave event with no window-protocol source (it is a button release wdotool
+        # did not itself inject); it names its rung rather than declining.  The other four events are exercised
+        # against a driven backend in test_behave.py, where the watch loop can be ended.
+        rc, _o, err, _ = run(["behave", "%@", "mouse-click", "getmouselocation"])
         self.assertEqual(rc, 1)
-        self.assertIn("behave is not supported", err)
+        self.assertIn("AGENTS.md route 4", err)
+        self.assertIn("not yet wired", err)
+
+    def test_behave_unknown_event_is_named(self):
+        rc, _o, err, _ = run(["behave", "11", "wobble", "getactivewindow"])
+        self.assertEqual(rc, 1)
+        self.assertIn("Unknown event name: wobble", err)
 
 
 
@@ -760,10 +769,12 @@ class BehaveHelpTest(unittest.TestCase):
                 err.startswith("Invalid number of arguments (minimum is 3)\n"
                                "Usage: behave window event action"), err)
 
-    def test_three_arguments_still_reach_the_wayland_refusal(self):
-        rc, _o, err, _ = run(["behave", "1", "blur", "getactivewindow"])
+    def test_three_arguments_reach_the_event_dispatch(self):
+        # Three good arguments now run the command; mouse-click is the deterministic one -- it names its rung
+        # (route 4) regardless of the backend, where focus/blur/enter/leave enter a watch loop.
+        rc, _o, err, _ = run(["behave", "1", "mouse-click", "getactivewindow"])
         self.assertEqual(rc, 1)
-        self.assertIn("not supported on Wayland", err)
+        self.assertIn("AGENTS.md route 4", err)
 
 
 class WindowreparentHelpTest(unittest.TestCase):

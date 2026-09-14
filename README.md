@@ -1023,8 +1023,10 @@ cannot find and stop, including when wmirror's own supervisor is killed.
 **A capture protocol is what it needs.** `wmirror --check` says whether this session
 qualifies and what is missing if it does not: sway, Hyprland, Wayfire and labwc answer
 on `zwlr_screencopy_manager_v1`, COSMIC on `ext_image_copy_capture_manager_v1` alone,
-labwc and sway 1.12 on both. GNOME, KDE and Cinnamon advertise neither, and **(k)** in
-the support matrix is the route left there and what it costs.
+labwc and sway 1.12 on both. GNOME, KDE and Cinnamon advertise neither; on GNOME and
+KDE **(k)** in the support matrix is the route left there and what it costs, while on
+Cinnamon `wmirror` mirrors over `org.Cinnamon.Eval` and a Clutter clone instead (route
+2), capturing nothing.
 
 Contract: [docs/WMIRROR.md](docs/WMIRROR.md).
 
@@ -1109,7 +1111,7 @@ real tools, whichever desktop is drawing it.
 | **wxprop** | works, X and native windows | works | hands over to `xprop` | works, and from a root shell `-root` is synthesized **(e)** | works | works | works | works, bar `_NET_WM_STATE_SHADED` **(p)** |
 | **wxrandr** | works (mutter) | works (kwin) **(f)** | hands over to `xrandr` **(g)** | works (sway) | works (hypr, not wlr) | works (wlr) | works (wlr) | works (cinnamon) |
 | **warandr** | works (mutter) | works (kwin) **(f)** | works, driving the real `xrandr` **(g)** | works (sway), and the stock image has no GTK 3 bindings **(h)** | works | works, and the stock image has no GTK 3 bindings **(h)** | works | works |
-| **wmirror** | no, no capture protocol, the portal is the route **(k)** | no, same **(k)** | no, X11 mirrors outputs with `xrandr --same-as` | region and odd-shape mirroring, via `wl-mirror` **(k)** | yes, `zwlr_screencopy_manager_v1` v3 **(k)** | yes, same **(k)** | yes, both capture protocols on labwc **(k)** | no, muffin advertises neither protocol **(k)** |
+| **wmirror** | no, no capture protocol, the portal is the route **(k)** | no, same **(k)** | no, X11 mirrors outputs with `xrandr --same-as` | region and odd-shape mirroring, via `wl-mirror` **(k)** | yes, `zwlr_screencopy_manager_v1` v3 **(k)** | yes, same **(k)** | yes, both capture protocols on labwc **(k)** | yes, region and odd-shape over `org.Cinnamon.Eval` **(k)** |
 | **`wdotool` without root** | pointer *and* keyboard need the udev rule (or root) | pointer *and* keyboard need the udev rule (or root) | nothing needs it (X11) | **nothing needs it**: keyboard and pointer both **(i)** | **nothing needs it** **(i)** | **nothing needs it** **(i)** | **nothing needs it** **(i)** | pointer *and* keyboard need the udev rule (or root) |
 
 All of it works **as the desktop user and as root** (`sudo`, `ssh root@box`, cron),
@@ -1224,10 +1226,14 @@ that answer do not is
 `zwlr_screencopy_manager_v1` or the standard `ext-image-copy-capture-v1`. Both are
 first-class routes, not one and an alternative: sway and Hyprland publish the first,
 COSMIC publishes only the second, and labwc and sway 1.12 publish both. Neither KWin
-nor Mutter nor muffin implements either — muffin's 23 globals carry neither — so the
-route on GNOME, KDE and Cinnamon is the portal's ScreenCast (AGENTS.md route 4), which
-asks once per session; that is useless from a hotkey and it is not wired up here yet,
-so wmirror says exactly that and exits 1 rather than half working.
+nor Mutter nor muffin implements either — muffin's 23 globals carry neither. On
+**GNOME and KDE** the route is the portal's ScreenCast (AGENTS.md route 4), which asks
+once per session; that is useless from a hotkey and it is not wired up here yet, so
+wmirror says exactly that and exits 1 rather than half working. **Cinnamon** does not
+go that way: its ScreenCast is compiled out of muffin (measured), but `wmirror` mirrors
+there over `org.Cinnamon.Eval` and a `Clutter.Clone` of the on-screen actors (AGENTS.md
+route 2, measured byte-identical — `compare -metric AE` 0 — on the rig), capturing
+nothing at all, so the Cinnamon column is a **yes**.
 
 **(l)** Pointer coordinates are the desktop's own **layout** coordinates under HiDPI
 and fractional scaling, so logical pixels on GNOME 50 and Plasma and raw pixels on
@@ -1446,7 +1452,7 @@ GNOME. Running this README against that install is also what found the last of
 it, an overlap route whose every message spoke only to somebody who had a clone
 rather than the package. Both desktops report their active layout there, `wayland + kwin` on one and
 `wayland + gnome input-sources` on the other, and stderr is silent on both. The suite
-stands at **5464 tests**.
+stands at **5578 tests**.
 <!-- release-notes: 0.3 -->
 ### 0.3
 
@@ -1494,7 +1500,7 @@ Developed against real desktops, not against a model of them. `vm/` is the rig:
 `vmctl` builds and runs 38 flavors over four distributions, each with up to four virtual monitors
 that can be plugged, resized and unplugged from outside the guest, and every head
 screenshotted. `vm/README.md` documents the whole thing and `vm/SETUP.md` is how to
-set the rig up on a machine of your own. `tests/` holds the suite, 5464 tests: unit
+set the rig up on a machine of your own. `tests/` holds the suite, 5578 tests: unit
 tests, wire-level fake compositors and X servers, live-compositor integration,
 hostile-input torture, byte-parity oracles against the real xdotool, wmctrl, xprop
 and xrandr, and one static check that no package ever reaches for PolicyKit or for

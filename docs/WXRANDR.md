@@ -1201,11 +1201,19 @@ axis)` for a head that is off, which is xrandr's own shape.
 spellings are accepted on the way in, and the id is translated back to a name before it
 is remembered, because an id is a position in Hyprland's list that a hotplug moves.
 
-Two things are **not yet** here. `--persistent` is accepted and says once that it does
-nothing: Hyprland's layout lives in `hyprland.conf`, and the route is a `monitor=` line
-in a snippet that file sources (route 2), at the cost of owning a file the user
-hand-edits; this layout lasts as long as the session. `--dryrun` prints its plan
-unchecked, because `keyword` **is** the apply and there is nothing to validate against;
+`--persistent` writes the layout into `~/.config/hypr/w11-monitors.conf` — one `monitor =`
+rule per output it applied — and makes `hyprland.conf` carry a `source =` line for it, so
+the layout comes back at the next session (route 2). This is the same file the apply
+already uses on a Hyprland that accepts a `keyword monitor` and does not apply it (measured
+on a fresh 0.56.2, `hacks/display/hypr.py`); `--persistent` decides only whether that file
+is written on the path where the live keyword *did* land and the file was not otherwise
+needed. Writing the file **is** a reload — Hyprland watches the files it sources, so no
+`hyprctl reload` is sent, and the cost is that the whole config is re-read: every runtime
+`hyprctl keyword` set since login goes back to what the files say (measured on the arch-hypr
+golden, 0.56.2, 2026-09-11: a bare rewrite of the sourced file, with no reload request
+anywhere, applied the new mode and put `general:gaps_out` from `40 40 40 40, set: true` back
+to `20 20 20 20, set: false`). One thing is still **not yet** here: `--dryrun` prints its
+plan unchecked, because `keyword` **is** the apply and there is nothing to validate against;
 the route is a validating call in Hyprland's IPC (route 6).
 
 `--brightness`/`--gamma` are unaffected by any of this — they go over
@@ -1611,9 +1619,9 @@ X11, on three heads with one of them rotated:
 |---|---|---|---|
 | **GNOME** (Mutter) | comes back in full: Mutter lays the *remaining* monitors out in a row while the set is short, and puts the layout back when the original set returns | lost, unless a `--persistent` apply was confirmed | `~/.config/monitors.xml`, written by GNOME Settings or a confirmed `--persistent` and by nothing else; a fresh install has none; one bad entry discards the file whole (above) |
 | **KDE Plasma** (KWin) | comes back in full | **kept** | `~/.config/kwinoutputconfig.json`, written by every apply KWin takes |
-| **sway** (wlroots) | comes back in full, every output | lost | nothing on disk; only `~/.config/sway/config` makes a layout stick |
+| **sway** (wlroots) | comes back in full, every output | lost, unless `--persistent` was used | nothing on disk from an IPC apply; only the sway config sway reads makes a layout stick, so `--persistent` writes `~/.config/sway/w11-outputs.conf` and makes that config `include` it (route 2). Measured on `swaytest`, 2026-09-14: after a full reboot Virtual-2 came up 1280x1024@60.020 at 1920,0 from the file |
 | **Xfce** (X11) | **lost**: the head comes back at the end of a plain row, unrotated, and `primary` is cleared | lost, `primary` with it | nothing; `displays.xml` is byte-identical after an apply |
-| **Hyprland** | not measured on the rig yet | lost | `hyprland.conf`, which nothing here writes: `--persistent` says so in one line. Saving there is **not yet**, and the route is a `monitor=` line in a snippet that file sources (route 2), at the cost of owning a file the user hand-edits |
+| **Hyprland** | not measured on the rig yet | lost | `hyprland.conf` and the files it `source`s. `--persistent` writes `~/.config/hypr/w11-monitors.conf` and adds a `source =` line for it (route 2); writing the file is itself a reload, so the whole config is re-read (runtime `hyprctl keyword`s set since login reset). Measured on arch-hypr, 0.56.2, 2026-09-11 |
 | **Cinnamon** (Muffin) | not measured on the rig yet | lost, unless a `--persistent` apply was confirmed | `~/.config/cinnamon-monitors.xml` — Mutter's rule under Cinnamon's file name, behind Cinnamon's own *Keep these display settings?* dialog. Measured written on `resolute-cinnamon-wayland`, 2026-09-09, where it was absent before the apply |
 | **labwc**, and Budgie / Xfce / LXQt on it | one head in every configuration comes back where labwc chose, which is what `WlrOutputs.apply`'s second send is for | lost | nothing on disk |
 
@@ -1731,9 +1739,29 @@ accepted. What each group does here:
   compositor that ignores the retry too gets the numbers in a sentence — `xrandr: the
   compositor accepted the position 1920,0 for Virtual-2 and put it at 5760,0 both times` —
   instead of a layout nobody asked for.
-* **`--persistent` on sway and i3** says once that it saves nothing. The route is an
-  `output` line in a file sway's config sources (route 2), at the cost of owning a file the
-  user hand-edits. **Not yet.**
+* **`--persistent` on sway** writes the layout that just landed into
+  `~/.config/sway/w11-outputs.conf` — one `output NAME mode WxH@RHz position X Y [transform T]
+  [scale S]` line per output it touched, under a header naming who wrote it — and makes sway's
+  config `include` that file. The `include` is appended to the first config in sway's own
+  search order that exists (`~/.sway/config`, then `$XDG_CONFIG_HOME/sway/config`, then the two
+  i3 fallbacks), so our lines are the last sway reads and a user on the legacy path is not told
+  the layout was saved into a file sway never opens. When none of those exists sway would fall
+  back to `/etc/sway/config`, so a `$XDG_CONFIG_HOME/sway/config` is created that `include`s
+  `/etc/sway/config` **first** (the next session keeps every default binding) and our layout file
+  **last** — never a near-empty file that shadows the system config wholesale — and that creation
+  is said out loud. This is AGENTS.md route 2: sway keeps nothing of an IPC
+  apply on disk (the state-restoration table below), so the file sway sources is where the
+  layout has to live. `--persistent` is only about the **next** session — the running one
+  already has the layout from the two-phase apply — so **no `swaymsg reload` is sent**: a
+  reload re-runs every `exec_always` line (the rig has none), puts every output with no config
+  `output` line back to its preferred mode, and redoes the initial layout in sway's enumeration
+  order. The rig's layout is an `exec`, which a reload does **not** re-run, so a reload there put
+  the heads back in reverse-enumeration order and the unconfigured Virtual-2 back to 1920x1080
+  (measured on `swaytest`, 2026-09-14) — all churn for a layout already on the screen. Two
+  `--persistent` runs for different outputs merge; a second run for the same output rewrites its
+  one line. **On i3 there is nothing to write: i3 is X11, the X server owns the layout there**
+  (which is what the handover hands `xrandr`), and any apply is refused up front — see the
+  `--backend sway` note below.
 * **`--scale WxH` with W != H** — xrandr's transform matrix — warns and applies the first
   axis for both. No output-management protocol carries a per-axis scale, so the route is a
   patched compositor (route 6). The warning stays a warning: the apply goes on.
@@ -1752,20 +1780,36 @@ accepted. What each group does here:
   i3 has no `output` command; every apply used to die with i3's 30-token parse error after
   phase 1 had already recorded the modes.
 * **Reading the layout with no `zwlr_output_manager_v1`** — which is what `wmirror` needs
-  to place a mirror — is **not yet** on Cinnamon and the desktops with no output protocol.
-  The route is the compositor's own display bus or IPC, which wxrandr already speaks four
-  of (route 2), at the cost of one layout reader per compositor.
+  to place a mirror — is done, over the compositor's own display bus or IPC (route 2). The
+  reader choice `wxrandr --query` makes across its backends now lives in
+  `hacks/display/core.pick_backend`, shared so a second tool reads a session the same way:
+  the wlr floor wherever the manager is advertised, else KWin's `kde_output_management_v2`,
+  GNOME's `org.gnome.Mutter.DisplayConfig`, or Cinnamon's
+  `org.cinnamon.Muffin.DisplayConfig`. Measured on `resolute-cinnamon-wayland` (muffin
+  6.4.1), whose `wmirror --check` `outputs:` line went from `this compositor does not
+  advertise zwlr_output_manager_v1` to the three Muffin heads, matching `wxrandr --query`.
 * **A mode that GROWS a head back after a shrink** — xrandr grows a head as readily as it
-  shrinks one — is **not yet** reproducible on the rig. Measured on Hyprland
-  (`vm/live-smoke.d/hypr.sh`): `--output <h> --mode 1280x1024` shrinks the head and lands,
-  then `--output <h> --mode 1920x1080` to grow it back does not, because the runner has no
-  KMS/DRM render node — `-device virtio-vga-gl` with `-display dbus,gl=on` is refused with
-  `egl: no drm render node available`, and there is no `/dev/dri` on the dsb guest
-  (goal2/recon/gl.md §4). The route is a KMS device the runner has not got: a render node
-  under `-device virtio-vga-gl`, or a different KMS device (qxl, bochs-display,
-  virtio-gpu `blob=on`, untried) — **route 4**, the parts around the compositor. It is the
-  rig that refuses, not the backend: `wxrandr` sends the grow and the modeset path is what
-  wedges, which is why this is a rig/`wxrandr` xwant and not a proxy What-differs row.
+  shrinks one — is **not yet** what every Hyprland golden does, and it was never the render
+  node. Measured on both goldens with `drm.debug=0x1e` and the exact request
+  `hacks/display/hypr.py` sends (`hyprctl keyword monitor Virtual-1,<mode>,0x0,1`) on
+  `-device virtio-vga` + `-display dbus`. On **resolute-hypr** (Hyprland 0.53.3, aquamarine
+  0.9.x) `--output <h> --mode 1280x1024` shrinks and lands, then `--mode 1920x1080` to grow
+  it back does not, and the kernel says why in two lines: aquamarine tests the growing
+  modeset with the stale 1280x1024 buffer still on the primary plane —
+  `[drm:drm_atomic_helper_check_plane_state] Plane must cover entire CRTC / dst:
+  1280x1024+0+0 / clip: 1920x1080+0+0 / failed: -22` — and virtio-gpu's primary is
+  non-positionable (`can_position=false`, and so are qxl, bochs-display and vmwgfx), so a
+  shrink clips to fit and a grow cannot. On **arch-hypr** (Hyprland 0.56.2, aquamarine
+  0.15.0, the *same* QEMU device line) the identical grow lands — `drm: Modesetting
+  Virtual-1 with 1920x1080@75.00Hz` — so the rig can grow; the fix is in aquamarine, which
+  since 0.13.0 reconfigures the swapchain and attaches a mode-sized framebuffer *before* the
+  `ATOMIC_TEST_ONLY` commit (`src/backend/drm/DRM.cpp`, `CDRMOutput::commitState`), where
+  0.9.x reconfigures only after each failed test. The route is therefore a newer or patched
+  aquamarine in the golden — **route 6**, a patched compositor — that Ubuntu 26.04 does not
+  ship (it carries 0.9.x). `wxrandr` needs no change: it sends the grow, and on 0.9.x
+  `HyprOutputs._first_mismatch` already says the compositor accepted the mode and did not
+  apply it. arch-hypr grows it for real (the live check below); resolute-hypr keeps the
+  xwant until its aquamarine reaches 0.13.0.
 
 ## Known limitations
 

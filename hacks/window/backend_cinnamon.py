@@ -92,15 +92,16 @@ class CinnamonBackend(WindowBackend):
     #: `wmctrl -m` answers the same with or without Xwayland running
     #: [M recon2/cinnamon.md §3.1]
     wm_name = "Mutter (Muffin)"
-    #: no picker yet: `global.stage.grab` does not exist in muffin's Clutter, and `global.begin_modal`
-    #: (which does) is a keyboard grab, not a click [M cinnamon.md §2.3]. The route is a reactive full-stage
-    #: Clutter actor, and the lowest rung that carries it is the one this whole backend already rides:
-    #: `org.Cinnamon.Eval`, which installs nothing (AGENTS.md route 2). Shipping the same actor as a
-    #: Cinnamon extension is route 3 and only buys surviving a Cinnamon restart. Either way the cost is a
-    #: modal grab that has to be released even when wdotool dies holding it, which is why it is not written
-    #: yet.
-    select_window_hint = ("picking a window by clicking is not yet done on Cinnamon (AGENTS.md route 2, a "
-                          "reactive Clutter actor through org.Cinnamon.Eval); name the window another way")
+    #: `global.stage.grab` does not exist in muffin's Clutter and `global.begin_modal` (which does) is a
+    #: keyboard grab, not a click [M cinnamon.md §2.3], so the picker is a reactive full-stage Clutter actor
+    #: pushed in over `org.Cinnamon.Eval`, which installs nothing (AGENTS.md route 2). It grabs the click, so
+    #: the instruction is xdotool's own -- click the window -- not sway's "focus it".
+    select_window_hint = "click the target window to select it"
+
+    #: how often select_window() polls Eval for the captured click, and how long before it gives up. The
+    #: actor's own GLib timeout (cinnamon_js.PICK_INSTALL) is the same 60 s, so the surface is gone either way.
+    PICK_POLL = 0.1
+    PICK_TIMEOUT = 60.0
 
     def __init__(self, bus: Bus | None = None, names: list[str] | None = None,
                  settle: float = SETTLE):
@@ -406,11 +407,34 @@ class CinnamonBackend(WindowBackend):
             return None
 
     def select_window(self) -> int:
-        """The hint above says what would close this; the refusal says it again, because a script reads the
-        error and not the hint."""
-        err = CmdError("selectwindow is not supported by the cinnamon backend: %s" % self.select_window_hint)
-        err.unsupported = True
-        raise err
+        """Pick a window by clicking it (AGENTS.md route 2): push a reactive full-stage Clutter actor over
+        `org.Cinnamon.Eval` that records the next press, poll for it, and hit-test the click against `list()` --
+        `backend.hit_test` is the one rule every backend shares. Ctrl-C or the timeout tears the actor down; the
+        actor's own 60 s GLib timeout tears it down even if wdotool dies holding it. Returns the clicked window,
+        or 0 when the click landed on no managed window (the desktop or a panel), which is what `hit_test`
+        answers there."""
+        from hacks.window import backend as _b
+        self._eval(js.PICK_INSTALL)
+        deadline = time.monotonic() + self.PICK_TIMEOUT
+        try:
+            while True:
+                # PICK_POLL is a JSON.stringify(...) program, so its answer is twice-encoded -- _json, like
+                # POINTER and DISPLAY_SIZE -- not _eval, which the bare-"ok" install/destroy programs use.
+                pick = self._json(js.PICK_POLL)
+                if pick is not None:
+                    x, y = int(pick[0]), int(pick[1])
+                    return _b.hit_test(self.list(), x, y)
+                if time.monotonic() >= deadline:
+                    raise CmdError("cinnamon backend: selectwindow timed out with no click")
+                time.sleep(self.PICK_POLL)
+        except BaseException:
+            # Ctrl-C, the timeout, or a failed Eval: release the actor so the desktop is not left with an
+            # invisible full-stage grab eating clicks.
+            try:
+                self._eval(js.PICK_DESTROY)
+            except CmdError:
+                pass
+            raise
 
     # -- optional hooks -----------------------------------------------------
 

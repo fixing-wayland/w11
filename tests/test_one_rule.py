@@ -190,22 +190,36 @@ class ARefusalCarriesItsRoute(unittest.TestCase):
     the sweep), and each now ends in a rung of AGENTS.md's ladder."""
 
     def test_the_wlr_geometry_refusal_names_the_x_plane_and_a_patched_compositor(self):
-        """Route 5 for an XWayland window (the X plane really does have a
-        ConfigureWindow for it -- vm/live-smoke.d/labwc.sh:128 and river.sh:95
-        already say so in their check names), route 6 for a native one."""
+        """The XWayland half is now DONE (route 5, a real ConfigureWindow -- backend_wlr's move_window/resize
+        route it there and vm/live-smoke.d/labwc.sh checks it against the X oracle), so this sentence is the
+        NATIVE half's: route 6, a patched compositor, naming the wlroots xwm file that would carry it. The
+        head substring stays, because labwc.sh:137-140 and river.sh pin it on a native window."""
         s = backend_wlr.NO_GEOMETRY
         self.assertIn("zwlr_foreign_toplevel_management_v1 carries no geometry", s)
+        self.assertIn("AGENTS.md route 5", s)          # the XWayland half, now taken
+        self.assertIn("route 6", s)                    # the native remainder
+        self.assertIn("xwayland/xwm.c", s)             # the rung-6 file
+        self.assertIn("not yet", s.lower())
+
+    def test_the_wlr_state_refusal_is_the_native_remainder_at_rung_six(self):
+        """The `_NET_WM_STATE` tail (SHADED/ABOVE/BELOW/SKIP_*) is route 5 for an XWayland window (the
+        ClientMessage wmctrl sends) and route 6 for a native one, naming the xwm handler that would carry it."""
+        s = backend_wlr.NO_SUCH_STATE
         self.assertIn("AGENTS.md route 5", s)
         self.assertIn("route 6", s)
-        self.assertIn("not yet", s)
+        self.assertIn("xwm_handle_net_wm_state_message", s)
+        self.assertIn("not yet", s.lower())
 
     def test_the_cosmic_geometry_refusal_names_a_patched_cosmic_comp(self):
-        """cosmic-comp has no move request and no protocol above it that does,
-        so route 6 is the lowest rung that reaches it."""
+        """The XWayland half is DONE (route 5, the X plane -- cosmic-comp's Smithay xwm honours the resize and
+        drops the move, byte for byte what xdotool gets there, measured 2026-09-14). This sentence is the
+        NATIVE remainder: route 6, a patched cosmic-comp, naming the handler file."""
         s = backend_cosmic.NO_GEOMETRY
         self.assertIn("the COSMIC toplevel protocol has no move, resize, raise or lower", s)
-        self.assertIn("AGENTS.md route 6", s)
-        self.assertIn("not yet", s)
+        self.assertIn("AGENTS.md route 5", s)
+        self.assertIn("route 6", s)
+        self.assertIn("toplevel_management.rs", s)
+        self.assertIn("not yet", s.lower())
 
     def test_the_step_files_own_want_patterns_still_match_the_refusal(self):
         """The reason the route went at the END of each sentence and not after
@@ -244,9 +258,11 @@ class ARefusalCarriesItsRoute(unittest.TestCase):
         rung, which is the whole failure this file exists to catch.
 
         `backend.WindowBackend`'s four are the ones a backend reaches by NOT
-        overriding the method (set_num_desktops on six backends, select_window
-        and events on wlr and cosmic, set_desktop_for_window on wlr), so the
-        gap they describe is ours and not a compositor's."""
+        overriding the method (set_num_desktops on six backends,
+        set_desktop_for_window on wlr; select_window and events are now
+        overridden everywhere -- the wlr/cosmic floors took both off the
+        toplevel protocol, gap E -- so their two defaults are the bare form no
+        shipped backend reaches), so the gap they describe is ours."""
         owed = {
             "daemon.POINTER_UNKNOWN": daemon.POINTER_UNKNOWN,
             "daemon.VPTR_FORCED_ROUTE": daemon.VPTR_FORCED_ROUTE,
@@ -269,6 +285,20 @@ class ARefusalCarriesItsRoute(unittest.TestCase):
         self.assertIn("AGENTS.md route 2", backend_wayfire.NO_IPC_RULES)
         self.assertNotIn("not yet", backend_wayfire.NO_IPC_RULES.lower())
         self.assertIn("wayfire.ini", backend_wayfire.NO_IPC_RULES)
+
+    def test_the_two_behave_gaps_name_their_rung(self):
+        """`behave` closed the enter/leave/focus/blur half (events + a pointer poll) and
+        `behave_screen_edge` the query-backend half; the two remainders each name a rung rather than declining.
+        `mouse-click` is a button release wdotool did not inject -- rung 4, an evdev read -- and an edge on a
+        backend with no pointer at all is rung 1, the layer-shell strip.  Read out of their own modules so a
+        reworded sentence that drops its rung fails here."""
+        from wdotool.input_cmds import EDGE_NO_POINTER
+        from wdotool.window_cmds import MOUSE_CLICK_NO_EVDEV
+        self.assertIn("AGENTS.md route 4", MOUSE_CLICK_NO_EVDEV)
+        self.assertIn("not yet", MOUSE_CLICK_NO_EVDEV.lower())
+        self.assertIn("AGENTS.md route 1", EDGE_NO_POINTER)
+        self.assertIn("zwlr_layer_shell", EDGE_NO_POINTER)
+        self.assertIn("not yet", EDGE_NO_POINTER.lower())
 
     def test_the_base_defaults_actually_print_the_rung_they_carry(self):
         """The constants above are what a reader greps; this is what a user
@@ -443,8 +473,8 @@ class TheWhatDiffersTableCarriesTheRuleToo(unittest.TestCase):
 
     def test_the_geometry_class_has_exactly_the_one_surviving_not_yet(self):
         """design.md A0 names two xwant classes that outlive the wave, each on a rung
-        the runner cannot reach: the render-node GROW (route 4, a KMS device the CI box
-        has not got -- a rig/`wxrandr` xwant, in docs/WXRANDR.md, not a proxy row) and
+        the runner cannot reach: the aquamarine GROW (route 6, a newer/patched aquamarine the
+        Ubuntu golden does not ship -- a rig/`wxrandr` xwant, in docs/WXRANDR.md, not a proxy row) and
         the NATIVE foreign-toplevel geometry (route 1, no Wayland protocol carries a
         rect).  The second is a proxy row, and this pins it: after B12 took the XWayland
         half out (route 5, the X plane), the 'Properties, geometry and the lists' class
@@ -456,21 +486,24 @@ class TheWhatDiffersTableCarriesTheRuleToo(unittest.TestCase):
         self.assertRegex(route + " " + cost, r"\b1\b", "the geometry survivor is route 1")
         self.assertIn("foreign-toplevel", cost, "route 1 here is a foreign-toplevel protocol with a rect")
 
-    def test_the_render_node_grow_survivor_is_documented_with_its_rung(self):
-        """The OTHER design.md A0 survivor: the render-node GROW mode, which is a
-        rig/`wxrandr` xwant and not a proxy row (the geometry test's docstring points
-        here).  It lives in docs/WXRANDR.md as a `not yet` naming route 4 -- the KMS
-        device the runner has not got -- so the class is documented rather than left as
-        the bare gap the one rule forbids."""
+    def test_the_aquamarine_grow_survivor_is_documented_with_its_rung(self):
+        """The OTHER design.md A0 survivor: the GROW mode, which is a rig/`wxrandr` xwant
+        and not a proxy row (the geometry test's docstring points here).  It was measured
+        on both Hyprland goldens to be a compositor-version defect and never the render
+        node -- arch-hypr's aquamarine 0.15.0 grows the head on the SAME QEMU device line
+        resolute-hypr's 0.9.x refuses it on -- so it lives in docs/WXRANDR.md as a `not
+        yet` naming route 6 (a newer/patched aquamarine Ubuntu 26.04 does not ship) and
+        names aquamarine, rather than the render node it was once blamed on."""
         path = os.path.join(ROOT, "docs", "WXRANDR.md")
         with open(path, encoding="utf-8") as f:
             text = f.read()
         # the bullet that carries the GROW gap; it wraps over several lines, so read a
         # window from the word GROWS and match loosely, so a reword survives
         self.assertIn("GROWS", text, "no GROW gap documented in docs/WXRANDR.md")
-        block = text[text.index("GROWS"):text.index("GROWS") + 1200]
+        block = text[text.index("GROWS"):text.index("GROWS") + 1600]
         self.assertTrue(_WD_NOT_YET.search(block), "the GROW gap must be a 'not yet'")
-        self.assertRegex(block, r"route 4", "the GROW survivor must name route 4")
+        self.assertRegex(block, r"route 6", "the GROW survivor must name route 6")
+        self.assertIn("aquamarine", block, "the GROW survivor must name aquamarine, not the render node")
 
 
 if __name__ == "__main__":

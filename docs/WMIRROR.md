@@ -263,24 +263,77 @@ retained their geometry during the measurement. Use `wmirror --list` to inspect
 running mirrors; it checks that the recorded processes still exist before listing
 them.
 
-## Where it does not exist
+## Where wl-mirror does not exist
 
-**GNOME, KDE and Cinnamon, and it is not close.** wl-mirror's own README: it
+**GNOME and KDE, over wl-mirror, and it is not close.** wl-mirror's own README: it
 "does not work on KDE and Gnome", needing wlroots' `zwlr_screencopy_manager_v1`
 or the standard `ext-image-copy-capture-v1`. Those are two first-class routes
 rather than one and an alternative: sway 1.11, Hyprland and Wayfire publish the
 first, COSMIC publishes only the second, and labwc and sway 1.12 publish both.
 Neither KWin nor Mutter implements either; on KWin `ext_image_copy_capture_v1`
-is an open feature request; and muffin advertises 23 globals with neither of
-them among them, which puts Cinnamon in the same paragraph. The route there is
-the desktop portal's ScreenCast (AGENTS.md route 4), which asks the user once
-per session and is not wired up here yet, useless from the hotkey a layout
-script exists for, and it would cost a second capture path in `hacks/mirror/core.py`
-beside `wl-mirror`. This is the same split
+is an open feature request. Cinnamon (muffin) also publishes neither, but it is
+NOT in this paragraph any more: it mirrors over `org.Cinnamon.Eval` and a
+Clutter clone instead (the *Cinnamon* subsection below), so wl-mirror is never
+the tool there.
+
+On **GNOME and KDE** the route out is the desktop portal's ScreenCast
+(AGENTS.md route 4): it exists — GNOME's is backed by `org.gnome.Mutter.ScreenCast`
+through `xdg-desktop-portal-gnome`, KDE's by `xdg-desktop-portal-kde` — and the
+only work left is the wiring, which asks the user once per session, is useless
+from the hotkey a layout script exists for, and would cost a second capture path
+in `hacks/mirror/core.py` beside `wl-mirror`. This is the same split
 `hacks/display/kwin.py` already records: KWin's `allowInterface` blacklists
 `screencast` for unauthenticated clients while never blacklisting
 `kde_output_*`, which is exactly why the output half needs no permission and
-the capture half does. *(Upstream documentation, not re-measured on the rig.)*
+the capture half does. *(GNOME/KDE from upstream documentation, not re-measured.)*
+
+**Cinnamon: closed at route 2, and it captures nothing.** Cinnamon's ScreenCast
+really is absent everywhere — measured on `resolute-cinnamon-wayland` (Cinnamon
+6.4.13 / muffin 6.4.1), 2026-09-14: muffin exports `org.cinnamon.Muffin.DisplayConfig`
+and `org.cinnamon.Muffin.IdleMonitor` on the session bus and **no**
+`org.cinnamon.Muffin.ScreenCast` (`gdbus introspect` → `ServiceUnknown … not
+provided by any .service files`); `org.freedesktop.portal.Desktop` exposes
+`Screenshot` but no `ScreenCast`/`RemoteDesktop` (count 0), and neither impl
+backend (`.xapp`, `.gtk`) serves ScreenCast; and `libmuffin.so.0.0.0` carries
+one vestigial `MetaScreenCastWindow` and none of the service strings — the
+ScreenCast machinery is compiled out. So rung 1 (a protocol) never existed and
+rung 4 (the portal) is empty. That once read as a **not-yet at rung 6** (a
+muffin rebuilt with screen-cast). It was wrong: **rung 2 was never probed, and
+rung 2 works.** Cinnamon has `org.Cinnamon.Eval` — the same ungated arbitrary-JS
+surface the window plane rides (`hacks/window/backend_cinnamon.py`) — and the
+compositor is already holding every actor's texture, so a `Clutter.Clone` of an
+on-screen actor draws that actor's live pixels wherever it is placed, tracking
+it frame for frame with **no capture at all**. `hacks/mirror/cinnamon.py` puts a
+clipped `Clutter.Actor` on `global.stage` at the target head's origin and fills
+it with one clone per `Meta.WindowActor`/`Meta.BackgroundActor` (walked from
+`global.window_group` and `global.top_window_group`) plus the `panel`, each
+offset by the region origin.
+
+Measured on the same golden (two heads, monitor 0 = `1280x800+0+0`, monitor 1 =
+`1920x1080+1280+0`), 2026-09-14: mirroring region `1000x700+0+0` of monitor 0
+onto monitor 1's origin, a QMP `screendump` of head 1 cropped to the region
+compares against the same crop of head 0 at **`compare -metric AE` 0, RMSE 0** —
+byte identical — over a native Wayland window (gnome-terminal), the XWayland
+desktop/wallpaper actors and the panel. It stays 0 after the source's content
+changes (the terminal's clock ticked — source-vs-source AE 3350, mirror-vs-source
+AE 0, a `Clone` tracks its source) and 0 again after a second window opens (the
+`restacked`/`window-created` handlers re-walk the tree); `--stop` destroys the
+actor and head 1 shows its own content again (AE 700000). The one thing that
+does **not** work, so nobody retries it: a single `Clutter.Clone` of
+`Main.uiGroup` (what `magnifier.js` clones) does not mirror across heads — on
+this golden its crop mismatched head 0 at every one of 700000 pixels (RMSE 0.29):
+only the panel comes through, the windows and wallpaper are black. The per-actor
+walk is the working pattern.
+
+What is **not yet** on this path (`AGENTS.md route 2`, the same rung): a
+supervisor that watches the OUTPUT layout and drops the mirror when the two
+heads come to share pixels or the target is unplugged — what
+`hacks/mirror/supervise.py` does for wl-mirror over `zwlr_output_manager_v1` —
+is not wired here, because muffin has no wlr output manager; the same watch
+would read `org.cinnamon.Muffin.DisplayConfig`. Start-time geometry is fully
+policed by `core.decide`; only the live re-check while it runs is owed. The
+in-compositor group is torn down by `--stop`, by `--replace`, and when the
+session bus goes away. *(Cinnamon measured on the rig, 2026-09-14.)*
 
 **X11**: `xrandr --output B --same-as A` mirrors whole outputs, and a region
 mirror is not written yet: it wants an X capture client of our own, XShm off
@@ -307,17 +360,38 @@ Never assumed, always named:
   newer, the failure is then an error from wl-mirror, included in the diagnostic.
 * **no capture protocol** (neither `zwlr_screencopy_manager_v1` nor
   `ext_image_copy_capture_manager_v1` in the registry) → say so, name both,
-  and name the portal for GNOME, KDE and Cinnamon. The line names who has
-  which: `wl-mirror needs a compositor with zwlr_screencopy_manager_v1 (sway,
-  Hyprland, labwc, Wayfire, ...) or ext_image_copy_capture_manager_v1 (COSMIC,
-  labwc, sway 1.12)`. `zwlr_export_dmabuf_manager_v1`
+  and name the route out — which is not the same on the three desktops that
+  answer this. The line names who has which: `wl-mirror needs a compositor with
+  zwlr_screencopy_manager_v1 (sway, Hyprland, labwc, Wayfire, ...) or
+  ext_image_copy_capture_manager_v1 (COSMIC, labwc, sway 1.12)`. Then the route:
+  on **GNOME and KDE** the desktop portal's ScreenCast exists and only wants
+  wiring (route 4). **Cinnamon is not reached by this line at all**: it publishes
+  neither capture protocol either, but `wmirror` mirrors there over
+  `org.Cinnamon.Eval` and a Clutter clone (route 2, measured AE 0 — see *Where
+  wl-mirror does not exist* above), so the start and `--check` take that path
+  before this refusal is built. `zwlr_export_dmabuf_manager_v1`
   does not count: it is what wl-mirror's `auto` picks for a whole output,
   and a **region cannot use it** (measured: a region falls back to shm).
-* **no `zwlr_output_manager_v1`** → we cannot read the layout, so we cannot
-  check the policy; say that rather than guess. Reading it another way is
-  **not yet**: the route is the compositor's own display bus or IPC, which
-  `wxrandr` already speaks four of (route 2), at the cost of one layout reader
-  per compositor.
+* **no `zwlr_output_manager_v1`** → the layout is read the compositor's own
+  way instead. wmirror reads it through the very reader `wxrandr --query`
+  picks for this session (`hacks/display/core.pick_backend`): the wlr floor
+  wherever `zwlr_output_manager_v1` is advertised (sway, Hyprland, labwc,
+  river, Wayfire, COSMIC), and where it is not, KWin's
+  `kde_output_management_v2`, GNOME's `org.gnome.Mutter.DisplayConfig`, or
+  Cinnamon's `org.cinnamon.Muffin.DisplayConfig` on the session bus (route 2).
+  Measured on `resolute-cinnamon-wayland` (Cinnamon 6.4.13 / muffin 6.4.1),
+  where the compositor advertises no wlr output manager: `wmirror --check`
+  used to print `this compositor does not advertise zwlr_output_manager_v1, so
+  wmirror cannot read the output layout` on its `outputs:` line, and now prints
+  the three Muffin heads there, byte-identical to `wxrandr --query`'s
+  geometry. Only a session that advertises none of the six output protocols is
+  refused, and it is named a dead end (`this compositor speaks no output
+  protocol wmirror can read the layout from`), not a gap — there is no lower
+  rung left to point at. The **capture** half on Cinnamon is the Clutter clone
+  over `org.Cinnamon.Eval` (route 2, measured AE 0, *Where wl-mirror does not
+  exist* above): reading the layout gives the target head's origin, and the
+  clone paints the region onto it — so both halves are route 2, and neither is
+  a not-yet at route 6 any more.
 * `wmirror --check` prints all of it, plus the outputs and what is running,
   and exits 1 if anything is missing.
 

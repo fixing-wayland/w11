@@ -461,15 +461,27 @@ publishes rather than anything wmctrl asks for.
   there are nine of them.
 * **`-p`** prints 0 for every window on COSMIC: no pid exists in either COSMIC toplevel
   protocol. Hyprland and Wayfire both publish one.
-* **`-e`** is refused on the wlr floor with the protocol named and the routes after it —
-  `zwlr_foreign_toplevel_management_v1 carries no geometry and no stacking; not yet here,
-  and the routes are the X plane for an XWayland window (AGENTS.md route 5, a real
-  ConfigureWindow) or a patched compositor for a native one (route 6)`. COSMIC's is its
-  own sentence with its own rung, because the protocol and the fix both differ: `the
-  COSMIC toplevel protocol has no move, resize, raise or lower; not yet here, and the
-  route is a patched cosmic-comp (AGENTS.md route 6)`. It works on Hyprland (a tiled window has to be floated first) and on Wayfire (which
-  floats by default), where the size is exact only to the client's own quantisation —
-  `wwmctl -e 0,10,20,300,200` on a foot read back `300x195`, one whole character cell.
+* **`-e`** on the wlr floor works for an **XWayland** window over the X plane — AGENTS.md
+  route 5, a real `ConfigureWindow`, exactly what `wmctrl -e` sends. The `ConfigureWindow`
+  carries the CLIENT rectangle (a non-reparenting wlroots/Smithay xwm, no frame between the
+  request and the window), so `-e` zeroes the frame extents here rather than adding them the
+  way it does for KWin/GNOME, whose Move/Resize take the frame rect. Measured 2026-09-14:
+  on labwc 0.9.3 an xterm took `windowmove 300 200` (to `300,200`) and `windowsize 640 400`
+  (to `640x394`, one character cell), and `-e 0,50,60,700,420` read back `50,60 700x420`;
+  on cosmic-comp 1.8.0 `-e 0,-1,-1,640,360` lands at `640x360` (byte for byte with
+  `wmctrl -e 0,-1,-1,640,360`, whose server-side title bar the client-rectangle request does
+  not fold in) and the move is a no-op — the Smithay xwm drops it, byte for byte what
+  `xdotool`/`wmctrl` get there. A
+  **native** toplevel keeps the refusal, the protocol named and the native rung after it:
+  `zwlr_foreign_toplevel_management_v1 carries no geometry and no stacking; an XWayland
+  window goes through the X plane instead (AGENTS.md route 5, ...). Not yet for a native
+  toplevel, and the route is a patched compositor (route 6)`. COSMIC's native refusal names
+  its own file — `the COSMIC toplevel protocol has no move, resize, raise or lower; ... Not
+  yet for a native toplevel, and the route is a patched cosmic-comp (route 6): cosmic-comp
+  src/wayland/handlers/toplevel_management.rs`. `-e` also works on Hyprland (a tiled window
+  has to be floated first) and on Wayfire (which floats by default), where the size is exact
+  only to the client's own quantisation — `wwmctl -e 0,10,20,300,200` on a foot read back
+  `300x195`, one whole character cell.
 * **On river 0.4** every mutating command is accepted by the compositor and changes
   nothing. `wwmctl` is told so by the backend and falls back to its EWMH route; see
   README footnote **(n)**.

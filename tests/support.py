@@ -1962,6 +1962,13 @@ class FakeXServer(threading.Thread):
         self.geometry = {}          # win -> (x, y, w, h) for GetGeometry
         self.translate = {}         # win -> (root_x, root_y)
         self.error_windows = set()  # BadWindow on any request naming these
+        #: ConfigureWindow updates self.geometry/self.translate so a later GetGeometry reads the new
+        #: rectangle back (labwc's xwm honours the request); set False to model a compositor whose xwm
+        #: drops it (cosmic-comp's move, every wlroots stack mode).
+        self.apply_configure = True
+        #: A _NET_WM_STATE ClientMessage updates the window's own _NET_WM_STATE property so xprop reads it
+        #: back (labwc); False models the xwm that drops it (cosmic-comp).
+        self.apply_net_wm_state = True
         self.max_chunk_units = None  # cap GetProperty chunks (force the loop)
         self.fonts = {}             # name -> [(prop name, CARD32)]
         self.colors = {}            # LookupColor name -> (r16, g16, b16)
@@ -1990,6 +1997,27 @@ class FakeXServer(threading.Thread):
         self.intern(name)
         self.intern(type_name)
         self.props[(win, name)] = (type_name, fmt, data)
+
+    def _apply_net_wm_state(self, win, data):
+        """Apply a _NET_WM_STATE ClientMessage (action, atom1, atom2, ...) to the window's own property, the
+        way a full EWMH window manager (labwc's xwm) does, so xprop reads it back on. action 0=remove,
+        1=add, 2=toggle; a zero atom slot is ignored."""
+        action = data[0]
+        cur = []
+        entry = self.props.get((win, "_NET_WM_STATE"))
+        if entry is not None:
+            cur = list(struct.unpack("<%dI" % (len(entry[2]) // 4), entry[2]))
+        for atom in (data[1], data[2]):
+            if not atom:
+                continue
+            present = atom in cur
+            add = action == 1 or (action == 2 and not present)
+            if add and not present:
+                cur.append(atom)
+            elif not add and present:
+                cur.remove(atom)
+        self.set_prop(win, "_NET_WM_STATE", "ATOM", 32,
+                      struct.pack("<%dI" % len(cur), *cur))
 
     def stop(self):
         self._stopped = True
@@ -2137,9 +2165,33 @@ class FakeXServer(threading.Thread):
             pname = self._names.get(prop, "?")
             self.log.append(("DeleteProperty", win, pname))
             self.props.pop((win, pname), None)
+        elif opcode == 12:  # ConfigureWindow (value-mask form)
+            win, mask = struct.unpack_from("<IH", payload, 0)
+            raw = struct.unpack_from("<%di" % ((len(payload) - 8) // 4), payload, 8)
+            it = iter(raw)
+            fields = {}
+            for bit, key in ((1, "x"), (2, "y"), (4, "width"), (8, "height"),
+                             (16, "border_width"), (32, "sibling"), (64, "stack_mode")):
+                if mask & bit:
+                    fields[key] = next(it)
+            self.log.append(("ConfigureWindow", win, fields))
+            if win in self.error_windows:
+                return self._error(conn, seq, 3, 12, bad=win)  # BadWindow
+            if self.apply_configure:
+                gx, gy, gw, gh = self.geometry.get(win, (0, 0, 0, 0))
+                gw, gh = fields.get("width", gw), fields.get("height", gh)
+                self.geometry[win] = (gx, gy, gw, gh)
+                tx, ty = self.translate.get(win, (0, 0))
+                self.translate[win] = (fields.get("x", tx), fields.get("y", ty))
         elif opcode == 25:  # SendEvent
             dest, mask = struct.unpack_from("<II", payload, 0)
-            self.log.append(("SendEvent", dest, mask, payload[8:40]))
+            ev = payload[8:40]
+            self.log.append(("SendEvent", dest, mask, ev))
+            if self.apply_net_wm_state and len(ev) >= 32 and ev[0] & 0x7F == 33:
+                win, atype = struct.unpack_from("<II", ev, 4)
+                data = struct.unpack_from("<5I", ev, 12)
+                if self._names.get(atype) == "_NET_WM_STATE":
+                    self._apply_net_wm_state(win, data)
         elif opcode == 14:  # GetGeometry
             (win,) = struct.unpack("<I", payload)
             if win in self.error_windows:

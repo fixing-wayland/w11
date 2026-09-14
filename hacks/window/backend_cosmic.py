@@ -43,7 +43,7 @@ import time
 from w11common import session
 from w11common.errors import CmdError
 from w11common.wayland_mini import WlConn
-from hacks.window import ext_workspace
+from hacks.window import ext_workspace, x11_mini
 from hacks.window.backend import Window, WindowBackend, mint_map
 from hacks.window.backend_wlr import XPlaneViews
 
@@ -101,15 +101,35 @@ _MGR_EV_CAPABILITIES = 0
 NO_SEAT = ("compositor offers no wl_seat; cannot activate windows; not yet here, and the route is a "
            "patched cosmic-comp that activates a toplevel without naming a seat (AGENTS.md route 6)")
 
-#: The refusal for the four commands with no request behind them.
-NO_GEOMETRY = ("the COSMIC toplevel protocol has no move, resize, raise or lower; not yet here, "
-               "and the route is a patched cosmic-comp (AGENTS.md route 6)")
+#: The refusal for the four geometry commands on a NATIVE toplevel. An XWayland window no longer reaches it
+#: -- `move_window`/`resize`/`raise_`/`lower` route it through the X plane (`XPlaneViews._x_configure`,
+#: AGENTS.md route 5), which is exactly what `xdotool` sends on the same session: measured 2026-09-14 on
+#: cosmic-comp 1.8.0 the resize LANDS and the move and the restack are no-ops (Smithay's xwm drops them,
+#: byte for byte what the original `xdotool windowmove`/`windowraise` get there).
+NO_GEOMETRY = ("the COSMIC toplevel protocol has no move, resize, raise or lower; an XWayland window goes "
+               "through the X plane instead (AGENTS.md route 5, a real ConfigureWindow -- cosmic-comp's "
+               "Smithay xwm applies the resize and drops the move and the restack, exactly as xdotool gets "
+               "there). Not yet for a native toplevel, and the route is a patched cosmic-comp (route 6): "
+               "cosmic-toplevel-management-unstable-v1 (cosmic-protocols xml) and cosmic-comp "
+               "src/wayland/handlers/toplevel_management.rs carry no move or resize request")
 
 #: The same, for a state name the handle's array has no member for. Five members [R the XML's `state`
-#: enum], and SHADED, ABOVE, BELOW and the taskbar hints are not among them.
+#: enum]; SHADED, ABOVE, BELOW and the taskbar hints are not among them, so an XWayland window takes the X
+#: plane (route 5, the ClientMessage wmctrl sends -- which Smithay's xwm drops, as wmctrl gets there too) and
+#: only a native toplevel lands here.
 NO_SUCH_STATE = ("the COSMIC toplevel protocol carries maximized, minimized, activated, fullscreen and "
-                 "sticky and no other state; not yet here, and the route is a patched cosmic-comp "
-                 "(AGENTS.md route 6), one state member and one request each")
+                 "sticky and no other state; an XWayland window goes through the X plane instead (AGENTS.md "
+                 "route 5, the _NET_WM_STATE ClientMessage wmctrl -b sends). Not yet for a native toplevel, "
+                 "and the route is a patched cosmic-comp (route 6): cosmic-comp "
+                 "src/wayland/handlers/toplevel_management.rs, one state member and one request each")
+
+#: `_NET_WM_STATE` names the COSMIC toplevel handle's array (maximized/minimized/activated/fullscreen/sticky)
+#: has no member for -- STICKY IS covered, unlike the wlr floor. `unsupported_states()` hands these to
+#: wwmctl's X-plane route for an XWayland window and `set_state` takes the same route for a wdotool caller.
+_TAIL_STATES = frozenset((
+    "MODAL", "SHADED", "SKIP_TASKBAR", "SKIP_PAGER", "ABOVE", "BELOW",
+    "DEMANDS_ATTENTION", "FOCUSED",
+))
 
 #: A version gap, which is the cheapest kind: the protocol already defines the request and this build is
 #: older than it. `%s` is the request, `%d` the version it arrived in, `%d` the one this session offers.
@@ -540,6 +560,14 @@ class CosmicBackend(XPlaneViews, WindowBackend):
         if state == "STICKY":
             on = action == 1 or (action == 2 and ST_STICKY not in rec.states)
             if self.mgr_ver < 3:
+                # No `set_sticky` before manager v3. STICKY is the handle's fifth array member, so it is NOT
+                # in `_TAIL_STATES` and wwmctl does not pre-empt it -- but an XWayland window still has the X
+                # plane, which is what real `wmctrl -b add,sticky` uses regardless of the Wayland version, so
+                # take it here too (route 5). That closes the gap for a `wdotool windowstate` caller, which has
+                # no X fallback of its own; a native toplevel keeps the version-gap refusal.
+                xid = self._xid_of(wid)
+                if xid:
+                    return self._x_state(xid, state, action)
                 self._not_yet("windowstate STICKY",
                               OLD_MANAGER % (MANAGER, self.mgr_ver, "set_sticky", 3))
             self._act(rec, _MGR_SET_STICKY if on else _MGR_UNSET_STICKY,
@@ -550,7 +578,21 @@ class CosmicBackend(XPlaneViews, WindowBackend):
             self._act(rec, _MGR_SET_MINIMIZED if on else _MGR_UNSET_MINIMIZED,
                       CAP_MINIMIZE, "windowstate HIDDEN")
             return None
+        # The tail (SHADED, ABOVE, BELOW, SKIP_*, MODAL, ...): no member in the handle's array. An XWayland
+        # window takes the X plane -- the _NET_WM_STATE ClientMessage wmctrl sends (route 5) -- and a native
+        # one keeps the refusal. wwmctl reaches the X plane through its own fallback for these; this arm is the
+        # route for a wdotool caller, which has none.
+        xid = self._xid_of(wid)
+        if xid:
+            return self._x_state(xid, state, action)
         self._not_yet("windowstate %s" % state, NO_SUCH_STATE)
+
+    def unsupported_states(self) -> "set[str]":
+        """`_NET_WM_STATE` names this backend has no Wayland setter for, so wwmctl reaches an XWayland window
+        through the X server for them (`_x_set_state`) and agrees with the route `set_state` takes for a
+        wdotool caller. FULLSCREEN, MAXIMIZED_*, HIDDEN and STICKY are NOT here: the handle's array carries
+        them -- STICKY is COSMIC's fifth member, which the wlr floor has no word for."""
+        return set(_TAIL_STATES)
 
     def _not_yet(self, op: str, why: str):
         """A capability gap, its cause and the route that would close it, as one CmdError.
@@ -566,15 +608,27 @@ class CosmicBackend(XPlaneViews, WindowBackend):
         self._not_yet(op, NO_GEOMETRY)
 
     def move_window(self, wid: int, x: int, y: int):
+        xid = self._xid_of(wid)
+        if xid:
+            return self._x_configure(xid, "windowmove", x=x, y=y)
         self._no_geometry("windowmove")
 
     def resize(self, wid: int, w: int, h: int):
+        xid = self._xid_of(wid)
+        if xid:
+            return self._x_configure(xid, "windowsize", width=w, height=h)
         self._no_geometry("windowsize")
 
     def raise_(self, wid: int):
+        xid = self._xid_of(wid)
+        if xid:
+            return self._x_configure(xid, "windowraise", stack_mode=x11_mini.STACK_ABOVE)
         self._no_geometry("windowraise")
 
     def lower(self, wid: int):
+        xid = self._xid_of(wid)
+        if xid:
+            return self._x_configure(xid, "windowlower", stack_mode=x11_mini.STACK_BELOW)
         self._no_geometry("windowlower")
 
     # -- desktops -------------------------------------------------------------

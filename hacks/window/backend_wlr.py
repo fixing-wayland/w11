@@ -37,8 +37,8 @@ import time
 from w11common import session
 from w11common.errors import CmdError
 from w11common.wayland_mini import WlConn
-from hacks.window import ext_workspace, xid_match
-from hacks.window.backend import View, Window, WindowBackend, warn
+from hacks.window import ext_workspace, x11_mini, xid_match
+from hacks.window.backend import View, Window, WindowBackend, poll_diff_events, warn
 
 BASE_ID = 1000000
 
@@ -98,18 +98,29 @@ NO_SEAT = ("compositor offers no wl_seat; cannot activate windows; not yet here,
            "registry that carries one (AGENTS.md route 1), else the compositor's own IPC where it has "
            "one, which focuses a window by id and needs no seat at all (route 2)")
 
-#: The refusal for the four commands the protocol has no request for. labwc is a *stacking* compositor and
-#: still cannot move a window, so the reason names the protocol, not a tiling policy [M labwc.md §6c].
-NO_GEOMETRY = ("zwlr_foreign_toplevel_management_v1 carries no geometry and no stacking; not yet "
-               "here, and the routes are the X plane for an XWayland window (AGENTS.md route 5, a "
-               "real ConfigureWindow) or a patched compositor for a native one (route 6)")
+#: The refusal for the four geometry commands on a NATIVE toplevel. An XWayland window no longer reaches
+#: it -- `move_window`/`resize`/`raise_`/`lower` route it through the X plane (`_xid_of` + `_x_configure`),
+#: AGENTS.md route 5, a real ConfigureWindow, exactly as `xdotool` does -- so this is the native half's
+#: sentence, and it keeps its head (`zwlr_foreign_toplevel_management_v1 carries no geometry`) because
+#: labwc.sh:137-140 and river.sh pin the substring on a native `foot`. labwc is a *stacking* compositor and
+#: still cannot move a native window, so the reason names the protocol, not a tiling policy [M labwc.md §6c].
+NO_GEOMETRY = ("zwlr_foreign_toplevel_management_v1 carries no geometry and no stacking; an XWayland window "
+               "goes through the X plane instead (AGENTS.md route 5, the ConfigureWindow windowmove and "
+               "windowsize now send -- windowraise does not restack there because the wlroots xwm drops the "
+               "stack mode in xwayland/xwm.c xwm_handle_configure_request). Not yet for a native toplevel, "
+               "and the route is a patched compositor (route 6): wlroots + labwc src/xwayland.c, one request "
+               "each")
 
-#: The same sentence for the states. The handle's state array has four members [R the protocol XML's
-#: `state` enum]; every other `_NET_WM_STATE` name xdotool and wmctrl take -- SHADED, ABOVE, BELOW,
-#: SKIP_TASKBAR -- has nowhere to go on this wire yet.
+#: The same, for the `_NET_WM_STATE` tail on a NATIVE toplevel. The handle's state array has four members
+#: [R the protocol XML's `state` enum]; every other `_NET_WM_STATE` name xdotool and wmctrl take -- SHADED,
+#: ABOVE, BELOW, SKIP_* -- has nowhere on this wire, so an XWayland window takes the X plane (route 5, the
+#: ClientMessage `wmctrl -b` sends, which labwc reads back) and only a native one lands here.
 NO_SUCH_STATE = ("zwlr_foreign_toplevel_management_v1 carries maximized, minimized, activated and "
-                 "fullscreen and no other state; not yet here, and the route is a patched compositor "
-                 "(AGENTS.md route 6), one state bit and one request each")
+                 "fullscreen and no other state; an XWayland window goes through the X plane instead "
+                 "(AGENTS.md route 5, the _NET_WM_STATE ClientMessage wmctrl -b sends). Not yet for a "
+                 "native toplevel, and the route is a patched compositor (route 6): wlroots "
+                 "xwayland/xwm.c's xwm_handle_net_wm_state_message has no request_above/below/shade to hand "
+                 "labwc, one state bit and one request each")
 
 #: Fullscreen arrived with version 2 of the same protocol, so a v1 manager is a build away and not a
 #: rewrite -- the lowest rung there is.
@@ -122,6 +133,15 @@ NO_V2 = ("this compositor's zwlr_foreign_toplevel_manager_v1 is version 1, whose
 NO_WORKSPACES = ("this compositor publishes no ext_workspace_manager_v1; not yet here, and the routes "
                  "are that protocol where the compositor grows it (AGENTS.md route 1) or the "
                  "compositor's own IPC where it has one (route 2), which is a backend per compositor")
+
+#: `_NET_WM_STATE` names with no member in the handle's four-bit array (maximized/minimized/activated/
+#: fullscreen cover MAXIMIZED_*, HIDDEN and FULLSCREEN). `unsupported_states()` hands these to wwmctl's own
+#: X-plane route for an XWayland window, and `set_state` takes the same route for a wdotool caller that has
+#: no X fallback; a native toplevel gets the NO_SUCH_STATE refusal.
+_TAIL_STATES = frozenset((
+    "MODAL", "STICKY", "SHADED", "SKIP_TASKBAR", "SKIP_PAGER", "ABOVE", "BELOW",
+    "DEMANDS_ATTENTION", "FOCUSED",
+))
 
 # zwlr_foreign_toplevel_handle_v1 state enum
 _ST_MAXIMIZED = 0
@@ -285,6 +305,100 @@ class XPlaneViews:
             out.append({"xid": int(xid), "pid": int(pid), "inst": inst, "cls": cls,
                         "name": name, "geo": geo})
         return out
+
+    # -- the X plane as the geometry/stacking/state route (AGENTS.md route 5) --
+    #
+    # `zwlr_foreign_toplevel_management_v1` and the COSMIC toplevel protocols carry no rectangle, no stacking
+    # and only their handful of state bits, so `windowmove`, `windowsize`, `windowraise`, `windowlower` and the
+    # `_NET_WM_STATE` tail (SHADED/ABOVE/BELOW/SKIP_*) have nowhere to go on the Wayland wire. For an XWayland
+    # window there is a second wire: the compositor runs an X window manager, so a real `ConfigureWindow` and a
+    # real `_NET_WM_STATE` ClientMessage reach it exactly as the original `xdotool`/`wmctrl` send them — and
+    # whether they LAND is then the xwm's business and identical to what those originals get on the same
+    # session. Measured 2026-09-14: on labwc 0.9.3 a move, a resize and every `_NET_WM_STATE` toggle land and
+    # read back (raise does not restack — the wlroots xwm drops the stack mode); on cosmic-comp 1.8.0 the
+    # resize lands, the move and the state toggles are no-ops (Smithay's xwm drops them), byte for byte what
+    # `xdotool`/`wmctrl` do there. A NATIVE toplevel has no X id, keeps the refusal and its rung-6 route.
+
+    def _xid_of(self, wid: int) -> int:
+        """The X id `wid` was joined to, or 0 for a native toplevel / no X plane. The join is the very one
+        `list()`/`views()` use, keyed by `str(window id)`, so an XWayland window resolves to the same X id the
+        listing shows in its `-x` column."""
+        join = self._x_join(self.list())
+        if join is None:
+            return 0
+        return join[0].get(str(wid), 0)
+
+    def geometry_is_client_rect(self, wid: int) -> bool:
+        """True for an XWayland window: its move/resize go out as a `ConfigureWindow` on the X plane, whose
+        x/y/width/height are the CLIENT rectangle -- the compositor's xwm does not reparent, so there is no
+        frame between the request and the window. `move_resize` (-e) reads this and zeroes the frame extents,
+        so `wwmctl -e 0,-1,-1,640,360` sends the client width 640, not 640+left+right; without it a cosmic-comp
+        XWayland window came out 36 px too tall (its server-side title bar folded into the extents). A native
+        toplevel has no X id and reaches no X plane, so this is False for it and the -e path never runs anyway
+        (move/resize refuse before extents matter)."""
+        return self._xid_of(wid) != 0
+
+    def _x_configure(self, xid: int, op: str, **kw) -> None:
+        """One `ConfigureWindow` on the X plane for the XWayland window `xid` (route 5)."""
+        x = self._x11()
+        if x is None:   # xid came from a join that opened it, so this is belt-and-braces
+            raise CmdError("%s backend: the X plane went away" % self.name)
+        try:
+            x.configure_window(xid, **kw)
+        except Exception as e:
+            raise CmdError("%s backend: %s on 0x%08x: %s" % (self.name, op, xid, e)) from None
+
+    def state_route_is_x_plane(self, wid: int, state: str) -> bool:
+        """True for an XWayland window's tail state: `set_state` here sends exactly the `_NET_WM_STATE`
+        ClientMessage wwmctl's `_x_set_state` already sends (both are `_x_state`/`send_root_message` on the
+        same X id), so wwmctl skips this backend for those and the message goes out once, matching `wmctrl`.
+        False for a native toplevel (no X id, `set_state` refuses at rung 6) and for a state the handle's
+        array carries (`set_state` uses the Wayland setter), so wwmctl still reaches those the usual way."""
+        return state in self.unsupported_states() and self._xid_of(wid) != 0
+
+    def _x_state(self, xid: int, state: str, action: int) -> None:
+        """The `_NET_WM_STATE` ClientMessage real `wmctrl -b` sends, for the XWayland window `xid` (route 5).
+        Fire-and-forget, exactly as `wmctrl` is: the message goes to the root with
+        SubstructureNotify|SubstructureRedirect and the xwm applies it or not — labwc reads it back, cosmic-comp
+        drops it, and neither original prints a word about which. `action` is the EWMH 0/1/2 (remove/add/toggle),
+        which is `set_state`'s own action byte unchanged."""
+        x = self._x11()
+        if x is None:
+            raise CmdError("%s backend: the X plane went away" % self.name)
+        try:
+            atom = x.atom("_NET_WM_STATE_%s" % state)
+            x.send_root_message(xid, "_NET_WM_STATE", [action, atom, 0, 0, 0])
+        except Exception as e:
+            raise CmdError("%s backend: _NET_WM_STATE_%s ClientMessage on 0x%08x: %s"
+                           % (self.name, state, xid, e)) from None
+
+    # -- events() and select_window() from the toplevel protocol's own changes (AGENTS.md route 1) --
+    #
+    # Both floors already listen to their foreign-toplevel protocol and rebuild the whole listing on demand,
+    # and `activated`/title/closed are exactly the changes `list()` reflects (focused, title, presence). So the
+    # (id, change) stream every caller of `events()` speaks -- and the `selectwindow` that waits on a focus
+    # change -- come out of a `list()` diff, the same poll the cinnamon backend runs. This is the doc's own
+    # route for the wlr/cosmic `events()`/`selectwindow` gap, and it retires the two base-class not-yets there.
+
+    def events(self, timeout: "float | None" = None):
+        """(id, change) in sway's vocabulary (new, focus, title, close), polled from the toplevel protocol's
+        own `activated`/title/closed changes via a `list()` diff. `timeout` is silence, as everywhere."""
+        return poll_diff_events(self.list, timeout)
+
+    #: waiting for a focus change, not clicking: these floors carry no pointer position and no per-window
+    #: geometry (wlr) / only a sometimes-sent one (cosmic), so there is nothing to click *with* -- the same
+    #: reason and the same instruction as sway.  A click-to-pick overlay is the NOT_YET_SELECT_WINDOW route.
+    select_window_hint = "focus the target window to select it"
+
+    def select_window(self) -> int:
+        """The sway shape (AGENTS.md route 1): wait for the next `activated` change -- a focus event -- and
+        return that window.  Not `xdotool`'s window-under-the-next-click (these protocols have no pointer and no
+        rectangle to click into, see NOT_YET_SELECT_WINDOW), and knowingly so: focusing the already-focused
+        window does not end this wait; focus another to pick it."""
+        for wid, change in self.events():
+            if change == "focus":
+                return wid
+        raise CmdError("%s backend: the window event stream ended" % self.name)
 
 
 class WlrBackend(XPlaneViews, WindowBackend):
@@ -565,7 +679,20 @@ class WlrBackend(XPlaneViews, WindowBackend):
             return self._request(t, _REQ_SET_MINIMIZED if on else _REQ_UNSET_MINIMIZED,
                                  name="set_minimized" if on else "unset_minimized",
                                  check=self._has(_ST_MINIMIZED, on))
+        # The tail (SHADED, ABOVE, BELOW, SKIP_*, MODAL, ...): no member in the four-bit array. An XWayland
+        # window takes the X plane -- the _NET_WM_STATE ClientMessage wmctrl sends (route 5) -- and a native
+        # one keeps the refusal. wwmctl reaches the X plane through its own fallback for these; this arm is the
+        # route for a wdotool caller, which has none.
+        xid = self._xid_of(wid)
+        if xid:
+            return self._x_state(xid, state, action)
         self._not_yet("windowstate %s" % state, NO_SUCH_STATE)
+
+    def unsupported_states(self) -> "set[str]":
+        """`_NET_WM_STATE` names this backend has no Wayland setter for, so wwmctl reaches an XWayland window
+        through the X server for them instead (`_x_set_state`) and agrees with the route `set_state` takes for
+        a wdotool caller. FULLSCREEN, MAXIMIZED_* and HIDDEN are NOT here: the handle's array carries them."""
+        return set(_TAIL_STATES)
 
     def _not_yet(self, op: str, why: str):
         """A capability gap, its cause and the route that would close it, as one CmdError.
@@ -585,15 +712,27 @@ class WlrBackend(XPlaneViews, WindowBackend):
         self._not_yet(op, NO_GEOMETRY)
 
     def move_window(self, wid: int, x: int, y: int):
+        xid = self._xid_of(wid)
+        if xid:
+            return self._x_configure(xid, "windowmove", x=x, y=y)
         self._no_geometry("windowmove")
 
     def resize(self, wid: int, w: int, h: int):
+        xid = self._xid_of(wid)
+        if xid:
+            return self._x_configure(xid, "windowsize", width=w, height=h)
         self._no_geometry("windowsize")
 
     def raise_(self, wid: int):
+        xid = self._xid_of(wid)
+        if xid:
+            return self._x_configure(xid, "windowraise", stack_mode=x11_mini.STACK_ABOVE)
         self._no_geometry("windowraise")
 
     def lower(self, wid: int):
+        xid = self._xid_of(wid)
+        if xid:
+            return self._x_configure(xid, "windowlower", stack_mode=x11_mini.STACK_BELOW)
         self._no_geometry("windowlower")
 
     # -- desktops -----------------------------------------------------------

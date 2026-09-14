@@ -703,11 +703,18 @@ class TestGetmouselocation(unittest.TestCase):
 
 
 class TestBehaveScreenEdge(unittest.TestCase):
-    def test_unsupported(self):
-        ctx = make_ctx()
+    def test_no_pointer_names_the_layer_shell_rung(self):
+        # A backend with no pointer query, on a daemon that has injected no motion: the edge cannot be polled,
+        # so the command names its rung (a zwlr_layer_shell strip, route 1) rather than declining.  The usage
+        # and argument checks below still stand; the query-backend path and the timing live in
+        # test_behave_screen_edge.py.
+        ctx = Context()
+        ctx._daemon = FakeDaemon(known=False)
+        ctx._backend = FakeBackend()      # base pointer() is None
         with self.assertRaises(CmdError) as cm:
             input_cmds.cmd_behave_screen_edge(ctx, ["bottom-left", "key", "a"])
-        self.assertIn("not supported", str(cm.exception))
+        self.assertIn("AGENTS.md route 1", str(cm.exception))
+        self.assertIn("zwlr_layer_shell", str(cm.exception))
 
     def test_bad_edge(self):
         ctx = make_ctx()

@@ -82,6 +82,11 @@ def reap(recs: dict) -> bool:
             del recs[target]
             changed = True
             continue
+        # A cinnamon mirror is not a process we forked -- it is a Clutter actor inside muffin, with no pid and
+        # no /proc identity. Its liveness is Eval, owned by hacks/mirror/cinnamon.reap(), which the CLI calls
+        # alongside this one. Leave it untouched here: a /proc check would find no pid and reap a live mirror.
+        if rec.get("kind"):
+            continue
         sup, helper = liveness(rec)
         if not sup and not helper:
             del recs[target]

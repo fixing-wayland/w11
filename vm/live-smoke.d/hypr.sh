@@ -436,7 +436,8 @@ layout_phase() {
     # very next `j/devices`.  A switch that does not take falls back to the group our device really is in,
     # which is what wdotool typed correctly with before any of this existed.  `keys explain` still answers
     # about the SESSION, which is what the three checks above assert.  Measured green on arch-hypr
-    # (Hyprland 0.56.2) 2026-09-11: `yz@ Straße` byte-exact, and our device at index 1 afterwards.
+    # (Hyprland 0.56.2) 2026-09-11 and resolute-hypr (Hyprland 0.53.3) 2026-09-14 (CI run 34810336830):
+    # `yz@ Straße` byte-exact, and our device at index 1 afterwards.
     want "German types byte-exact after a switch on the physical keyboard" "yz@ Straße" "$got"
     guest "hyprctl switchxkblayout $kb 0" >/dev/null 2>&1 || true
     sleep 1
@@ -526,21 +527,23 @@ phase_display() {
     # ------------------------------------------------------------------ the applies
     # The pair of applies this file exists for, taken before anything else in the phase has
     # touched an output.
-    # Both applies SHRINK, and that is a fact about the rig and not a softened check.  Measured on
-    # resolute-hypr 2026-09-09: on `-device virtio-vga` a head's mode can be made smaller as often as you
-    # like and never larger again within a session.  1920x1080 -> 1680x1050 -> 1280x1024 all land;
-    # 1280x1024 -> 1920x1080 does not, and the compositor is not what refuses it -- `hyprctl keyword
-    # monitor` answers `ok`, aquamarine logs `atomic drm request: failed to commit: Invalid argument,
-    # flags: ATOMIC_ALLOW_MODESET ATOMIC_TEST_ONLY`, and with `AQ_NO_ATOMIC=1` the legacy path fails the
-    # same way (`drmModeSetCrtc failed`).  wxrandr's own re-read is what catches it and says so, which is
-    # the behaviour this phase is here to prove.  Growing again needs a display device this rig cannot
-    # have on this host: `-device virtio-vga-gl` is refused by the plain dbus display ("The display
-    # backend does not have OpenGL support enabled") and `-display dbus,gl=on` dies with "egl: no drm
-    # render node available" -- there is no /dev/dri on the dsb guest at all.  The claim under test is
-    # "a second apply of the session lands", and two shrinks test it exactly.  The GROW is not dropped
-    # for being unanswerable here: it is the third apply below, an xwant that goes XPASS on the day the
-    # rig can answer, because `xrandr --mode 1920x1080` after `--mode 1280x1024` is an everyday script
-    # and X does it.
+    # The first two applies SHRINK and land on both goldens; the THIRD grows the head back, and whether
+    # it lands is a fact about the compositor's aquamarine, NOT about the rig -- it was never the render
+    # node.  Measured on both goldens with `drm.debug=0x1e` and the exact request hacks/display/hypr.py
+    # sends (`hyprctl keyword monitor Virtual-1,<mode>,0x0,1`), same `-device virtio-vga` + `-display dbus`:
+    #   resolute-hypr (Hyprland 0.53.3, aquamarine 0.9.x): 1920 -> 1680 -> 1280 all land; 1280 -> 1920 is
+    #     refused at ATOMIC_TEST_ONLY, and the kernel names why -- aquamarine tests the growing modeset
+    #     with the STALE 1280x1024 buffer still on the primary plane:
+    #       [drm:drm_atomic_helper_check_plane_state] Plane must cover entire CRTC /
+    #       dst: 1280x1024+0+0 / clip: 1920x1080+0+0 / failed: -22
+    #     and virtio-gpu's primary is non-positionable (can_position=false; so are qxl, bochs-display and
+    #     vmwgfx), so a shrink clips to fit and a grow cannot.  wxrandr's own re-read catches it and says so.
+    #   arch-hypr (Hyprland 0.56.2, aquamarine 0.15.0, the SAME QEMU device line): the identical grow lands
+    #     -- `drm: Modesetting Virtual-1 with 1920x1080@75.00Hz`.  aquamarine since 0.13.0 reconfigures the
+    #     swapchain and attaches a mode-sized fb BEFORE the TEST_ONLY commit (src/backend/drm/DRM.cpp,
+    #     CDRMOutput::commitState), where 0.9.x reconfigures only AFTER each failed test.
+    # So the grow is a real `want` in the arch branch below and stays an xwant in the resolute branch:
+    # rung 6, a newer/patched aquamarine (>= 0.13.0) that Ubuntu 26.04 does not ship (it carries 0.9.x).
     local one two three
     guest "wxrandr --output $first --mode 1680x1050" >/dev/null 2>&1 || true
     sleep 2; one=$(hypr_mode "$first")
@@ -549,6 +552,27 @@ phase_display() {
     if [ "$DISTRO" = arch ]; then
         same "the first apply of a session lands on Hyprland 0.56.2" "1680x1050" "$one"
         same "the second apply of a session lands too on 0.56.2" "1280x1024" "$two"
+        # And back up: xrandr grows a head as readily as it shrinks one, and aquamarine 0.15.0 does too
+        # on the same rig 0.9.x refuses (the kernel plane-check is in the paragraph above this pair).  So
+        # here it is a real `want`, not an xwant -- this is the rig proving the grow was a compositor
+        # defect, not a render-node gap.
+        guest "wxrandr --output $first --mode 1920x1080" >/dev/null 2>&1 || true
+        sleep 2; three=$(hypr_mode "$first")
+        # A REPLAY of a recording cut before this command existed answers it with nothing, and the
+        # recorded `hyprctl -j monitors` that follows still says the pre-grow 1280x1024 -- so a bare
+        # `want` is red on every replay until scripts/rig-recordings.sh cuts a fresh arch-hypr
+        # recording off a CI run.  The tell is exact and never true live: FAKE_VMCTL_TRANSCRIPT is set
+        # only on a replay (live-smoke.sh:405 keys on it the same way) and the transcript names every
+        # command it can answer, so a replay whose recording HAS the command still goes through `want`.
+        # Not the labwc.sh:321 shape (an empty answer degrades to a note): a live wxrandr is silent on
+        # the session where the keyword lands, which is the session this want exists to prove.
+        if [ -n "${FAKE_VMCTL_TRANSCRIPT:-}" ] \
+           && ! grep -qF -- "### wxrandr --output $first --mode 1920x1080" "$FAKE_VMCTL_TRANSCRIPT"; then
+            note "(the GROW apply is newer than this recording, which cannot answer it: the want waits \
+for the re-harvest)"
+        else
+            want "a mode that GROWS a head back lands on aquamarine 0.15.0" "^1920x1080$" "$three"
+        fi
         note "0.56.2 ANSWERED arch-hypr's question, 2026-09-11, and the answer is a session and not a"
         note "version: one session stored hyprctl keyword monitor and applied none of it (three modes"
         note "out of the head's own availableModes and a scale, all ok in 4 ms, all ignored, while"
@@ -569,13 +593,15 @@ phase_display() {
         same "the FIRST apply of the session changes the mode, and hyprctl agrees" "1680x1050" "$one"
         same "the SECOND apply lands too (the wlr path wedged here at 10.06 s)" "1280x1024" "$two"
         # And back up, which is the shape parity actually owes: xrandr grows a head as readily as it
-        # shrinks one.  It is the rig that refuses (the two modeset paths and their kernel errors are
-        # named above this pair), so the line stays as a check with its route rather than as a comment.
+        # shrinks one.  Here it is the COMPOSITOR that refuses, not the rig (the kernel plane-check and the
+        # aquamarine version story are in the paragraph above this pair), so the line stays as a check with
+        # its route rather than as a comment -- and arch-hypr's arm turns the same request into a real want.
         guest "wxrandr --output $first --mode 1920x1080" >/dev/null 2>&1 || true
         sleep 2; three=$(hypr_mode "$first")
-        xwant "a mode that GROWS back lands (until the rig has a render node: -device virtio-vga-gl \
-with -display dbus,gl=on -- refused here with 'egl: no drm render node available', no /dev/dri on the \
-dsb guest -- or a different KMS device: qxl, bochs-display, virtio-gpu blob=on, untried)" \
+        xwant "a mode that GROWS back lands (until resolute-hypr's aquamarine reaches 0.13.0: 0.9.x tests \
+the growing modeset with the stale buffer on a non-positionable primary and the kernel refuses it -- \
+'Plane must cover entire CRTC / failed: -22' -- while arch-hypr's 0.15.0 grows the same rig; rung 6, a \
+patched compositor Ubuntu 26.04 does not ship)" \
              "^1920x1080$" "$three"
         common_display_phase
         # The other half of the wlr measurement at the top of this phase, and the one that is OURS.
@@ -586,7 +612,7 @@ dsb guest -- or a different KMS device: qxl, bochs-display, virtio-gpu blob=on, 
         # AGENTS.md's ladder was needed to fix it: `WlrOutputs._verify_applied` now re-reads what it
         # applied and says "the compositor accepted the mode ... and did not apply it", which is the
         # sentence `HyprOutputs._first_mismatch` has always said on the other backend.  Asserted on the
-        # OUTPUT rather than on the mode -- the mode here is held down by the rig's grow limit above,
+        # OUTPUT rather than on the mode -- the mode here is held down by 0.9.x's grow refusal above,
         # and the claim is that the tool SAYS something, not that the rig can do it.
         #
         # Green here on 2026-09-11, on this flavor, in exactly that state: `xrandr: the compositor

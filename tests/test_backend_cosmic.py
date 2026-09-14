@@ -390,6 +390,12 @@ class CosmicTest(unittest.TestCase):
         ctx = redirect_stderr(self.err)
         ctx.__enter__()
         self.addCleanup(ctx.__exit__, None, None, None)
+        # move/resize/set_state now consult the X plane (`_xid_of`) for an XWayland window, so "there is no
+        # X plane" has to be SAID rather than left to the box the suite runs on -- exactly as WlrTest does.
+        # CosmicXPlane.x_server() patches this back to True for the classes that want one.
+        patch = mock.patch.object(session, "xwayland_running", lambda uid=None: False)
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def compositor(self, cls=Cosmic, **kw):
         comp = cls(**kw)
@@ -634,19 +640,24 @@ class Capabilities(CosmicTest):
                             str(cm.exception))
             self.assertIn("is not supported by the cosmic backend: the COSMIC toplevel protocol has "
                           "no move, resize, raise or lower", str(cm.exception))
-            self.assertIn("AGENTS.md route 6", str(cm.exception))
+            # the XWayland half takes route 5 (the X plane); this native one is route 6
+            self.assertIn("AGENTS.md route 5", str(cm.exception))
+            self.assertIn("route 6", str(cm.exception))
 
     def test_a_state_this_protocol_has_no_word_for(self):
-        """SHADED is one wmctrl and xdotool both take, so the refusal owes it a route and not a full stop:
-        the handle's state array has five members and a sixth is cosmic-comp's to add (route 6)."""
+        """SHADED on a NATIVE window: wmctrl and xdotool both take it, so the refusal owes it a route and not
+        a full stop -- the handle's state array has five members and a sixth is cosmic-comp's to add. An
+        XWayland window no longer reaches here; it takes the X plane (test_backend_cosmic_xplane)."""
         _comp, b = self.backend()
         with self.assertRaises(CmdError) as cm:
             b.set_state(self.wid(b, "cosmicterm"), "SHADED", 1)
         self.assertEqual(str(cm.exception),
                          "windowstate SHADED is not supported by the cosmic backend: the COSMIC toplevel "
                          "protocol carries maximized, minimized, activated, fullscreen and sticky and no "
-                         "other state; not yet here, and the route is a patched cosmic-comp "
-                         "(AGENTS.md route 6), one state member and one request each")
+                         "other state; an XWayland window goes through the X plane instead (AGENTS.md "
+                         "route 5, the _NET_WM_STATE ClientMessage wmctrl -b sends). Not yet for a native "
+                         "toplevel, and the route is a patched cosmic-comp (route 6): cosmic-comp "
+                         "src/wayland/handlers/toplevel_management.rs, one state member and one request each")
 
     def test_a_version_gap_is_told_apart_from_a_missing_feature(self):
         """`set_sticky` is version 3 of a protocol this session speaks at 2: nothing has to be written for

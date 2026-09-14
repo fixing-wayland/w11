@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""`wxrandr --persistent` on sway: the layout in a file sway `include`s.
+
+xrandr has no --persistent -- it is wxrandr's own flag -- so there is no oracle for WHERE a sway layout is
+kept, only AGENTS.md's rule that a layout X could save is one we save too and the measured fact that sway
+keeps NOTHING of an IPC apply on disk (docs/WXRANDR.md's state-restoration table: "nothing on disk; only
+~/.config/sway/config makes a layout stick").  So --persistent writes `~/.config/sway/w11-outputs.conf`, one
+`output ...` line per output it touched, and makes sway's config `include` it so the layout comes back at the
+next start (AGENTS.md route 2).  The live apply has already landed over the IPC, so nothing here reloads the
+running session.
+
+This pins the file's bytes, the once-never-twice `include`, that a hand-edited config is left byte-for-byte
+alone once the `include` is there, and that a run WITHOUT --persistent writes nothing at all.
+
+Bare `python3 tests/test_wxrandr_sway_persistent.py` and under the suite both work; no display, no compositor
+-- the file half is `hacks/display/core`'s and is exercised directly, and the one end-to-end case drives it
+through `SwayBackend.apply` over a `support.FakeSway`.
+"""
+import io
+import os
+import sys
+import tempfile
+import unittest
+from contextlib import redirect_stderr
+from unittest import mock
+
+os.environ["W11_PASSTHROUGH"] = "never"
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import support  # noqa: E402
+from hacks.display import core  # noqa: E402
+
+
+def mk_fresh(name, w, h, x=0, y=0, refresh=60000, transform="normal", scale=1.0, active=True):
+    """One post-apply OutputState, the shape `persist_sway_layout` reads its lines off."""
+    o = core.OutputState(name=name, active=active, x=x, y=y, transform=transform, scale=scale)
+    if active:
+        o.w, o.h = w, h
+        o.current = core.Mode(w=w, h=h, refresh_mhz=refresh)
+    return o
+
+
+def mk_target(name, changed=True):
+    return core.Target(output=core.OutputState(name=name, active=True), stanza=None, changed=changed)
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        self.home = tempfile.mkdtemp(prefix="wxr-sway-cfg-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.home, ignore_errors=True))
+        self.xdg = os.path.join(self.home, "config")
+        self.confdir = os.path.join(self.xdg, "sway")
+        os.makedirs(self.confdir)
+        self.conf = os.path.join(self.confdir, "config")
+        self.rules = os.path.join(self.confdir, "w11-outputs.conf")
+        patcher = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.xdg, "HOME": self.home})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def persist(self, targets, fresh):
+        """Run the file half and return its stderr (the warnings `warn()` emits)."""
+        err = io.StringIO()
+        with redirect_stderr(err):
+            core.persist_sway_layout(targets, fresh)
+        return err.getvalue()
+
+    def read(self, path):
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+
+    def rule_lines(self):
+        return [ln for ln in self.read(self.rules).splitlines() if ln.startswith("output ")]
+
+
+class TheLine(Base):
+    """`_sway_persist_line`: the applied end state of one output as one sway config line."""
+
+    def test_mode_position_and_refresh(self):
+        line = core._sway_persist_line(mk_fresh("Virtual-2", 1280, 1024, x=1920, y=0))
+        self.assertEqual(line, "output Virtual-2 mode 1280x1024@60.000Hz position 1920 0")
+
+    def test_transform_and_scale(self):
+        line = core._sway_persist_line(mk_fresh("Virtual-1", 1200, 1920, transform="90", scale=2.0))
+        self.assertEqual(line, "output Virtual-1 mode 1200x1920@60.000Hz position 0 0 transform 90 scale 2")
+
+    def test_a_disabled_output_is_a_disable_line(self):
+        self.assertEqual(core._sway_persist_line(mk_fresh("Virtual-3", 0, 0, active=False)),
+                         "output Virtual-3 disable")
+
+    def test_a_custom_mode_keeps_its_custom_keyword(self):
+        """A --newmode mode came back nameless from sway and matched the state file's custom Mode; sway only
+        takes it back with `mode --custom`, so the persisted line must carry it or sway refuses it at start."""
+        o = mk_fresh("Virtual-1", 1600, 900, refresh=60000)
+        o.current = core.Mode(w=1600, h=900, refresh_mhz=60000, custom=True)
+        self.assertEqual(core._sway_persist_line(o),
+                         "output Virtual-1 mode --custom 1600x900@60.000Hz position 0 0")
+
+
+class TheFile(Base):
+    """The file's bytes and the `include` in sway's config."""
+
+    def test_writes_the_header_and_one_line_per_touched_output(self):
+        err = self.persist([mk_target("Virtual-2")], [mk_fresh("Virtual-2", 1280, 1024, x=1920)])
+        self.assertEqual(self.read(self.rules), core.SWAY_CONF_HEADER
+                         + "output Virtual-2 mode 1280x1024@60.000Hz position 1920 0\n")
+        self.assertIn("--persistent: the layout is in %s" % self.rules, err)
+        self.assertIn("no `swaymsg reload` is sent", err)
+
+    def test_only_touched_outputs_are_written(self):
+        targets = [mk_target("Virtual-1"), mk_target("Virtual-2", changed=False)]
+        fresh = [mk_fresh("Virtual-1", 1280, 1024), mk_fresh("Virtual-2", 1280, 720, x=1280)]
+        self.persist(targets, fresh)
+        self.assertEqual(self.rule_lines(), ["output Virtual-1 mode 1280x1024@60.000Hz position 0 0"])
+
+    def test_a_second_run_merges_rather_than_replaces(self):
+        self.persist([mk_target("Virtual-1")], [mk_fresh("Virtual-1", 1280, 1024)])
+        self.persist([mk_target("Virtual-2")], [mk_fresh("Virtual-2", 1280, 720, x=1280)])
+        self.assertEqual(self.rule_lines(), [
+            "output Virtual-1 mode 1280x1024@60.000Hz position 0 0",
+            "output Virtual-2 mode 1280x720@60.000Hz position 1280 0"])
+
+    def test_a_second_run_for_the_same_output_replaces_its_line(self):
+        self.persist([mk_target("Virtual-1")], [mk_fresh("Virtual-1", 1280, 1024)])
+        self.persist([mk_target("Virtual-1")], [mk_fresh("Virtual-1", 1920, 1080)])
+        self.assertEqual(self.rule_lines(), ["output Virtual-1 mode 1920x1080@60.000Hz position 0 0"])
+
+
+class TheInclude(Base):
+    """The `include` line: added once, never twice, and never touching what is already there."""
+
+    def test_include_appended_to_an_existing_config(self):
+        original = "# my sway config\nbindsym $mod+Return exec foot\n"
+        with open(self.conf, "w", encoding="utf-8") as fh:
+            fh.write(original)
+        err = self.persist([mk_target("Virtual-2")], [mk_fresh("Virtual-2", 1280, 1024)])
+        text = self.read(self.conf)
+        self.assertTrue(text.startswith(original), "the user's config is kept, our line only appended")
+        self.assertEqual(text.count("include %s" % self.rules), 1)
+        self.assertIn("added an `include %s` line to %s" % (self.rules, self.conf), err)
+
+    def test_include_added_once_never_twice(self):
+        with open(self.conf, "w", encoding="utf-8") as fh:
+            fh.write("bindsym $mod+Return exec foot\n")
+        self.persist([mk_target("Virtual-2")], [mk_fresh("Virtual-2", 1280, 1024)])
+        after_first = self.read(self.conf)
+        err = self.persist([mk_target("Virtual-2")], [mk_fresh("Virtual-2", 1920, 1080)])
+        self.assertEqual(self.read(self.conf), after_first, "a config that already includes us is untouched")
+        self.assertEqual(self.read(self.conf).count("include "), 1)
+        self.assertNotIn("added an `include", err)
+
+    def test_a_config_that_already_includes_us_is_kept_byte_for_byte(self):
+        hand_edited = ("set $mod Mod4\n"
+                       "include %s\n"
+                       "bindsym $mod+q kill\n") % self.rules
+        with open(self.conf, "w", encoding="utf-8") as fh:
+            fh.write(hand_edited)
+        self.persist([mk_target("Virtual-2")], [mk_fresh("Virtual-2", 1280, 1024)])
+        self.assertEqual(self.read(self.conf), hand_edited)
+
+    def test_include_matched_by_basename_not_full_path(self):
+        """A user who wrote the include with `~` or a relative path already has us: don't add a second."""
+        with open(self.conf, "w", encoding="utf-8") as fh:
+            fh.write("include ~/.config/sway/w11-outputs.conf\n")
+        self.persist([mk_target("Virtual-2")], [mk_fresh("Virtual-2", 1280, 1024)])
+        self.assertEqual(self.read(self.conf).count("include "), 1)
+
+    def test_a_missing_config_is_created_including_the_system_config_first(self):
+        """No user config anywhere: create $XDG_CONFIG_HOME/sway/config that includes the system config first
+        (so the next session keeps every default binding) and our layout file last -- never a near-empty file
+        that shadows /etc/sway/config wholesale."""
+        self.assertFalse(os.path.exists(self.conf))
+        sysconf = os.path.join(self.home, "etc-sway-config")
+        with open(sysconf, "w", encoding="utf-8") as fh:
+            fh.write("bindsym $mod+Return exec foot\n")
+        with mock.patch.object(core, "SWAY_SYSTEM_CONFIG", sysconf):
+            err = self.persist([mk_target("Virtual-2")], [mk_fresh("Virtual-2", 1280, 1024)])
+        text = self.read(self.conf)
+        self.assertLess(text.index("include %s" % sysconf), text.index("include %s" % self.rules),
+                        "the system config is included before our layout, so the defaults load then we win")
+        self.assertIn("`include`s %s (the system config" % sysconf, err)
+
+    def test_a_missing_config_with_no_system_config_holds_only_our_include(self):
+        """No user config and no system config either: the created file carries only our `include`, and the
+        note says so rather than claiming a system config that is not there."""
+        missing = os.path.join(self.home, "nope-sway-config")
+        with mock.patch.object(core, "SWAY_SYSTEM_CONFIG", missing):
+            err = self.persist([mk_target("Virtual-2")], [mk_fresh("Virtual-2", 1280, 1024)])
+        text = self.read(self.conf)
+        self.assertIn("include %s" % self.rules, text)
+        self.assertNotIn("include %s" % missing, text)
+        self.assertIn("no %s either" % missing, err)
+
+    def test_a_legacy_dot_sway_config_gets_the_include(self):
+        """sway reads ~/.sway/config before ~/.config/sway/config; the include goes into the file sway opens,
+        and nothing is created under ~/.config."""
+        legacy_dir = os.path.join(self.home, ".sway")
+        os.makedirs(legacy_dir)
+        legacy = os.path.join(legacy_dir, "config")
+        original = "set $mod Mod4\nbindsym $mod+Return exec foot\n"
+        with open(legacy, "w", encoding="utf-8") as fh:
+            fh.write(original)
+        self.assertFalse(os.path.exists(self.conf), "setUp leaves ~/.config/sway/config absent")
+        err = self.persist([mk_target("Virtual-2")], [mk_fresh("Virtual-2", 1280, 1024)])
+        legacy_text = self.read(legacy)
+        self.assertTrue(legacy_text.startswith(original), "the legacy config is kept, our line appended")
+        self.assertEqual(legacy_text.count("include %s" % self.rules), 1)
+        self.assertFalse(os.path.exists(self.conf), "nothing created under ~/.config when the legacy file wins")
+        self.assertIn("added an `include %s` line to %s" % (self.rules, legacy), err)
+
+
+class ThroughTheBackend(Base):
+    """The flag threaded through `SwayBackend.apply`: --persistent writes the file, its absence writes
+    nothing.  A `support.FakeSway` answers the two-phase apply; its static GET_OUTPUTS is the post-apply
+    snapshot the file is built from."""
+
+    OUTPUTS = [
+        {"id": 2, "name": "Virtual-2", "make": "Unknown", "model": "headless", "serial": "Unknown",
+         "active": True, "scale": 1.0, "subpixel_hinting": "unknown", "transform": "normal",
+         "rect": {"x": 0, "y": 0, "width": 1280, "height": 1024},
+         "current_mode": {"width": 1280, "height": 1024, "refresh": 60000},
+         "modes": [{"width": 1280, "height": 1024, "refresh": 60000}]},
+    ]
+
+    def apply(self, persistent):
+        srv = support.FakeSway("ok", outputs=self.OUTPUTS)
+        self.addCleanup(srv.close)
+        ipc = core.SwayIPC(srv.path)
+        backend = core.SwayBackend(ipc)
+        self.addCleanup(backend.close)
+        state = core.State("test", path=os.path.join(self.home, "state.json"))
+        t = core.Target(output=core.OutputState(name="Virtual-2", active=True,
+                                                current=core.Mode(w=1280, h=1024, refresh_mhz=60000)),
+                        stanza=None, enabled=True, mode=core.Mode(w=1280, h=1024, refresh_mhz=60000),
+                        sway_tf="normal", scale=1.0, changed=True)
+        err = io.StringIO()
+        with redirect_stderr(err):
+            backend.apply(state, [t], persistent=persistent)
+        return err.getvalue()
+
+    def test_persistent_writes_the_file(self):
+        self.apply(persistent=True)
+        self.assertEqual(self.rule_lines(), ["output Virtual-2 mode 1280x1024@60.000Hz position 0 0"])
+
+    def test_without_persistent_nothing_is_written(self):
+        self.apply(persistent=False)
+        self.assertFalse(os.path.exists(self.rules), "no --persistent, no file")
+        self.assertFalse(os.path.exists(self.conf), "and no include")
+
+
+if __name__ == "__main__":
+    unittest.main()

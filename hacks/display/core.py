@@ -1540,6 +1540,225 @@ def apply_sway(ipc: SwayIPC, state: State, targets: list) -> list:
     return snapshot_sway(ipc, state)
 
 
+# -- sway --persistent: the layout in a file sway's config sources ------------
+#
+# xrandr has no --persistent; it is wxrandr's own flag, so there is no oracle for WHERE a sway layout is kept,
+# only the AGENTS.md rule that a layout X can save is one we save too.  The live apply above has already landed
+# over the IPC -- --persistent is only about the NEXT session -- and sway keeps nothing of it on disk: the two
+# ways a layout sticks across a sway restart are `~/.config/sway/config` and a file it `include`s (M
+# docs/WXRANDR.md state-restoration table: "nothing on disk; only ~/.config/sway/config makes a layout stick").
+# So the route is a file of our own (`SWAY_CONF_NAME`) carrying one `output ...` line per output this run
+# touched, and an `include` line in sway's config that pulls it in at startup -- AGENTS.md route 2, at the cost
+# of owning a file the user hand-edits.
+
+#: The w11-owned file SwayBackend.apply writes `output` lines into on --persistent, beside sway's config.
+SWAY_CONF_NAME = "w11-outputs.conf"
+
+#: Rewritten in full every time, so whoever opens it knows who wrote it and what removing it does.
+SWAY_CONF_HEADER = (
+    "# Written by wxrandr (w11) -- one `output NAME ...` line per output --persistent applied.\n"
+    "# sway does not watch this file: the layout is already live (it landed over the IPC when the\n"
+    "# command ran), and this file only takes effect at the NEXT sway start or on `swaymsg reload`.\n"
+    "# Delete this file, and the `include` line the sway config carries for it, to be rid of the layout.\n"
+)
+
+#: One `output NAME ...` line in the config, matching `include` and the parser's own spacing.
+_SWAY_OUTPUT_RE = re.compile(r"^\s*output\s+(\S+)\s+.*$")
+#: An `include` line, for finding the one that already points at our file.
+_SWAY_INCLUDE_RE = re.compile(r"^\s*include\s+(.+?)\s*$")
+
+#: What --persistent costs, said out loud: sway does NOT watch its config files, so nothing here is a reload of
+#: the running session -- the layout is already on the screen from the live apply, and this only buys the next
+#: session.  No `swaymsg reload` is sent, and that is deliberate: a reload re-runs every `exec_always`, puts
+#: every output that has no config `output` line back to its preferred mode, and re-applies the config layout
+#: in sway's enumeration order (the rig's own layout is an `exec`, which a reload does NOT re-run, so a reload
+#: there leaves the heads in reverse-enumeration order) -- more than this one file's worth of change, for no
+#: gain the live apply did not already give.
+SWAY_PERSIST_NOTE = ("--persistent: the layout is in %s for the next session too; the running session already "
+                     "has it from the live apply, so no `swaymsg reload` is sent (a reload re-runs every "
+                     "`exec_always` and resets runtime-only settings)\n")
+
+SWAY_INCLUDE_NOTE = "added an `include %s` line to %s\n"
+#: The user config sway would read did not exist, so we created $XDG_CONFIG_HOME/sway/config: it `include`s the
+#: system config first (so the next session keeps every default binding) and our layout file last.
+SWAY_CREATED_NOTE = ("there was no user sway config, so %s was created; it `include`s %s (the system config, so "
+                     "the next session keeps its defaults) first and our layout file last\n")
+#: Same, but there was no system config to seed from either, so the created file carries only our `include`.
+SWAY_CREATED_BARE_NOTE = ("there was no user sway config and no %s either, so %s was created holding only our "
+                          "layout `include`; add your own sway settings there too\n")
+
+
+def sway_config_dir() -> str:
+    """Where sway looks for the user config: `$XDG_CONFIG_HOME/sway`, else `~/.config/sway`."""
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "sway")
+
+
+def _sway_config_path() -> str:
+    return os.path.join(sway_config_dir(), "config")
+
+
+#: The system config sway falls back to when no user config exists (sway(5)).  A module constant so a test can
+#: point it at a temp file; seeded into a config we have to create so the next session keeps its default
+#: bindings instead of losing the whole session to our near-empty file.
+SWAY_SYSTEM_CONFIG = "/etc/sway/config"
+
+
+def _sway_user_configs() -> list:
+    """sway's own user-config search order (sway(5)): the FIRST of these that exists is the file sway reads,
+    so the `include` has to go into that one -- not always `$XDG_CONFIG_HOME/sway/config`, or a user on the
+    legacy `~/.sway/config` would be told their layout is saved into a file sway never opens."""
+    home = os.path.expanduser("~")
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
+    return [
+        os.path.join(home, ".sway", "config"),
+        os.path.join(base, "sway", "config"),
+        os.path.join(home, ".i3", "config"),
+        os.path.join(base, "i3", "config"),
+    ]
+
+
+def _sway_rules_path() -> str:
+    return os.path.join(sway_config_dir(), SWAY_CONF_NAME)
+
+
+def _sway_persist_line(o: OutputState) -> str:
+    """The applied end state of one output as a single sway config `output` line.
+
+    Built from the fresh post-apply snapshot, not the request, so it carries exactly what landed -- the mode
+    sway settled on, the position after layout normalization, the transform and any non-unit scale.  sway's
+    `output` command takes all of these on one line (sway-output(5))."""
+    if not o.active:
+        return "output %s disable" % o.name
+    parts = ["output", o.name]
+    if o.current is not None:
+        m = o.current
+        # A --newmode/--addmode mode comes back nameless from sway and matches the state file's custom Mode
+        # (snapshot_sway); sway only accepts it back with a `mode --custom` word, exactly as `_mode_cmd` sends
+        # it, or it refuses the line at the next start ("mode WxH@RHz not in the output's list").
+        custom = "--custom " if m.custom else ""
+        if m.refresh_mhz:
+            parts.append("mode %s%dx%d@%sHz" % (custom, m.w, m.h, _fmt_refresh(m.refresh_mhz)))
+        else:
+            parts.append("mode %s%dx%d" % (custom, m.w, m.h))
+    parts += ["position", str(o.x), str(o.y)]
+    if o.transform != "normal":
+        parts += ["transform", o.transform]
+    if abs(o.scale - 1.0) > 1e-9:
+        parts += ["scale", "%g" % o.scale]
+    return " ".join(parts)
+
+
+def _read_sway_rules(path: str) -> dict:
+    """{output: full `output ...` line} from our file, or `{}` when it is not there.
+
+    Read so a second `wxrandr --persistent` run for a DIFFERENT output does not take the first output's line
+    out with it -- the file is merged, exactly as `hacks/display/hypr.py` merges its `monitor` rules."""
+    rules = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return rules
+    for ln in text.splitlines():
+        m = _SWAY_OUTPUT_RE.match(ln)
+        if m:
+            rules[m.group(1)] = ln.strip()
+    return rules
+
+
+def _write_sway_rules(lines: dict) -> str:
+    """Merge `lines` ({output: line}) into our file and return its path, renamed into place so a `swaymsg
+    reload` racing the write cannot read half of it."""
+    path = _sway_rules_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    rules = _read_sway_rules(path)
+    rules.update(lines)
+    body = SWAY_CONF_HEADER + "".join("%s\n" % rules[k] for k in rules)
+    tmp = path + ".new"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(body)
+    os.replace(tmp, path)
+    return path
+
+
+_SWAY_INCLUDE_TAG = "\n# w11: wxrandr writes the layout it applies here (AGENTS.md route 2).\n"
+
+
+def _config_includes_us(text: str) -> bool:
+    """True when `text` already `include`s our rules file.
+
+    Matched by BASENAME, not full path: a user who wrote the include with `~`, a relative path, or after
+    moving the file elsewhere already has us, and a second `include` would only be noise -- if they moved the
+    file, that placement is theirs to own."""
+    for ln in text.splitlines():
+        m = _SWAY_INCLUDE_RE.match(ln)
+        if m and os.path.basename(m.group(1).strip().strip('"')) == SWAY_CONF_NAME:
+            return True
+    return False
+
+
+def ensure_sway_include(rules_path: str) -> tuple:
+    """Make the sway config that sway ACTUALLY reads `include` our file, returning `(how, conf)` where how is
+    `"present"`, `"added"`, `"created"` or `"created_bare"` and conf is the config file touched.
+
+    The include is appended to the first config in sway's own search order that exists (`_sway_user_configs`),
+    so a user on the legacy `~/.sway/config` is not told the layout is saved into a `~/.config` file sway never
+    opens, and so our `output` lines are the LAST ones sway reads (they win over the rig's own `output` lines
+    and the layout `exec`).  When none of those exist sway would fall back to /etc/sway/config; rather than
+    shadow that wholesale with a near-empty file -- which would cost the next session its keybindings, bar and
+    every default -- we create `$XDG_CONFIG_HOME/sway/config` that `include`s the system config FIRST and our
+    layout file LAST (`SWAY_CREATED_NOTE`), so the next session keeps every default and still gets our layout.
+    Unlike Hyprland (which writes a whole default config on first run, so `hacks/display/hypr.py` refuses to
+    create one), sway ships no per-user config, so creating one is the only place the `include` can live."""
+    line = "include %s\n" % rules_path
+    for conf in _sway_user_configs():
+        try:
+            with open(conf, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        if _config_includes_us(text):
+            return "present", conf
+        with open(conf, "a", encoding="utf-8") as fh:
+            if text and not text.endswith("\n"):
+                fh.write("\n")
+            fh.write(_SWAY_INCLUDE_TAG + line)
+        return "added", conf
+    conf = _sway_config_path()
+    os.makedirs(os.path.dirname(conf), exist_ok=True)
+    have_system = os.path.exists(SWAY_SYSTEM_CONFIG)
+    seed = ("include %s\n" % SWAY_SYSTEM_CONFIG) if have_system else ""
+    with open(conf, "w", encoding="utf-8") as fh:
+        fh.write("# w11: wxrandr writes the layout it applies here (AGENTS.md route 2).\n" + seed + line)
+    return ("created" if have_system else "created_bare"), conf
+
+
+def persist_sway_layout(targets: list, fresh: list):
+    """--persistent's file half: one `output ...` line per touched output into our file, and the `include`
+    that pulls it into sway's config at the next start.  Nothing here reloads the running session -- the live
+    apply already did that -- so the note names what the flag buys and what it does not."""
+    by = {o.name: o for o in fresh}
+    lines = {}
+    for t in targets:
+        if not t.changed:
+            continue
+        o = by.get(t.name)
+        if o is not None:
+            lines[t.name] = _sway_persist_line(o)
+    if not lines:
+        return
+    path = _write_sway_rules(lines)
+    how, conf = ensure_sway_include(path)
+    if how == "added":
+        warn(SWAY_INCLUDE_NOTE % (path, conf))
+    elif how == "created":
+        warn(SWAY_CREATED_NOTE % (conf, SWAY_SYSTEM_CONFIG))
+    elif how == "created_bare":
+        warn(SWAY_CREATED_BARE_NOTE % (SWAY_SYSTEM_CONFIG, conf))
+    warn(SWAY_PERSIST_NOTE % path)
+
+
 class SwayBackend:
     """The sway/i3 IPC backend in the shape all four of them share: snapshot, predicted_dims, verify, apply,
     close and a name.
@@ -1571,17 +1790,23 @@ class SwayBackend:
         is, and running it would be the apply."""
 
     def apply(self, state: State, targets: list, persistent: bool = False) -> list:
-        """The two-phase RUN_COMMAND apply, and the fresh snapshot it re-reads. `persistent` is accepted for
-        contract parity and ignored: a sway layout lives in sway's own config, and writing it is not done
-        yet -- the route is an `output` line in a file that config sources (AGENTS.md route 2), at the cost
-        of owning a file the user hand-edits.
+        """The two-phase RUN_COMMAND apply, and the fresh snapshot it re-reads.
+
+        `--persistent` writes the layout that just landed into `~/.config/sway/w11-outputs.conf` and makes
+        sway's config `include` it, so it comes back at the next start (AGENTS.md route 2 -- see
+        `persist_sway_layout`).  It is only about the next session: the running one already has the layout
+        from the two phases below, so no `swaymsg reload` is sent.
 
         On i3 nothing is sent at all: there is no `output` command to send it to, so the two phases could only
         produce i3's parse error twice over -- and the first phase would already have recorded the modes it
-        never applied."""
+        never applied.  i3 is X11: the X server owns the layout there, which is what the handover hands
+        `xrandr`, so --persistent has nothing to write."""
         if self.ipc.dialect() == "i3":
             raise Fatal(I3_NO_APPLY)
-        return apply_sway(self.ipc, state, targets)
+        fresh = apply_sway(self.ipc, state, targets)
+        if persistent:
+            persist_sway_layout(targets, fresh)
+        return fresh
 
     def close(self):
         for handle in (self.ipc, self.wlr):
@@ -1591,6 +1816,109 @@ class SwayBackend:
                 handle.close()
             except OSError:
                 pass
+
+
+# -- shared backend selection -------------------------------------------------
+
+OUTPUT_MANAGER_IFACE = "zwlr_output_manager_v1"
+
+
+class NoBackend(Fatal):
+    """No layout reader answered in this session.  A Fatal subclass so a caller that already handles Fatal is
+    unchanged; a distinct type so a caller can turn it into its own Refusal instead, naming what it tried."""
+
+    def __init__(self, tried: list):
+        self.tried = list(tried)
+        super().__init__("no layout protocol is available in this session (tried %s)\n" % ", ".join(tried))
+
+
+def pick_backend(conn=None):
+    """The one layout reader for this session, returned as a backend object with `.snapshot(state)` and
+    `.close()` -- the shape `wxrandr --query` renders and a mirror tool decides from.
+
+    This lifts the reader choice wxrandr's Session makes (`wxrandr/cli.py`, the SwayBackend / KwinOutputs /
+    MutterOutputs / HyprOutputs / WlrOutputs chain) into the shared module, so a second tool can read a
+    Cinnamon, a KWin or a GNOME layout the same way, over the same route-2 bus/IPC, instead of refusing every
+    session without `zwlr_output_manager_v1`.
+
+    The wlr client is kept where it is the answer: any compositor that advertises `zwlr_output_manager_v1`
+    (sway, Hyprland, labwc, river, Wayfire, COSMIC, ...) is read through it -- exactly as before, so the
+    geometry those desktops already print is unchanged.  Only a session that advertises NO such manager
+    falls to the route-2 readers, which is the whole of the gap: KWin's `kde_output_management_v2`, then
+    GNOME's `org.gnome.Mutter.DisplayConfig`, then Cinnamon's `org.cinnamon.Muffin.DisplayConfig` on the
+    session bus.
+    sway's and Hyprland's own IPC are tried last, for a hypothetical wlroots build with the manager compiled
+    out; on a real sway or Hyprland the manager above answers first.
+
+    `conn` is a live `w11common.wayland_mini.WlConn` to reuse for the wayland-native readers (the wlr
+    floor and KWin); None makes each open its own.  Raises `NoBackend` (a `Fatal`) when none answers --
+    which, across every desktop the six readers cover, is only a session that speaks no output protocol
+    we know at all."""
+    from w11common import session as _session
+    tried = []
+
+    # the wlr floor first, wherever it is advertised: zwlr_output_manager_v1
+    tried.append(OUTPUT_MANAGER_IFACE)
+    if conn is not None:
+        if conn.find_global(OUTPUT_MANAGER_IFACE) is not None:
+            try:
+                return WlrOutputs(conn=conn)
+            except (Fatal, OSError):
+                pass
+    else:
+        wlr = wlr_snapshot_safe()
+        if wlr is not None:
+            return wlr
+
+    # KWin's kde_output_management_v2 (wayland-native: reuse the caller's conn when it already carries it)
+    from hacks.display import kwin as _kwin
+    tried.append(_kwin.MGMT)
+    if conn is not None:
+        if conn.find_global(_kwin.MGMT) is not None:
+            try:
+                return _kwin.KwinOutputs(conn=conn)
+            except (Fatal, OSError, RuntimeError, ValueError):
+                pass
+    else:
+        kc = _kwin.probe()
+        if kc is not None:
+            try:
+                return _kwin.KwinOutputs(conn=kc)
+            except (Fatal, OSError, RuntimeError, ValueError):
+                kc.close()
+
+    # GNOME's DisplayConfig, then Cinnamon's copy (mutter before cinnamon, as wxrandr's AUTO_ORDER has it)
+    from hacks.display import mutter as _mutter
+    for flavor in (_mutter.MUTTER, _mutter.MUFFIN):
+        tried.append("%s (D-Bus)" % flavor.dest)
+        bus = _mutter.probe(flavor=flavor)
+        if bus is not None:
+            try:
+                return _mutter.MutterOutputs(bus=bus, flavor=flavor)
+            except (_mutter.DBusError, Fatal, OSError, ValueError):
+                bus.close()
+
+    # sway / i3 IPC, then Hyprland's -- only reachable on a wlroots build with the manager compiled out
+    tried.append("sway/i3 IPC")
+    sock = _session.find_sway_socket()
+    if sock:
+        try:
+            return SwayBackend(SwayIPC(sock), wlr_snapshot_safe())
+        except (Fatal, OSError):
+            pass
+    tried.append("Hyprland IPC")
+    try:
+        hsock = _session.find_hypr_socket()
+    except OSError:
+        hsock = None
+    if hsock:
+        try:
+            from hacks.display import hypr as _hypr
+            return _hypr.HyprOutputs(sock=hsock)
+        except (Fatal, OSError, ImportError):
+            pass
+
+    raise NoBackend(tried)
 
 
 # -- query rendering ----------------------------------------------------------

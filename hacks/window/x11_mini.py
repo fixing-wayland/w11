@@ -50,6 +50,7 @@ _OP_LIST_PROPERTIES = 21
 _OP_SEND_EVENT = 25
 _OP_GET_GEOMETRY = 14
 _OP_QUERY_TREE = 15
+_OP_CONFIGURE_WINDOW = 12
 _OP_TRANSLATE_COORDS = 40
 _OP_GET_INPUT_FOCUS = 43
 _OP_LOOKUP_COLOR = 92
@@ -61,6 +62,25 @@ _EVENT_MASK_SUBSTRUCTURE = 0x180000  # SubstructureNotify|SubstructureRedirect
 _CW_EVENT_MASK = 0x800
 _EV_DESTROY_NOTIFY = 17
 _EV_PROPERTY_NOTIFY = 28
+
+# ConfigureWindow (opcode 12) value-mask bits and the value-list packers for
+# each, in ascending bit order — the wire order X requires for the value list.
+_CW_X = 0x0001
+_CW_Y = 0x0002
+_CW_WIDTH = 0x0004
+_CW_HEIGHT = 0x0008
+_CW_BORDER_WIDTH = 0x0010
+_CW_SIBLING = 0x0020
+_CW_STACK_MODE = 0x0040
+
+# stack-mode values (the last value in a ConfigureWindow value list): what
+# `raise_`/`lower` send as Above/Below. TopIf/BottomIf/Opposite are the three
+# relative modes an XWayland window has no sibling to stack against.
+STACK_ABOVE = 0
+STACK_BELOW = 1
+STACK_TOP_IF = 2
+STACK_BOTTOM_IF = 3
+STACK_OPPOSITE = 4
 
 # Bounded event queue (wxprop -spy): a PropertyNotify storm racing a reply
 # wait must never grow memory without limit; oldest events are shed first.
@@ -645,6 +665,39 @@ class X11Conn:
         self._void(_OP_SEND_EVENT, 0,
                    struct.pack("<II", self._root,
                                _EVENT_MASK_SUBSTRUCTURE) + event)
+
+    def configure_window(self, win: int, x: "int | None" = None, y: "int | None" = None,
+                         width: "int | None" = None, height: "int | None" = None,
+                         border_width: "int | None" = None, sibling: "int | None" = None,
+                         stack_mode: "int | None" = None) -> None:
+        """ConfigureWindow (opcode 12), value-mask form — the request `xdotool windowmove`/`windowsize` and a
+        pager's raise send. Only the arguments that are not None are put in the mask, and the value list is
+        emitted in ascending bit order (x, y, width, height, border_width, sibling, stack_mode) as the protocol
+        requires. x/y are INT16 (sign-extended into the 4-byte slot), the rest CARD32.
+
+        For an XWayland window the request reaches the compositor's own X window manager, so whether it lands is
+        the xwm's business: labwc's honours x/y/width/height (a move and a resize both take), while cosmic-comp's
+        Smithay xwm drops the move and honours only the resize, and every wlroots xwm drops the stack mode
+        (`raise_`/`lower` are a no-op there) — which is exactly what the same request does under the real
+        `xdotool` on each. A no value at all is a no-op, not an empty request."""
+        mask = 0
+        values = []
+        for bit, val, packer in (
+            (_CW_X, x, "<i"),
+            (_CW_Y, y, "<i"),
+            (_CW_WIDTH, width, "<I"),
+            (_CW_HEIGHT, height, "<I"),
+            (_CW_BORDER_WIDTH, border_width, "<I"),
+            (_CW_SIBLING, sibling, "<I"),
+            (_CW_STACK_MODE, stack_mode, "<I"),
+        ):
+            if val is not None:
+                mask |= bit
+                values.append(struct.pack(packer, int(val)))
+        if not mask:
+            return
+        payload = struct.pack("<IHxx", win & 0xFFFFFFFF, mask) + b"".join(values)
+        self._void(_OP_CONFIGURE_WINDOW, 0, payload)
 
     def close(self) -> None:
         if self._sock is not None:

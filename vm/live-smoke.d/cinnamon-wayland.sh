@@ -51,7 +51,8 @@
 #     wdotool type / key Return               byte-exact through /dev/uinput with the package's udev rule
 #     mousemove 300 300 / getmouselocation    x:300 y:300 screen:0 window:1, and Cinnamon's own
 #                                             global.get_pointer() answered "300,300"
-#     wmirror --check                         the two-protocol refusal, rc 1
+#     wmirror --check                         capture: org.Cinnamon.Eval Clutter clone (route 2), rc 0
+#     wmirror V-1 --to V-2 --region ...        a region mirror over Eval; head 1 == head 0's crop, AE 0
 #
 # MEASURED AGAIN 2026-09-12, on a golden carrying Xwayland 24.1.13, `vm/live-smoke.sh
 # resolute-cinnamon-wayland --heads 3` over the working tree: **76 pass, 1 fail** (this flavor's first
@@ -488,25 +489,53 @@ phase_display() {
     want "--listmonitors answers through the MUFFIN flavour (U25)" \
          "Monitors: [0-9]+" "$(guest 'wxrandr --listmonitors 2>&1' || true)"
     common_display_phase
-    # wmirror: muffin publishes neither capture protocol, so the refusal has to be about the COMPOSITOR
-    # (the helper is installed on this image precisely so that it cannot be about the helper).  Mirroring
-    # here is NOT YET, and the route is written down rather than left as a "no": route 4, a ScreenCast
-    # portal backend on Cinnamon (whether xdg-desktop-portal-gtk/-xapp serves ScreenCast under muffin is
-    # unmeasured -- nobody has asked one), and failing that route 3, a Cinnamon extension handing frames
-    # out over Eval/D-Bus.  Either costs a second capture path in wmirror/core.py beside wl-mirror.
+    # wmirror on Cinnamon: muffin publishes neither wl-mirror capture protocol, AND its ScreenCast is
+    # compiled out of libmuffin -- measured on this golden 2026-09-14: `busctl --user list --acquired
+    # --activatable` names org.cinnamon.Muffin.DisplayConfig + .IdleMonitor and NO .ScreenCast (gdbus
+    # introspect -> `ServiceUnknown ... not provided by any .service files`); org.freedesktop.portal.Desktop
+    # exposes Screenshot but no ScreenCast (count 0), neither impl backend (xapp, gtk) serves it, and
+    # libmuffin.so.0.0.0 carries one vestigial MetaScreenCastWindow and none of the service strings.  That
+    # once read as a NOT-YET at route 6 (a muffin rebuilt with screen-cast).  It was WRONG: rung 2 was never
+    # probed, and rung 2 works.  wmirror mirrors here over org.Cinnamon.Eval and a Clutter.Clone of the
+    # on-screen actors, capturing NOTHING at all -- hacks/mirror/cinnamon.py, AGENTS.md route 2.  Measured on
+    # this golden 2026-09-14 (region 1000x700+0+0 of Virtual-1 onto Virtual-2's origin, via the real CLI): a
+    # QMP screendump of head 1 cropped to the region is byte-identical to the same crop of head 0,
+    # `compare -metric AE` 0 / RMSE 0, live, over a native Wayland window, the XWayland wallpaper actors and
+    # the panel; stays 0 after content changes (a Clone tracks its source) and after a window opens (the
+    # restacked/window-created handlers re-walk); --stop tears the actor down and head 1 shows its own pixels
+    # again (AE 700000).  The single Clone of Main.uiGroup magnifier.js uses does NOT mirror across heads
+    # (only the panel, AE 700000/700000).  So --check now EXITS 0 and names the Eval route.  wl-mirror is in
+    # DESKTOP_PKG, so the helper: row is the wl-mirror path, not a missing-helper story.
+    # [docs/WMIRROR.md "Where wl-mirror does not exist"; tests/test_wmirror_cinnamon.py;
+    # tests/test_wmirror_screencast.py.]  RE-HARVEST OWED: --check's output changed and the region-mirror
+    # commands below are new, so this flavor's committed recording is behind this step file.
     st=0
     out=$(guest 'wmirror --check 2>&1') || st=$?
-    same "wmirror --check exits 1 here" "1" "$st"
-    want "--check names both capture protocols that are missing" \
-         "advertises neither zwlr_screencopy_manager_v1 nor ext_image_copy_capture_manager_v1" "$out"
-    # `helper: +/` was the check here until the review: it PASSED on the session whose compositor was dead
-    # (the first run's log line 76), because all it read was that SOME path had been printed.  What the claim
-    # is worth asserting for is the absence of the missing-helper story -- `wl-mirror is not installed (no
-    # `wl-mirror` on PATH)` and core.install_hint()'s apt line, which is what wl-mirror being in DESKTOP_PKG
-    # is there to keep out of this output.
-    wantnot "...and it is the compositor that is named, not a missing wl-mirror" \
-            "not installed|apt(-get)? install|dnf install|pacman -S" "$out"
+    same "wmirror --check exits 0 here (the Eval clone is a capture route)" "0" "$st"
+    want "--check names the Cinnamon Eval capture route (route 2)" \
+         "capture:.*org\.Cinnamon\.Eval Clutter clone \(AGENTS\.md route 2\)" "$out"
+    wantnot "...and it is not a missing-wl-mirror story" \
+            "wl-mirror is not installed|apt(-get)? install|dnf install|pacman -S" "$out"
     [ -n "$second" ] || return 0
+    # The region mirror end to end over Eval, exercised live: build over the (real) CLI, see it in --list,
+    # tear it down.  Layout-agnostic: the region is 800x600 AT THE ANCHOR'S OWN ORIGIN (`opos`), so it is
+    # always inside the anchor.  `shot mirror-region` drops a QMP screendump of every head beside the log for
+    # the eye and the oracle -- the mirrored region shows on the mover head.  The BYTE-IDENTICAL pixel proof
+    # (`compare -metric AE` 0 / RMSE 0, head 1 crop == head 0 crop) is NOT asserted here on purpose: on a
+    # same-size multi-head layout the two heads carry identical wallpaper, so a crop compare is either trivial
+    # or wrong without placing a distinctive window first; it was measured directly instead, via the real CLI
+    # on this golden 2026-09-14 (docs/WMIRROR.md, and the F2 report).  What this gate catches is the whole
+    # Eval path breaking: no route-2 record, or an actor that --stop cannot end.
+    local apos ax ay region
+    apos=$(opos "$first"); ax=${apos%,*}; ay=${apos#*,}
+    region="800x600+${ax:-0}+${ay:-0}"
+    want "wmirror builds a region mirror over Eval (route 2)" "$second <- $first.*AGENTS.md route 2" \
+         "$(guest "wmirror $first --to $second --region $region 2>&1" || true)"
+    want "--list shows the running cinnamon mirror" "$second <- $first.*route 2" \
+         "$(guest 'wmirror --list 2>&1' || true)"
+    shot mirror-region
+    guest "wmirror --stop $second >/dev/null 2>&1" || true
+    same "--list is empty after --stop" "" "$(guest 'wmirror --list 2>&1' | tr -d ' \r\n' || true)"
     # Muffin carries Mutter's validator verbatim -- the strings `Logical monitors not adjacent`,
     # `Logical monitors overlap` and `Logical monitor scales must be identical` are all in
     # libmuffin.so.0.0.0 -- but the recon had no KMS, so no muffin has ever been made to print one.

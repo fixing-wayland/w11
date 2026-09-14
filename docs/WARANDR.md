@@ -432,8 +432,11 @@ onto that one". On wlroots the route is the existing
 [wl-mirror](https://github.com/Ferdi265/wl-mirror), which since 0.2 the
 `wmirror` command drives and supervises (`WMIRROR.md`), a mirror there is a
 resident process, not a layout, so nothing the GUI could save would describe
-it. The route on GNOME, KDE and Cinnamon is the desktop portal's ScreenCast
-(AGENTS.md route 4), which asks once per session and is not wired up here yet, useless from the hotkey that is the whole point of a layout script.
+it. On GNOME and KDE the route is the desktop portal's ScreenCast (AGENTS.md
+route 4), which asks once per session and is not wired up here yet, useless from
+the hotkey that is the whole point of a layout script; on Cinnamon `wmirror`
+already does it over `org.Cinnamon.Eval` and a Clutter clone (route 2, measured
+byte-identical on the rig — `WMIRROR.md`), capturing nothing.
 
 ## Command line (`Layout.args()`)
 

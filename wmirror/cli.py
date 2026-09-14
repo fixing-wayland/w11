@@ -17,7 +17,7 @@ import sys
 from w11common import session, stdio
 
 from . import VERSION
-from hacks.mirror import core, supervise
+from hacks.mirror import cinnamon, core, supervise
 
 
 def _out(line: str = ""):
@@ -77,10 +77,23 @@ def parser() -> argparse.ArgumentParser:
 def _state():
     """(state, records, whether reaping changed them). Every command that reads the records verifies them first:
     the helper is invisible to output management, so this file is the only record there is, and a stale line in
-    it would be a lie."""
+    it would be a lie.
+
+    Two reapers, one over each kind of mirror: `supervise.reap` for the wl-mirror processes (over /proc), and
+    `cinnamon.reap` for the in-muffin Clutter actors (over Eval, and only if there is a cinnamon record to
+    check, so a wl-mirror session opens no bus)."""
     state = core.load_state()
     recs = core.records(state)
-    return state, recs, supervise.reap(recs)
+    changed = supervise.reap(recs)
+    changed = cinnamon.reap(recs) or changed
+    return state, recs, changed
+
+
+def _stop_any(rec: dict) -> bool:
+    """Stop one mirror whatever its kind: a cinnamon actor over Eval, a wl-mirror process over its pids."""
+    if rec.get("kind") == "cinnamon":
+        return cinnamon.stop_record(rec)
+    return supervise.stop_record(rec)
 
 
 def _cmd_list() -> int:
@@ -105,7 +118,7 @@ def _cmd_stop(target: str) -> int:
         if rec is None:
             _err(["no mirror is running on %s" % target, "`wmirror --list` shows the ones that are"])
             return 1
-        supervise.stop_record(rec)
+        _stop_any(rec)
     _out("stopped  %s" % core.fmt_record(target, rec))
     return 0
 
@@ -116,7 +129,7 @@ def _cmd_stop_all() -> int:
         stopped = []
         for target in sorted(recs):
             rec = recs[target]
-            supervise.stop_record(rec)
+            _stop_any(rec)
             stopped.append(core.fmt_record(target, rec))
         if recs or changed:
             recs.clear()
@@ -145,10 +158,15 @@ def _cmd_check() -> int:
     # is or is not installed on this box is true whatever the session is.
     for i, line in enumerate(problem):
         _out(("problem:  " if i == 0 else "          ") + line)
+    # Cinnamon mirrors over Eval and needs no wl-mirror binary, so a missing helper is not a failure there;
+    # computed once (never raises) and reused by the capture row below.
+    cin = cinnamon.available() if hit else False
     helper = core.find_helper()
     if helper:
         version = core.helper_version(helper)
         _out("helper:   %s%s" % (helper, " (%s)" % version if version else ""))
+    elif cin:
+        _out("helper:   not installed (not needed on Cinnamon: mirrors over %s)" % cinnamon.ROUTE)
     else:
         ok = False
         _out("helper:   not installed")
@@ -161,6 +179,11 @@ def _cmd_check() -> int:
         have = core.capture_support(conn)
         if have:
             _out("capture:  %s" % ", ".join("%s v%d" % (i, v) for i, v in have))
+        elif cin:
+            # no wlr capture protocol, but this is Cinnamon: the mirror rides org.Cinnamon.Eval and a Clutter
+            # clone (AGENTS.md route 2, measured AE 0 on the rig -- see hacks/mirror/cinnamon.py), so this is a
+            # session that CAN mirror, not one that cannot.
+            _out("capture:  %s" % cinnamon.ROUTE)
         else:
             ok = False
             for i, line in enumerate(core.no_capture_lines()):
@@ -199,17 +222,100 @@ def _cmd_start(args) -> int:
         # and `xrandr --same-as` is the answer. Say what is missing only where installing it would help.
         if session.find_wayland_socket() is None:
             raise core.Refusal(core.no_session_lines())
+        # A wl-mirror-less Wayland session may still be Cinnamon, which mirrors over org.Cinnamon.Eval and a
+        # Clutter clone (AGENTS.md route 2, measured AE 0 on the rig -- hacks/mirror/cinnamon.py) and needs no
+        # helper at all. Only when it is NOT Cinnamon is the missing package the answer.
+        if cinnamon.available():
+            return _cinnamon_start(args, source, target, region)
         raise core.Refusal(core.missing_helper_lines())
 
     conn = core.open_conn()
     try:
-        core.require_capture(conn)
+        try:
+            core.require_capture(conn)
+            have = True
+        except core.Refusal as e:
+            have, cap_refusal = False, e
         outputs = core.read_outputs(conn)
     finally:
         conn.close()
 
+    if have:
+        with core.state_lock():
+            return _start_locked(args, source, target, region, outputs, helper)
+    # wl-mirror is installed but this compositor advertises no capture protocol. On Cinnamon that binary could
+    # never capture anyway (no wlr protocol) -- the Eval clone is the route; elsewhere (GNOME, KDE) it is the
+    # no-capture refusal, which already names the portal route.
+    if cinnamon.available():
+        return _cinnamon_start(args, source, target, region)
+    raise cap_refusal
+
+
+def _cinnamon_start(args, source, target, region) -> int:
+    """The Cinnamon capture path: read the layout the same way the wl-mirror path does, then build the mirror
+    inside muffin over Eval. Shares `core.decide`'s geometry policy verbatim -- the only difference from
+    `_start_locked` is the thing that gets started."""
+    conn = core.open_conn()
+    try:
+        outputs = core.read_outputs(conn)
+    finally:
+        conn.close()
     with core.state_lock():
-        return _start_locked(args, source, target, region, outputs, helper)
+        return _start_cinnamon_locked(args, source, target, region, outputs)
+
+
+def _recorded_cinnamon(target: str, rec: dict) -> bool:
+    """Is that cinnamon mirror really on disk? -- the token, not a pid, is its identity. A start that could not
+    write the record down destroys the actor again rather than leave a mirror `--stop` cannot find."""
+    try:
+        on_disk = core.records(core.load_state()).get(target)
+    except Exception:
+        return False
+    return (isinstance(on_disk, dict) and on_disk.get("kind") == "cinnamon"
+            and on_disk.get("token") == rec.get("token"))
+
+
+def _start_cinnamon_locked(args, source, target, region, outputs) -> int:
+    state, recs, changed = _state()
+    # --replace must not be destructive on a refusal: decide FIRST, with the record it would replace out of the
+    # way, and only then stop it.
+    running = {k: v for k, v in recs.items() if not (args.replace and k == target)}
+    decision = core.decide(outputs, source, target, region, args.keep_layout, running)
+    if decision.verdict != core.RUN:
+        if changed:
+            state.save()
+        _err(decision.lines)
+        return 0 if decision.verdict == core.DONE else 1
+
+    src = core.by_name(outputs, source)
+    dst = core.by_name(outputs, target)
+    # A whole-output mirror onto a differently-sized head is a clone of the source's full rectangle; a --region
+    # is that rectangle. Either way the Clutter group is clipped to a layout rectangle.
+    eff_region = region if region is not None else src.rect()
+    if args.dry_run:
+        if changed:
+            state.save()
+        _out("org.Cinnamon.Eval: " + cinnamon.build_program(eff_region, dst.x, dst.y))
+        return 0
+    if target in recs:                       # --replace, and it is going
+        _stop_any(recs.pop(target))
+
+    err = cinnamon.start(recs, source, target, eff_region, args.scaling, dst)
+    state.save()
+    if err:
+        _err(err)
+        return 1
+    rec = recs[target]
+    if not _recorded_cinnamon(target, rec):
+        _stop_any(rec)
+        recs.pop(target, None)
+        state.save()
+        _err(["started the mirror but could not write it down in %s"
+              % core.state_path(),
+              "stopped it again rather than leave a mirror nothing can end"])
+        return 1
+    _out(core.fmt_record(target, rec))
+    return 0
 
 
 def _start_locked(args, source, target, region, outputs, helper) -> int:

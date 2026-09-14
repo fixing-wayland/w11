@@ -11,6 +11,7 @@ import hashlib
 import os
 import signal
 import sys
+import time
 
 from w11common.errors import CmdError
 
@@ -128,6 +129,43 @@ def warn(msg: str) -> None:
     sys.stderr.write("%s: %s\n" % (_PROGRAM, msg))
 
 
+def poll_diff_events(list_fn, timeout=None, poll: float = 0.1):
+    """(id, change) in sway's vocabulary from a `list()` diff -- new, focus, title, close -- for the backends
+    whose only window feed is a snapshot they already build: the wlr and cosmic foreign-toplevel floors, whose
+    `activated`/title/closed changes are exactly what `list()` reflects (focused, title, presence).  This is the
+    same shape backend_cinnamon.events() polls, factored out so the two floors ride the toplevel protocol's own
+    changes (AGENTS.md route 1) with one diff.  `timeout` is silence: the iterator ends when nothing has changed
+    for that long, and any event restarts the clock; None waits for ever, which is what every caller does.  A
+    window seen already focused in the poll that first finds it gets both `new` and `focus`, the way sway sends
+    them, since the rising edge a later poll would key on has already gone by."""
+    last = {w.id: w for w in list_fn()}
+    quiet = time.monotonic()
+    while True:
+        time.sleep(poll)
+        now = {w.id: w for w in list_fn()}
+        evs = []
+        for wid, w in now.items():
+            was = last.get(wid)
+            if was is None:
+                evs.append((wid, "new"))
+                if w.focused:
+                    evs.append((wid, "focus"))
+                continue
+            if w.title != was.title:
+                evs.append((wid, "title"))
+            if w.focused and not was.focused:
+                evs.append((wid, "focus"))
+        for wid in last:
+            if wid not in now:
+                evs.append((wid, "close"))
+        last = now
+        if evs:
+            quiet = time.monotonic()
+            yield from evs
+        elif timeout is not None and time.monotonic() - quiet >= timeout:
+            return
+
+
 @dataclasses.dataclass
 class Window:
     id: int = 0
@@ -232,11 +270,12 @@ class WindowBackend:
     name = "none"
 
     # The four sentences below belong to this class and not to any compositor: a backend reaches one by not
-    # having overridden the method, so what is missing is our work.  Measured on 2026-09-09 against the eight
+    # having overridden the method, so what is missing is our work.  Measured 2026-09-14 against the eight
     # backend modules: `set_num_desktops` falls through here on sway, wlr, cosmic, hypr, cinnamon and wayfire,
-    # `select_window` and `events` on wlr and cosmic, `set_window_desktop` on wlr, and every other default
-    # below is overridden everywhere -- gnome and kwin reach none of them.  The bare form is what a fake or a
-    # half-written backend prints, which is why the nine unreachable defaults were left as they were.
+    # and `set_window_desktop` on wlr; `select_window` and `events` are now overridden everywhere -- the wlr
+    # and cosmic floors got both off the toplevel protocol's own changes (XPlaneViews.events/select_window,
+    # gap E), so NOT_YET_SELECT_WINDOW and NOT_YET_EVENTS are the bare form a fake or half-written backend
+    # prints and no shipped backend reaches.  gnome and kwin reach none of the four.
 
     #: `wmctrl -n 4` writes _NET_NUMBER_OF_DESKTOPS and the X window manager makes four, so this is owed on
     #: every compositor.  Every backend that lands here already drives a workspace surface for `set_desktop`,
@@ -355,6 +394,15 @@ class WindowBackend:
     def lower(self, wid: int):
         self._unsupported("windowlower")
 
+    def geometry_is_client_rect(self, wid: int) -> bool:
+        """Do this backend's `move_window`/`resize` address the window's CLIENT rectangle rather than its
+        frame? False for every backend whose Move/Resize takes the frame rect -- KWin, GNOME's bridge -- where
+        `move_resize` (-e) turns the requested client size into a frame size with the measured extents. True
+        only where the request lands as a `ConfigureWindow` on the X plane, whose width/height ARE the client
+        rectangle (a non-reparenting wlroots/Smithay xwm), so `move_resize` must NOT add the extents there --
+        it would resize the client by the server-side title bar's height. See `XPlaneViews`."""
+        return False
+
     def set_state(self, wid: int, state: str, action: int) -> "str | None":
         """state: uppercase _NET_WM_STATE suffix (e.g. "FULLSCREEN"); action: 0=remove 1=add 2=toggle.
 
@@ -367,6 +415,15 @@ class WindowBackend:
         either), wwmctl first tries the EWMH ClientMessage, which reaches an XWayland window through the X
         server the compositor's own API just refused."""
         self._unsupported("windowstate")
+
+    def state_route_is_x_plane(self, wid: int, state: str) -> bool:
+        """Does this backend's `set_state` for `state` on `wid` do nothing but send the same `_NET_WM_STATE`
+        ClientMessage that wwmctl's own X-plane fallback (`_x_set_state`) already sends? False for every
+        backend whose `set_state` has its own route -- GNOME's bridge, KWin's D-Bus, sway's IPC, a refusal --
+        so wwmctl still falls through to it (and to its warning) when the fallback message is dropped. True
+        only for the foreign-toplevel floors (wlr, cosmic), whose tail-state route IS that X send: there
+        wwmctl skips the backend so the message goes out once, not twice, like `wmctrl`. See `XPlaneViews`."""
+        return False
 
     def maximize_pair_state(self) -> "str | None":
         """The one state name that sets or clears BOTH maximize axes in a single set_state() call, for a backend

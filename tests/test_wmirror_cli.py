@@ -30,6 +30,7 @@ from w11common import passthrough
 from w11common import session
 from w11common import procs
 from wmirror import cli
+from hacks.mirror import cinnamon
 from hacks.mirror import core
 from hacks.mirror import supervise
 from hacks.display import core as wxcore
@@ -47,11 +48,14 @@ SOCKET = "/run/user/1000/wayland-0"
 
 
 def run(argv, outputs=None, helper="/usr/bin/wl-mirror", capture=True,
-        wayland=SOCKET):
+        wayland=SOCKET, cinnamon_ok=False):
     """cli.main() with the compositor faked out. -> (rc, stdout, stderr).
 
     `wayland=None` is a session with no wayland socket at all -- an X11
-    login, where what is missing is not a package."""
+    login, where what is missing is not a package. `cinnamon_ok` says whether
+    `org.Cinnamon` is on the session bus (the Eval mirror route); it is off by
+    default and off is what every wl-mirror/GNOME/KDE test wants, so the
+    capture fork is deterministic and never reaches a real bus."""
     conn = mock.Mock()
     hit = (1000, "user", wayland) if wayland else None
     patches = [
@@ -59,6 +63,7 @@ def run(argv, outputs=None, helper="/usr/bin/wl-mirror", capture=True,
         mock.patch.object(core, "read_outputs", return_value=outputs or []),
         mock.patch.object(core, "find_helper", return_value=helper),
         mock.patch.object(session, "find_wayland_socket", return_value=hit),
+        mock.patch.object(cinnamon, "available", return_value=cinnamon_ok),
     ]
     if capture:
         patches.append(mock.patch.object(
@@ -463,13 +468,9 @@ class Detection(Base):
         self.assertIn("AGENTS.md route 4", capture)
         self.assertIn("not wired up here yet", capture)
 
-        with mock.patch.object(wxcore, "WlrOutputs", side_effect=wxcore.Fatal("no manager")):
-            with self.assertRaises(core.Refusal) as cm:
-                core.read_outputs(mock.Mock())
-        layout = " ".join(cm.exception.lines)
-        self.assertIn(core.OUTPUT_MANAGER, layout)
-        self.assertIn("AGENTS.md route 2", layout)
-        self.assertIn("not yet here", layout)
+        # Reading the layout without zwlr_output_manager_v1 was the third such gap; it is closed now (the
+        # route-2 readers below), so what read_outputs refuses is only a session that speaks no output
+        # protocol at all -- a dead end, not a "not yet", and it may not pretend to be one.  See LayoutReaders.
 
     def test_the_escape_hatch_does_not_decide_this(self):
         """W11_PASSTHROUGH is about handing over to an X11 original,
@@ -499,17 +500,109 @@ class OutputModel(Base):
                     "preferred": False}
 
         wlr = mock.Mock()
+        wlr.name = "wlroots"                       # the wlr floor: read with no state, exactly as before
         wlr.live_heads.return_value = [
             head("A", True, 0, 0, 0, 1.0, [mode(1, 1920, 1080)], 1),
             head("B", True, 1920, 0, 1, 2.0, [mode(2, 2560, 1440)], 2),
             head("C", False, 0, 0, 0, 1.0, [], None),
         ]
+        # snapshot() is what WlrOutputs.snapshot really is -- snapshot_wlr(self, state) -- so the mock runs
+        # the same arithmetic on its fake heads that a live wlr floor would.
+        wlr.snapshot.side_effect = lambda state: wxcore.snapshot_wlr(wlr, state)
+        conn = mock.Mock()
+        conn.find_global.return_value = (7, 4)     # this compositor advertises zwlr_output_manager_v1
         with mock.patch.object(wxcore, "WlrOutputs", return_value=wlr):
-            outs = core.read_outputs(mock.Mock())
+            outs = core.read_outputs(conn)
         self.assertEqual(outs[0].geom(), "1920x1080+0+0")
         self.assertEqual(outs[1].geom(), "720x1280+1920+0")   # 90deg, scale 2
         self.assertFalse(outs[2].active)
         self.assertEqual(outs[2].geom(), "0x0+0+0")
+        wlr.snapshot.assert_called_once_with(None)            # the floor never consults the state store
+
+
+class LayoutReaders(Base):
+    """read_outputs closes fix F1: a compositor that advertises no zwlr_output_manager_v1 -- Cinnamon's Muffin,
+    KWin, GNOME -- is read over its own route-2 bus/IPC (the readers wxrandr's --query already uses), where it
+    used to be a flat "not yet" refusal.  The wlr client is kept where it is the answer, unchanged."""
+
+    def conn_with(self, *ifaces):
+        """A fake WlConn that advertises exactly `ifaces` (each `find_global` hit is a (name, version) tuple)."""
+        have = set(ifaces)
+        conn = mock.Mock()
+        conn.find_global.side_effect = lambda iface: (7, 4) if iface in have else None
+        return conn
+
+    def test_the_wlr_floor_is_kept_where_it_is_advertised(self):
+        conn = self.conn_with(wxcore.OUTPUT_MANAGER_IFACE)
+        wlr = mock.Mock()
+        wlr.name = "wlroots"
+        wlr.conn = conn
+        wlr.snapshot.return_value = ["floor"]
+        with mock.patch.object(wxcore, "WlrOutputs", return_value=wlr) as W:
+            out = core.read_outputs(conn)
+        self.assertEqual(out, ["floor"])
+        W.assert_called_once_with(conn=conn)
+        wlr.snapshot.assert_called_once_with(None)   # the floor is read stateless, as it always was
+
+    def test_a_muffin_session_is_read_over_its_displayconfig(self):
+        """The gap's own golden: Cinnamon publishes no wlr output manager, so read_outputs must reach Muffin's
+        copy of Mutter's DisplayConfig (mutter.MUFFIN) on the session bus, and hand it a state store the way
+        wxrandr --query does -- not refuse."""
+        from hacks.display import mutter as mutter_mod
+        conn = self.conn_with()                      # neither the wlr manager nor kde_output_management_v2
+        mo = mock.Mock()
+        mo.name = "cinnamon"
+        mo.snapshot.return_value = ["muffin-layout"]
+
+        def probe(flavor=mutter_mod.MUTTER):
+            return object() if flavor is mutter_mod.MUFFIN else None
+        with mock.patch.object(mutter_mod, "probe", side_effect=probe), \
+                mock.patch.object(mutter_mod, "MutterOutputs", return_value=mo) as MO:
+            out = core.read_outputs(conn)
+        self.assertEqual(out, ["muffin-layout"])
+        self.assertIs(MO.call_args.kwargs["flavor"], mutter_mod.MUFFIN)
+        self.assertIsNotNone(mo.snapshot.call_args.args[0])   # a real state store, not None
+        mo.close.assert_called_once()                # the bus reader owns its connection and is closed
+
+    def test_a_gnome_session_is_read_over_mutter_displayconfig(self):
+        from hacks.display import mutter as mutter_mod
+        conn = self.conn_with()
+        mo = mock.Mock()
+        mo.name = "mutter"
+        mo.snapshot.return_value = ["gnome-layout"]
+        with mock.patch.object(mutter_mod, "probe", return_value=object()), \
+                mock.patch.object(mutter_mod, "MutterOutputs", return_value=mo) as MO:
+            out = core.read_outputs(conn)
+        self.assertEqual(out, ["gnome-layout"])
+        self.assertIs(MO.call_args.kwargs["flavor"], mutter_mod.MUTTER)   # GNOME before Cinnamon
+
+    def test_a_kwin_session_is_read_over_kde_output_management(self):
+        from hacks.display import kwin as kwin_mod
+        conn = self.conn_with(kwin_mod.MGMT)         # KDE advertises this, not the wlr manager
+        ko = mock.Mock()
+        ko.name = "kwin"
+        ko.conn = conn
+        ko.snapshot.return_value = ["kwin-layout"]
+        with mock.patch.object(kwin_mod, "KwinOutputs", return_value=ko) as KO:
+            out = core.read_outputs(conn)
+        self.assertEqual(out, ["kwin-layout"])
+        KO.assert_called_once_with(conn=conn)
+        ko.close.assert_not_called()                 # KWin reuses the caller's conn: not ours to close
+
+    def test_a_session_with_no_output_protocol_is_a_dead_end_not_a_not_yet(self):
+        """When not one of the six readers answers, read_outputs still refuses -- but it names what it tried
+        and does NOT dress the dead end up as a gap with a route, because there is no lower rung to name."""
+        from hacks.display import mutter as mutter_mod
+        conn = self.conn_with()
+        with mock.patch.object(mutter_mod, "probe", return_value=None), \
+                mock.patch.object(session, "find_sway_socket", return_value=None), \
+                mock.patch.object(session, "find_hypr_socket", return_value=None):
+            with self.assertRaises(core.Refusal) as cm:
+                core.read_outputs(conn)
+        lines = " ".join(cm.exception.lines)
+        self.assertIn("no output protocol", lines)
+        self.assertIn(core.OUTPUT_MANAGER, lines)    # the readers it walked are named
+        self.assertNotIn("not yet", lines)
 
 
 # -- the command line ---------------------------------------------------------

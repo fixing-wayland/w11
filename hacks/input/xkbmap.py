@@ -1746,12 +1746,12 @@ def _hypr_keyboard(devices):
     existed wdotool said it was guessing and typed CORRECTLY, because the guess (US) was what the injected
     device really was [recon2/hyprland.md §3].
 
-    NOT YET, and the fourth rule is ours to write rather than a rung of AGENTS.md's ladder: the uinput
-    encoder must ask for the group ITS OWN device is in, which is a different question from the one
-    `keys explain` answers about the session, so this function stays right and the caller gains a second
-    one.  Below that sits route 2 -- `hyprctl switchxkblayout wdotool-virtual-keyboard <n>` before the
-    injection -- which moves the session's own state and would have to put it back.
-    `vm/live-smoke.d/hypr.sh:layout_phase` carries it as the xwant that names this.
+    CLOSED by the fourth rule, `HyprLayouts._group_of_our_device` (AGENTS.md route 2): the process that
+    holds /dev/uinput open -- the daemon -- puts ITS OWN device into the group it is about to encode for
+    with the bare `switchxkblayout <our device> <n>` over the socket it already holds; our device alone
+    moves, so the session keeps the user's group and this function stays right about the session for
+    `keys explain`.  `vm/live-smoke.d/hypr.sh:layout_phase` carries the `want` that measures it, green on
+    resolute-hypr 0.53.3 and arch-hypr 0.56.2.
     """
     kbs = devices.get("keyboards") if isinstance(devices, dict) else None
     if not isinstance(kbs, list):

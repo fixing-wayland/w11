@@ -204,7 +204,27 @@ and the bytes are named wherever a number is.
   `_NET_CLIENT_LIST`, `_NET_WM_STATE_SHADED`, and the `--vkbd` refusal naming Muffin). `wmctrl
   --true-geometry` — a flag wmctrl never had — prints the compositor's own rectangle instead of
   wmctrl's doubled `absolute + parent-relative` origin.
-- **5464 tests**, up from 4146, the new ones being the four new window and display
+- **The reachable What-differs gaps closed, and the ones that need a patched compositor
+  named as such.** `wdotool behave W focus`/`blur` and `mouse-enter`/`mouse-leave` now watch
+  each backend's event stream and pointer query and fire on the transition, xdotool's shared
+  focus subscription and edge-poll timing reproduced (`hacks/input/edges.py`); `mouse-click`
+  and the sway/wlr/cosmic `behave_screen_edge` stay **not yet** with their route (evdev, or a
+  layer-shell strip) written down. On Hyprland the uinput `type` path types byte-exact under a
+  non-US group: XKB state is per device there, so `xkbmap.HyprLayouts` switches wdotool's own
+  virtual keyboard into the session's group over the socket and puts it back, where a `de`
+  session used to land a plain `q` for `type -- z` (measured resolute-hypr, 0.53.3). `wxrandr
+  --persistent` writes `~/.config/hypr/w11-monitors.conf` with a `source =` line on Hyprland
+  (route 2, arch-hypr 0.56.2) and `~/.config/cinnamon-monitors.xml` on Cinnamon. `wmirror`
+  region-mirrors on Cinnamon over its screencast path. The per-backend `windowstate` tail
+  (SHADED/ABOVE/BELOW/SKIP_*) and COSMIC move/resize land on the X plane through
+  `x11_mini.py`'s geometry arithmetic. The **GROW** framebuffer-enlarge is real on a rig with
+  a new enough aquamarine — arch-hypr's 0.56.2 (aquamarine 0.15.0) grows `Virtual-1` back to
+  1920x1080 on the same QEMU `virtio-vga` line where resolute-hypr's 0.53.3 (aquamarine 0.9.x)
+  fails the atomic KMS plane test; that one row is **route 6**, an aquamarine Ubuntu 26.04 does
+  not ship, and `wxrandr` itself needs no change. A native (non-XWayland) toplevel's real
+  rectangle on the bare wlr floor stays the one surviving geometry **not yet**, route 1, a
+  foreign-toplevel protocol that carries a rect — none exists yet.
+- **5578 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and

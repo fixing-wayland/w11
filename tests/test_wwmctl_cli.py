@@ -811,11 +811,72 @@ class ActionTest(unittest.TestCase):
                               ("activate", 6)]))
 
 
+class _ClientRectBackend:
+    """A floor-style backend (wlr/cosmic shape) whose move/resize address the CLIENT rectangle -- the X
+    plane's ConfigureWindow -- so `geometry_is_client_rect` is True. Its `find()` reports a frame rect 36 px
+    taller than the X client rect the tool measures, which is cosmic-comp's server-side title bar."""
+
+    name = "wlr"
+
+    def __init__(self):
+        self.calls = []
+        self.client_rect = True
+
+    def geometry_is_client_rect(self, wid):
+        return self.client_rect
+
+    def find(self, wid):
+        # the frame rect: 36 px taller than the client rect _CLIENT_X11 reports
+        return Window(id=wid, title="x", class_="xterm", pid=1, x=0, y=0, w=484, h=352,
+                      focused=False, visible=True, desktop=0)
+
+    def resize(self, wid, w, h):
+        self.calls.append(("resize", wid, w, h))
+
+    def move_window(self, wid, x, y):
+        self.calls.append(("move", wid, x, y))
+
+
+class _ClientX11(FakeX11):
+    def get_geometry(self, win):
+        return (0, 0, 484, 316)   # the X client rect: 36 px shorter than the toplevel frame rect
+
+
 class MoveResizeTest(unittest.TestCase):
     def _floating(self):
         specs = [dict(s) for s in SPECS]
         specs[0]["floating"] = True
         return FakeSwayBackend(specs)
+
+    def _client_rect_e(self, hook_on):
+        """`wwmctl -e 0,-1,-1,640,360` through Core over a client-rectangle backend; returns its resize call.
+        `hook_on` toggles `geometry_is_client_rect` so both halves of the rule are exercised from one place."""
+        b = _ClientRectBackend()
+        b.client_rect = hook_on
+        c = core.Core(backend=b)
+        c._views_seen = True          # a views() listing happened: _measure_extents may run
+        c._x11 = _ClientX11()
+        w = core.UWindow(id=0x600012, node_id=5, is_x=True, x=0, y=0, w=484, h=316,
+                         fx=0, fy=0, fw=484, fh=352)
+        self.assertEqual(c.move_resize(w, "0,-1,-1,640,360"), 0)
+        return b.calls
+
+    def test_e_on_a_client_rect_backend_sends_the_client_size_not_the_frame_size(self):
+        """wwmctl-review must_fix: on the wlr/cosmic floors an XWayland window's -e goes out as a
+        ConfigureWindow whose width/height ARE the client rectangle (a non-reparenting xwm). So -e must NOT
+        fold the server-side title bar into the size the way it does for KWin/GNOME, whose Move/Resize take
+        the frame rect. `wwmctl -e 0,-1,-1,640,360` on a cosmic-comp xterm whose toplevel rect is 36 px
+        taller than its X client rect must resize the client to 640x360, not 640x396.
+
+        Proven to fail once: reverting the `geometry_is_client_rect` branch in `move_resize` folds the 36 px
+        back in (resize 640x396), which is what the tree did before the fix."""
+        self.assertEqual(self._client_rect_e(hook_on=True), [("resize", 5, 640, 360)])
+
+    def test_e_without_the_client_rect_hook_still_folds_the_frame(self):
+        """The other half of the rule: a backend whose Move/Resize take the FRAME rect (the default,
+        KWin/GNOME) keeps the +36 fold. The hook -- not a blanket change to `move_resize` -- is what moves
+        the wlr/cosmic floors onto the client rectangle."""
+        self.assertEqual(self._client_rect_e(hook_on=False), [("resize", 5, 640, 396)])
 
     def test_e_full(self):
         rc, _o, err, b = run(["-r", "Mail", "-e", "0,10,20,300,200"],
@@ -1283,6 +1344,39 @@ class XStateFallbackTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("ignoring", err)
         self.assertEqual([c for c in x.calls if c[0] == "client_message"], [])
+
+    def test_a_tail_state_on_a_client_rect_floor_is_sent_once_not_twice(self):
+        """wwmctl-review should_fix: on the wlr/cosmic floors a tail state's own route (backend.set_state)
+        IS the same _NET_WM_STATE ClientMessage the tool's X fallback already sends. When the xwm drops it
+        (cosmic-comp), the tool must not then fall through to the backend and re-send it -- wmctrl sends the
+        message once and returns. So `state_route_is_x_plane` being True means exactly one ClientMessage
+        goes out and no `; ignoring` warning is printed.
+
+        Proven to fail once: with `state_route_is_x_plane` absent the dropped fallback falls through to
+        backend.set_state, whose CmdError drives a SECOND _x_set_state -- two messages and an `; ignoring`."""
+        x = FakeX11()
+        x.wm_honours_state = False   # the xwm drops _NET_WM_STATE, like cosmic-comp's Smithay xwm
+        b = FakeSwayBackend([dict(s) for s in SPECS])
+        b.unsupported_states = lambda: {"ABOVE"}
+        b.state_route_is_x_plane = lambda wid, state: True
+        rc, _o, err, _b = run(["-r", "Mail", "-b", "add,above"], backend=b, x11=x)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len([c for c in x.calls if c[0] == "client_message"]), 1)
+        self.assertNotIn("ignoring", err)
+
+    def test_a_tail_state_the_backend_does_not_route_to_x_still_falls_through(self):
+        """The guard on the fix: a backend whose route for the state is NOT the X plane (GNOME's bridge,
+        KWin) must still get its say -- and its `; ignoring` warning -- when the fallback message is dropped.
+        Without `state_route_is_x_plane` the tool falls through, so two messages go out and the warning
+        prints, exactly as before the should_fix."""
+        x = FakeX11()
+        x.wm_honours_state = False
+        b = FakeSwayBackend([dict(s) for s in SPECS])
+        b.unsupported_states = lambda: {"ABOVE"}   # named unsupported, but no X-plane route declared
+        rc, _o, err, _b = run(["-r", "Mail", "-b", "add,above"], backend=b, x11=x)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len([c for c in x.calls if c[0] == "client_message"]), 2)
+        self.assertIn("ignoring", err)
 
 
 class WarnAndSucceedTest(unittest.TestCase):

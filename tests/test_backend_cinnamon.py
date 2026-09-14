@@ -113,6 +113,8 @@ class MockCinnamon(_FakeService):
         self.screen = screen
         self.pointer = pointer
         self.work_area = (0, 0, 1920, 1040)     # measured on the X11 session [§3.1]
+        self.pick = None           # what the selectwindow actor has captured: [x, y, button] or None
+        self.armed_pick = None     # a click a test arms: PICK_INSTALL makes it the capture, as if it landed
         self.scripts = []          # every script that arrived, in order
         self.unknown = []          # ...and the ones this mock could not read
         self.resize_lag = 0        # list replies before a resize becomes visible
@@ -167,6 +169,16 @@ class MockCinnamon(_FakeService):
             return json.dumps(list(self.screen))
         if script == js.POINTER:
             return json.dumps([self.pointer[0], self.pointer[1], 0])
+        if script == js.PICK_INSTALL:
+            self.pick = self.armed_pick   # a test's armed click "lands" as soon as the actor is up
+            return "ok"            # a bare-string program: eval yields "ok", read with _eval
+        if script == js.PICK_DESTROY:
+            self.pick = None
+            return "ok"
+        if script == js.PICK_POLL:
+            # a JSON.stringify(...) program: eval yields the JSON string, read with _json (twice-decoded).
+            # The actor records exactly one press and destroys itself, so once picked it stays picked.
+            return json.dumps(self.pick)
         m = self.ACTIVATE_WS.match(script)
         if m:
             self.active = int(m.group(1))
@@ -592,20 +604,22 @@ class Acting(CinnamonCase):
     def test_the_pointer_is_the_compositors_own(self):
         self.assertEqual(self.backend().pointer(), (120, 240))
 
-    def test_there_is_no_picker(self):
-        """`global.stage.grab` does not exist in muffin's Clutter [M cinnamon.md §2.3], so the refusal owes
-        the route. A reactive Clutter actor is code inside Cinnamon, but this backend already pushes JS in
-        over `org.Cinnamon.Eval` with nothing installed, and AGENTS.md line 33 files Eval under rung 2 --
-        the lowest rung that does the job is the one the sentence must name, so it is 2 and not the 3 an
-        extension would be. Pinned whole: this is the one byte-for-byte copy of the sentence, and the same
-        constant is what wxprop prints as its hint."""
-        with self.assertRaises(CmdError) as cm:
-            self.backend().select_window()
-        self.assertTrue(getattr(cm.exception, "unsupported", False))
-        self.assertEqual(str(cm.exception),
-                         "selectwindow is not supported by the cinnamon backend: picking a window by "
-                         "clicking is not yet done on Cinnamon (AGENTS.md route 2, a reactive Clutter "
-                         "actor through org.Cinnamon.Eval); name the window another way")
+    def test_the_picker_returns_the_window_under_the_click(self):
+        """`global.stage.grab` does not exist in muffin's Clutter, so the picker is a reactive full-stage
+        Clutter actor pushed in over `org.Cinnamon.Eval` (AGENTS.md route 2, nothing installed).  It records
+        the press into `global.__w11_pick`; wdotool polls it and hit-tests the coordinates against `list()`.
+        Validated live on resolute-cinnamon-wayland 2026-09-14: install answered "ok", a QMP-injected left
+        click at ~520,360 came back `[519,359,1]`, and destroy answered "ok"."""
+        # XTERM (recon §2.3) sits at 400,337 484x316; a click at 800,400 is inside it alone (FOOT ends at
+        # x=746) and resolves to its stable sequence.
+        self.svc.armed_pick = [800, 400, 1]
+        wid = self.backend().select_window()
+        self.assertEqual(wid, XTERM["seq"])
+        self.assertIn(js.PICK_INSTALL, self.svc.scripts)
+
+    def test_the_hint_is_to_click(self):
+        # not sway's "focus it": the actor grabs the click, so xdotool's own instruction stands.
+        self.assertIn("click", self.backend().select_window_hint)
 
     def test_x_info_defers_to_the_session_scan(self):
         """muffin has no `get_x11_display()` to ask, and writes `.mutter-Xwaylandauth.*`, which

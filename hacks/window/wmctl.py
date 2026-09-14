@@ -451,10 +451,20 @@ class Core:
         # collapses to NorthWest. Requests the compositor cannot honor (moving a tiled window, touching a
         # fullscreen one) are warned about and ignored, matching "the WM may ignore the request".
         backend = self.backend()
-        ext = self._measure_extents(w)
-        if ext is None:
-            _warn("window moved while measuring the frame; ignoring")
-            return 0
+        client_rect = getattr(backend, "geometry_is_client_rect", None)
+        if callable(client_rect) and client_rect(w.node_id):
+            # The backend's move/resize address the client rectangle itself -- the X plane's `ConfigureWindow`
+            # on an XWayland window, whose width/height ARE the client size. So the extents are zero by this
+            # code's own rule ("where the compositor manages the client rectangle itself ... they are zero"):
+            # adding a server-side title bar (cosmic-comp's 36 px) would resize the client by it, which is not
+            # what wmctrl does -- wmctrl falls back to XMoveResizeWindow when _NET_MOVERESIZE_WINDOW is not in
+            # _NET_SUPPORTED, and these xwms do not advertise it, so its bytes are the client rectangle too.
+            ext = (0, 0, 0, 0)
+        else:
+            ext = self._measure_extents(w)
+            if ext is None:
+                _warn("window moved while measuring the frame; ignoring")
+                return 0
         left, top, right, bottom = ext
         cw = ww if ww != -1 else w.fw - left - right
         ch = hh if hh != -1 else w.fh - top - bottom
@@ -600,8 +610,17 @@ class Core:
         skip = self._compositor_cannot_set() if w.is_x else frozenset()
         names = [p.upper() for p in (p1, p2) if p is not None]
         for name, atoms in self._state_steps(names):
-            if name in skip and self._x_set_state(w, atoms, action):
-                continue
+            if name in skip:
+                took = self._x_set_state(w, atoms, action)
+                # The tool has now taken the X plane for a state the backend named unsupported. Skip the
+                # backend when the message landed -- and also when the backend's own route for this state IS
+                # that same X send (the wlr/cosmic floors: `set_state` there re-sends the identical
+                # ClientMessage), so it goes out once, not twice, matching `wmctrl`. Where the backend has a
+                # different route (GNOME's bridge, KWin) fall through when the message was dropped, so its own
+                # warning still reaches the user.
+                route_hook = self._backend_hook("state_route_is_x_plane")
+                if took or (callable(route_hook) and route_hook(w.node_id, name)):
+                    continue
             try:
                 why = self.backend().set_state(w.node_id, name, action)
             except CmdError as e:
