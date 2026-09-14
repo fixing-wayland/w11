@@ -29,7 +29,7 @@ import time
 
 from w11common import distro, session
 from w11common.errors import CmdError
-from wxrandr import core as wxcore
+from hacks.display import core as wxcore
 
 HELPER = "wl-mirror"
 

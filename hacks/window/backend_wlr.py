@@ -37,8 +37,8 @@ import time
 from w11common import session
 from w11common.errors import CmdError
 from w11common.wayland_mini import WlConn
-from wdotool import ext_workspace, xid_match
-from wdotool.backend import View, Window, WindowBackend, warn
+from hacks.window import ext_workspace, xid_match
+from hacks.window.backend import View, Window, WindowBackend, warn
 
 BASE_ID = 1000000
 
@@ -255,7 +255,7 @@ class XPlaneViews:
         display = session.find_x_display(self.uid) or None
         xauth = session.find_xauthority(self.uid) or None
         try:
-            from wdotool import x11_mini
+            from hacks.window import x11_mini
             self._x = x11_mini.X11Conn(display, xauthority=xauth)
         except Exception:   # no X plane: every xid stays 0
             self._x = None

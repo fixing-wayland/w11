@@ -52,7 +52,7 @@ from support import write_xauth                                    # noqa: E402
 from w11common import passthrough                                  # noqa: E402
 from w11common import session                                      # noqa: E402
 from w11common.errors import CmdError                              # noqa: E402
-from wdotool import x11_mini                                       # noqa: E402
+from hacks.window import x11_mini  # noqa: E402
 from xw11 import cli as cli_mod                                    # noqa: E402
 from xw11 import display as display_mod                            # noqa: E402
 from xw11 import wrap                                              # noqa: E402

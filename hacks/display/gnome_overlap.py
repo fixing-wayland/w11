@@ -362,7 +362,7 @@ def only_positions_differ(plan, current):
     through DisplayConfig first, and this is where that is noticed -- before
     anything is written -- instead of the extension quietly applying half of it.
     """
-    from wxrandr import mutter as mutter_mod
+    from hacks.display import mutter as mutter_mod
     strip = lambda canon: sorted(entry[2:] for entry in canon)      # noqa: E731
     return strip(mutter_mod._canon(plan)) == strip(current or [])
 

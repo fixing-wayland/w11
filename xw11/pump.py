@@ -216,7 +216,7 @@ class Pump:
         inside a call on [recon/seams.md 2.2] -- and the hand-off to everyone
         else holding the old backend happens under the same lock, so no read
         can land between the swap here and the swap there."""
-        from wdotool import backend_detect
+        from hacks.window import backend_detect
 
         from xw11 import shadow as shadow_mod
         with (self._block if self._block is not None
@@ -254,7 +254,7 @@ class Pump:
         """`backend.events` where the backend really overrides it, None where it
         would only raise -- `wxprop.core._events_hook` (core.py:1072) is that
         test and is imported here rather than repeated."""
-        from wxprop.core import _events_hook
+        from hacks.property.core import _events_hook
         return _events_hook(self.backend)
 
     def _poll_forever(self) -> None:

@@ -76,12 +76,12 @@ from w11common import session
 from w11common.dbus_mini import (ERR, METHOD_CALL, NAME_FLAG_DO_NOT_QUEUE,
                                  NO_REPLY_EXPECTED, Bus, DBusError, no_bus_text)
 from w11common.errors import CmdError
-from wdotool import kwin_js
-from wdotool.backend import ID_BASE as _ID_BASE, ID_MASK as _ID_MASK, ID_SALT_STEP
-from wdotool.backend import View, Window, WindowBackend, Workspace, warn as _warn
+from hacks.window import kwin_js
+from hacks.window.backend import ID_BASE as _ID_BASE, ID_MASK as _ID_MASK, ID_SALT_STEP
+from hacks.window.backend import View, Window, WindowBackend, Workspace, warn as _warn
 # The XWayland matcher moved to a module of its own (wdotool/xid_match.py): every wlroots-family
 # backend has the same pairing to do and none of them is KWin. Nothing about it changed.
-from wdotool.xid_match import match_xids as _match_xids
+from hacks.window.xid_match import match_xids as _match_xids
 from wdotool.ctx import NoSessionError
 
 KWIN_NAME = "org.kde.KWin"
@@ -908,7 +908,7 @@ class KwinBackend(WindowBackend):
             return None
         info = self.x_info() or ("", "")
         try:
-            from wdotool import x11_mini
+            from hacks.window import x11_mini
             self._x = x11_mini.X11Conn(info[0] or None, xauthority=info[1] or None)
         except Exception:  # no X plane: xid stays 0
             self._x = None

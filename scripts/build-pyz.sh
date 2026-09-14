@@ -21,7 +21,14 @@ build() { # name entry_module packages...
   name=$1; entry=$2; shift 2
   rm -rf dist/.stage
   mkdir -p dist/.stage
-  for p in "$@"; do cp -r "$p" "dist/.stage/$p"; done
+  for p in "$@"; do
+    case $p in
+      hacks/*) mkdir -p dist/.stage/hacks
+               cp hacks/__init__.py dist/.stage/hacks/
+               cp -r "$p" "dist/.stage/$p" ;;
+      *) cp -r "$p" "dist/.stage/$p" ;;
+    esac
+  done
   find dist/.stage -name __pycache__ -type d -exec rm -rf {} +
   printf '# %s-clone: %s (X11 passthrough marker, see w11common/passthrough.py)\nimport sys\nfrom %s import main\n\nsys.exit(main())\n' \
     "$MARKER" "$name" "$entry" > dist/.stage/__main__.py
@@ -46,21 +53,21 @@ build() { # name entry_module packages...
 # XWayland ids KWin 6 does not export, and the WM_CLASS pair 5.27
 # lower-cases; since it lives in wdotool the shipped wdotool answers like a
 # source checkout with nothing else in the bundle.
-build wdotool wdotool.cli w11common wdotool
-build wwmctl  wwmctl.cli  w11common wdotool wwmctl
-build wxprop  wxprop.cli  w11common wdotool wxprop
+build wdotool wdotool.cli w11common wdotool hacks/input hacks/window
+build wwmctl  wwmctl.cli  w11common wdotool wwmctl hacks/input hacks/window
+build wxprop  wxprop.cli  w11common wdotool wxprop hacks/input hacks/window hacks/property
 # The three display tools import no wdotool at all: what they used of it --
 # CmdError, stdio and procs -- is in w11common, so a zipapp of one of them no
 # longer drags in the keysym table, the input daemon and four window
 # backends for three small files. That is 680 kB off each of the three.
-build wxrandr wxrandr.cli w11common wxrandr
+build wxrandr wxrandr.cli w11common wxrandr hacks/display
 # warandr bundles wxrandr: on Wayland it runs the same interpreter with
 # -m wxrandr, PYTHONPATH pointing at the pyz itself (zipimport)
-build warandr warandr.cli w11common wxrandr warandr
+build warandr warandr.cli w11common wxrandr warandr hacks/display
 # wmirror drives an external binary but reads the layout through wxrandr's
 # own wlr client, and the detached supervisor is this same zipapp re-entered
 # by fork, so it needs nothing else in the bundle.
-build wmirror wmirror.cli w11common wxrandr wmirror
+build wmirror wmirror.cli w11common wxrandr wmirror hacks/display hacks/mirror
 # xw11 is the widest bundle and the only one that needs to be: the proxy
 # answers for windows with wdotool's backends (xw11/shadow.py), for properties
 # with wxprop's synthesis (xw11/pump.py imports wxprop.core._events_hook), for
@@ -68,4 +75,4 @@ build wmirror wmirror.cli w11common wxrandr wmirror
 # functions -- `import xw11` still pulls none of it) and for input with
 # wdotool's daemon client.  wwmctl and warandr are NOT in it: nothing under
 # xw11/ imports either.
-build xw11 xw11.cli w11common wdotool wxprop wxrandr xw11
+build xw11 xw11.cli w11common wdotool wxprop wxrandr xw11 hacks/input hacks/window hacks/property hacks/display

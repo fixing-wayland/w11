@@ -43,9 +43,9 @@ import time
 from w11common import session
 from w11common.errors import CmdError
 from w11common.wayland_mini import WlConn
-from wdotool import ext_workspace
-from wdotool.backend import Window, WindowBackend, mint_map
-from wdotool.backend_wlr import XPlaneViews
+from hacks.window import ext_workspace
+from hacks.window.backend import Window, WindowBackend, mint_map
+from hacks.window.backend_wlr import XPlaneViews
 
 EXT_LIST = "ext_foreign_toplevel_list_v1"
 INFO = "zcosmic_toplevel_info_v1"

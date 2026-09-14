@@ -42,7 +42,7 @@ from w11common.dbus_mini import Bus
 from w11common.errors import CmdError
 from support import env
 from test_dbus_mini import MockBus
-from wdotool import backend_detect
+from hacks.window import backend_detect
 
 FIXTURES = os.path.join(ROOT, "tests", "fixtures")
 BUDGIE_NAMES = os.path.join(FIXTURES, "live", "busnames-resolute-budgie-10.10.2.txt")

@@ -31,9 +31,9 @@ import sys
 
 from w11common import passthrough, stdio
 from w11common.errors import CmdError
-from wdotool import backend
+from hacks.window import backend
 
-from wwmctl import core
+from hacks.window import wmctl as core
 
 # what -V/--version print: byte parity with the oracle binary
 WMCTRL_VERSION = "1.07"

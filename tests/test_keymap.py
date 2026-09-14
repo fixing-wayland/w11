@@ -9,8 +9,8 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from wdotool import keymap, us_keymap
-from wdotool.keysyms import KEYSYM_TO_UNICODE, NAME_TO_KEYSYM
+from hacks.input import keymap, us_keymap
+from hacks.input.keysyms import KEYSYM_TO_UNICODE, NAME_TO_KEYSYM
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.
@@ -350,7 +350,7 @@ class TypingUnderALiveGermanGroup(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from wdotool import xkbmap
+        from hacks.input import xkbmap
         path = os.path.join(ROOT, "tests", "fixtures", "keymaps", "us_de.xkb")
         with open(path, encoding="utf-8") as f:
             cls.text = f.read()

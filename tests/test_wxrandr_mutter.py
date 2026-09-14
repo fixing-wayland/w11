@@ -34,8 +34,9 @@ from w11common import dbus_mini, session as wsession
 from w11common.dbus_mini import Bus, Message, Variant
 import test_dbus_mini as tdm
 from wl_fake import msg, wstr
-from wxrandr import cli, core, monitors_xml, mutter
-from wxrandr.core import Mode, Stanza, State
+from wxrandr import cli
+from hacks.display import core, monitors_xml, mutter
+from hacks.display.core import Mode, Stanza, State
 
 #: every refusal reaches the user in Mutter's name: we pass overlapping and
 #: gapped layouts on unchanged, so a "no" is always GNOME's, not ours

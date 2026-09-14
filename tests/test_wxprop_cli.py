@@ -27,8 +27,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import support
 from test_dbus_mini import MockBus
-from wdotool.backend_cinnamon import CinnamonBackend
-from wxprop import cli, core
+from hacks.window.backend_cinnamon import CinnamonBackend
+from wxprop import cli
+from hacks.property import core
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.
@@ -163,7 +164,7 @@ class BackendOnAnX11SessionTest(unittest.TestCase):
             return "a backend"
 
         with mock.patch.dict(os.environ, env, clear=False), \
-                mock.patch("wdotool.backend_detect.detect", detector):
+                mock.patch("hacks.window.backend_detect.detect", detector):
             return core._detect_backend(), called
 
     def test_x11_session_never_detects(self):
@@ -315,7 +316,7 @@ class NoSessionErrorTest(CliTestBase):
         """The cheap half: no backend and no X plane at all (WXPROP_NO_X=1
         from setUp), which is the "nothing to talk to" path through
         core.root_target()."""
-        from wdotool import backend
+        from hacks.window import backend
         backend.set_program("wdotool")       # as a wdotool run leaves it
         code, out, err = self.run_cli("-root", "_NET_CLIENT_LIST")
         self.assertEqual((code, out), (1, b""))
@@ -338,7 +339,7 @@ class NoSessionErrorTest(CliTestBase):
         core.root_target() reports it as "cannot examine the root window"."""
         from w11common.errors import CmdError
         from w11common import session
-        from wdotool import backend, backend_detect
+        from hacks.window import backend, backend_detect
         bus = MockBus()
         self.addCleanup(bus.close)
         backend_detect.reset()               # drop any bus this process kept

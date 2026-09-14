@@ -16,8 +16,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import time
 
 from w11common.errors import CmdError
-from wdotool import backend, cli, window_cmds
-from wdotool.backend import Window, WindowBackend
+from wdotool import cli, window_cmds
+from hacks.window import backend
+from hacks.window.backend import Window, WindowBackend
 from wdotool.ctx import Context, NoSessionError, SoftCmdError
 
 
@@ -967,7 +968,7 @@ class WindowmapSyncTest(unittest.TestCase):
         self.assertFalse(mapped[11])
 
     def test_sway_is_mapped(self):
-        from wdotool.backend_sway import SCRATCHPAD_WS, SwayBackend
+        from hacks.window.backend_sway import SCRATCHPAD_WS, SwayBackend
 
         b = SwayBackend.__new__(SwayBackend)
         b._node = lambda wid: ({}, None, False, SCRATCHPAD_WS)
@@ -982,7 +983,7 @@ class SwayResizeRestoreTest(unittest.TestCase):
     keeps the origin)."""
 
     def _backend(self, floating):
-        from wdotool.backend_sway import SwayBackend
+        from hacks.window.backend_sway import SwayBackend
 
         b = SwayBackend.__new__(SwayBackend)
         b.commands = []
@@ -991,7 +992,7 @@ class SwayResizeRestoreTest(unittest.TestCase):
         # `_dialect` would send this double down a GET_VERSION round trip it has no socket for.
         b._dialect = "sway"
         node = {"id": 7, "deco_rect": {"height": 0}}
-        from wdotool.backend import Window
+        from hacks.window.backend import Window
 
         win = Window(id=7, x=100, y=50, w=400, h=300)
         b._node = lambda wid: (node, win, floating, "ws")
@@ -1026,8 +1027,8 @@ class SwayFullscreenGuardTest(unittest.TestCase):
     refuses with a CmdError instead."""
 
     def _backend(self):
-        from wdotool.backend import Window
-        from wdotool.backend_sway import SwayBackend
+        from hacks.window.backend import Window
+        from hacks.window.backend_sway import SwayBackend
 
         b = SwayBackend.__new__(SwayBackend)
         b.commands = []

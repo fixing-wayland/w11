@@ -165,7 +165,7 @@ def keyboard() -> UinputDevice:
     # 435 -- and the character table answers those codes on BOTH sinks, so the kernel
     # device registers them too (measured by the euro batch, 2026-09-11: without this a
     # `wdotool type €` through /dev/uinput on a plain us session typed nothing).
-    from wdotool import keymap
+    from hacks.input import keymap
     extra = sorted({code for code, _shifted in keymap.UPLOADED_EXTRA_KEYS.values()} - set(range(1, 256)))
     return UinputDevice("wdotool virtual keyboard", keys=tuple(range(1, 256)) + tuple(extra))
 

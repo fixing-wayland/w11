@@ -43,8 +43,8 @@ from w11common.errors import CmdError
 from support import env, sh_block
 from test_backend_wlr import FakeXPlane, net_wm_state
 from wdotool import window_cmds
-from wdotool.backend import ID_BASE, mint_id
-from wdotool.backend_cosmic import (INFO_MAX, MANAGER_MAX, ST_ACTIVATED, STATE_WAIT,
+from hacks.window.backend import ID_BASE, mint_id
+from hacks.window.backend_cosmic import (INFO_MAX, MANAGER_MAX, ST_ACTIVATED, STATE_WAIT,
                                     CosmicBackend)
 
 #: the head the nested cosmic-comp published [M recon2/cosmic.md §3: `outputs: WINIT-0 1920x1080+0+0`]

@@ -49,7 +49,7 @@ and the log carries the reason (design section 3.3).
 
 import struct
 
-from wdotool import backend as backend_mod
+from hacks.window import backend as backend_mod
 from xw11 import policy, req_write, wire
 
 #: `SendEvent` is 11 words, 44 bytes: the header, `destination` at 4,

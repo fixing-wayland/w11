@@ -27,7 +27,7 @@ recover it, one per backend. On sway and i3, `swaymsg -t get_tree` publishes it 
 (the node's `"window"` field, plus `window_properties`), and the same is true of
 Hyprland's `j/clients`, Wayfire's `window-rules/list-views` and Cinnamon's
 `get_xwindow()`. On the generic wlr floor and on COSMIC nothing publishes it, so the id
-is *matched* instead, through `wdotool/xid_match.py` against the X server's own
+is *matched* instead, through `hacks/window/xid_match.py` against the X server's own
 `_NET_CLIENT_LIST` — with title and a lowercased `app_id` against `WM_CLASS` as the only
 separators there, no pid and no geometry, so a pair that nothing separates keeps id 0
 rather than being handed one of two ids. Either way:
@@ -57,7 +57,7 @@ rather than being handed one of two ids. Either way:
 
 ## The X11 wire client
 
-`wdotool/x11_mini.py` is the pure-stdlib X11 client wwmctl reads the X plane with.
+`hacks/window/x11_mini.py` is the pure-stdlib X11 client wwmctl reads the X plane with.
 It lives under `wdotool/` because it already imports `w11common.session`, and it has
 three callers: wwmctl (identity, geometry, EWMH ClientMessages), wxprop (all of its
 X-window work) and `wdotool.backend_kwin` (the XWayland ids KWin 6 does not export).
@@ -168,7 +168,7 @@ the compositor plane is the w11 bridge extension
 `wdotool.backend_gnome.GnomeBackend`. wwmctl never reaches into backend
 privates there: it consumes the typed hooks `views()`, `workspaces()`,
 `x_info()`, `select_window()`, `show_desktop()`, `set_num_desktops()` of
-`wdotool/backend.py`, tried *ahead of* the sway `_nodes()` path (which is
+`hacks/window/backend.py`, tried *ahead of* the sway `_nodes()` path (which is
 untouched) and the generic `list()` fallback.
 
 * **Ids and the list.** `views()` carries Mutter's X11 client window id for
@@ -400,7 +400,7 @@ nothing installed. wwmctl consumes the same typed hooks as on GNOME
   so `0x40000000`–`0x7FFFFFFF`. `-i` takes either.
 * **`-l -G`.** Real `wmctrl` doubles the frame offset under a non-reparenting
   window manager; our positions are the true ones (the same divergence as on
-  GNOME, documented at `wdotool/x11_mini.py:get_geometry`). That is Plasma 6.6
+  GNOME, documented at `hacks/window/x11_mini.py:get_geometry`). That is Plasma 6.6
   and sway: KWin 5.27's xwm *does* reparent, so on 5.27 both tools print the
   same positions. Sizes, classes, pids and the row set are identical to real
   `wmctrl -lpxG` everywhere.
@@ -415,7 +415,7 @@ nothing installed. wwmctl consumes the same typed hooks as on GNOME
   publishes a single pair prints it against the current desktop only. With no
   X plane (no Xwayland process) there is no property to read, so every row
   prints `VP: 0,0` — the origin each desktop begins at and the same pair the
-  `xw11` proxy publishes for a session with no X of its own (`wwmctl/core.py`,
+  `xw11` proxy publishes for a session with no X of its own (`hacks/window/wmctl.py`,
   which is what makes real `wmctrl -d` through `xw11` and `wwmctl -d` agree on
   this column). On Plasma 6
   KWin's X root does not follow desktops created over D-Bus, so `wmctrl -d`
@@ -449,7 +449,7 @@ publishes rather than anything wmctrl asks for.
   `resolute-wayfire`, `wwmctl -l -x` and the original `wmctrl -l -x` print the xterm's row
   byte for byte the same, id column included
   (`0x0040000c  0 xterm.XTerm           wf1 smokex` from both). The join is
-  `wdotool/xid_match.py`, and the floor and COSMIC feed it title and a lowercased
+  `hacks/window/xid_match.py`, and the floor and COSMIC feed it title and a lowercased
   `app_id` against `WM_CLASS` and nothing else — no pid, no geometry — so a pair that
   nothing separates keeps id 0.
 * **`-d`** works on the wlr floor wherever the compositor publishes

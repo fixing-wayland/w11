@@ -16,7 +16,8 @@ import sys
 
 from w11common import session, stdio
 
-from . import VERSION, core, supervise
+from . import VERSION
+from hacks.mirror import core, supervise
 
 
 def _out(line: str = ""):

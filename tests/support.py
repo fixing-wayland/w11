@@ -58,8 +58,8 @@ import time
 import unittest
 
 from w11common.errors import CmdError
-from wdotool import keystate, uinput
-from wdotool.backend import View, Window, WindowBackend
+from hacks.input import keystate, uinput
+from hacks.window.backend import View, Window, WindowBackend
 
 
 # -- recorded fixtures --------------------------------------------------------
@@ -2680,7 +2680,7 @@ class ProxyRig:
     def __init__(self, num=20, upstream_num=7, cookie=None, idle=0.0,
                  check=0.05, extensions=None, server_kwargs=None,
                  passthrough=True, backend=None):
-        from wdotool import x11_mini
+        from hacks.window import x11_mini
         from xw11 import display as display_mod
         from xw11 import server as server_mod
         self.dir = tempfile.mkdtemp(prefix="xw11rig-")
@@ -3008,7 +3008,7 @@ class FakeBackendEvents(FakeBackend):
 def randr_mode(w, h, hz=60.0, preferred=False, mode_id=""):
     """A `wxrandr.core.Mode` with a real refresh, in the shape a compositor's
     mode list has: `refresh_mhz` in thousandths, no modeline."""
-    from wxrandr import core
+    from hacks.display import core
     return core.Mode(w=w, h=h, refresh_mhz=int(round(hz * 1000)),
                      preferred=preferred, mode_id=mode_id)
 
@@ -3018,7 +3018,7 @@ def randr_output(name, x=0, y=0, w=1280, h=720, active=True, modes=None,
                  virtual_modes=False):
     """A `wxrandr.core.OutputState`, the thing every backend's `snapshot`
     returns and `build_targets` matches stanzas against."""
-    from wxrandr import core
+    from hacks.display import core
     modes = list(modes if modes is not None else [randr_mode(w, h,
                                                              preferred=True)])
     if current is None and active and modes:
@@ -3064,7 +3064,7 @@ class FakeRandrBackend:
         return list(self.outputs)
 
     def predicted_dims(self, t, state):
-        from wxrandr import core
+        from hacks.display import core
         return core.predicted_dims(t, state)
 
     def verify(self, state, targets):
@@ -3107,7 +3107,7 @@ def install_fake_randr(server, backend, statedir):
     letting `Applier.ensure` go looking for a compositor. `statedir` is a
     directory the caller owns: `State.save()` really writes, and a test that
     let it write to the session's own store would edit the box's layout."""
-    from wxrandr import core
+    from hacks.display import core
     server.randr.backend = backend
     server.randr.name = backend.name
     server.randr.tried = True

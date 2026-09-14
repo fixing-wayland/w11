@@ -42,10 +42,10 @@ from w11common.dbus_mini import ERR, Bus, DBusError
 from w11common.errors import CmdError
 import test_dbus_mini as tdm
 from test_xkbmap import _FakeService
-from wdotool import backend, backend_cinnamon, backend_gnome, cinnamon_js as js
-from wdotool.backend_cinnamon import CinnamonBackend
+from hacks.window import backend, backend_cinnamon, backend_gnome, cinnamon_js as js
+from hacks.window.backend_cinnamon import CinnamonBackend
 from wdotool.ctx import NoSessionError
-from wwmctl import core
+from hacks.window import wmctl as core
 
 os.environ["W11_PASSTHROUGH"] = "never"
 

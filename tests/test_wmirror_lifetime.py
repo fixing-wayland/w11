@@ -39,8 +39,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import support
 from w11common import procs
-from wmirror import cli, core, supervise
-from wxrandr import core as wxcore
+from wmirror import cli
+from hacks.mirror import core, supervise
+from hacks.display import core as wxcore
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.
@@ -516,7 +517,7 @@ class Reaping(Base):
         with open(script, "w") as f:
             f.write("import sys\n"
                     "sys.path.insert(0, %r)\n"
-                    "from wmirror import supervise\n"
+                    "from hacks.mirror import supervise\n"
                     "supervise.STARTUP_SECONDS = 0.2\n"
                     "raise SystemExit(supervise.supervisor_main(sys.argv[1:], 'A', 'B',\n"
                     "                                           status_fd=1))\n" % ROOT)

@@ -48,7 +48,7 @@ import support                                                     # noqa: E402
 from support import (FakeBackend, fake_view, fake_window,           # noqa: E402
                      stop_daemons_under)
 from wdotool import daemon as daemon_mod                           # noqa: E402
-from wdotool import x11_mini                                       # noqa: E402
+from hacks.window import x11_mini  # noqa: E402
 from xw11 import policy, req_read, shadow as shadow_mod, wire      # noqa: E402
 
 #: `_NET_SUPPORTED` on wlroots' Xwayland root, all 19 of it and in the order
@@ -794,7 +794,7 @@ class DesktopGeometryAndNames(ReadCase):
         self.assertEqual(struct.unpack_from("<III", pkt, 8), (0, 0, 0))
 
     def test_the_names_are_utf8_nul_terminated_where_it_has_them(self):
-        from wdotool.backend import Workspace
+        from hacks.window.backend import Workspace
 
         self.backend.workspaces = lambda: [Workspace(0, "one", True),
                                            Workspace(1, "", False)]

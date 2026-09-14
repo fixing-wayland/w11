@@ -33,7 +33,7 @@ import wl_fake
 from w11common.errors import CmdError
 from support import env
 from test_backend_wlr import ToplevelCompositor, top
-from wdotool.backend_wlr import WlrBackend
+from hacks.window.backend_wlr import WlrBackend
 
 #: Xfce 4.20 on Wayland runs labwc with four workspaces named the labwc way [M recon2/xfce-wayland.md].
 XFCE_WORKSPACES = wl_fake.BUDGIE_WORKSPACES

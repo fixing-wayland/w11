@@ -51,9 +51,9 @@ import struct
 import time
 
 from w11common.errors import CmdError
-from wdotool import backend as backend_mod
+from hacks.window import backend as backend_mod
 from wdotool import daemon as daemon_mod
-from wdotool import keysyms as keysyms_mod
+from hacks.input import keysyms as keysyms_mod
 from xw11 import policy, wire
 
 #: `FakeInput`'s `type` field [recon/wire.md 5.2].

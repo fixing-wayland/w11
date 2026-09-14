@@ -42,8 +42,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import support                                                      # noqa: E402
 from support import FakeBackend, ProxyRig, fake_window              # noqa: E402
-from wdotool import backend_detect, x11_mini                        # noqa: E402
-from wxprop import core as wxprop_core                              # noqa: E402
+from hacks.window import backend_detect, x11_mini  # noqa: E402
+from hacks.property import core as wxprop_core  # noqa: E402
 from xw11 import policy                                             # noqa: E402
 from xw11 import server as server_mod                               # noqa: E402
 from xw11 import upstream as upstream_mod                           # noqa: E402

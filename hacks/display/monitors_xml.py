@@ -49,7 +49,7 @@ import os
 import pwd
 import xml.etree.ElementTree as ET
 
-from wxrandr.core import round_half_away, warn
+from hacks.display.core import round_half_away, warn
 
 #: what Mutter reads, and the copy we keep beside it.  Muffin reads
 #: `cinnamon-monitors.xml` in the same directory (the string in

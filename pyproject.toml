@@ -20,7 +20,8 @@ xw11 = "xw11.cli:main"
 
 [tool.setuptools]
 packages = ["w11common", "wdotool", "wwmctl", "wxprop", "wxrandr",
-            "warandr", "wmirror", "xw11"]
+            "warandr", "wmirror", "xw11", "hacks", "hacks.input", "hacks.window",
+            "hacks.display", "hacks.property", "hacks.mirror"]
 
 # Lint only: no `ruff format` and no other formatter. Measured at 120 columns,
 # `ruff format` rewrites 45 of 59 files, makes the tree 520 lines LONGER and
@@ -30,7 +31,7 @@ packages = ["w11common", "wdotool", "wwmctl", "wxprop", "wxrandr",
 [tool.ruff]
 line-length = 120
 # 4300 lines of generated keysym tables; nothing to say about them.
-extend-exclude = ["wdotool/keysyms.py"]
+extend-exclude = ["hacks/input/keysyms.py"]
 
 [tool.ruff.lint]
 # Real defects and the two whitespace rules, not style opinions: E4 imports,
@@ -39,7 +40,7 @@ select = ["E4", "E7", "E9", "F", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 # Generated keymap data: one long line per key, tabs inside the XKB text.
-"wdotool/us_keymap.py" = ["E501", "W191"]
+"hacks/input/us_keymap.py" = ["E501", "W191"]
 # xdotool's own usage strings carry a trailing space; byte parity keeps it.
 "wdotool/input_cmds.py" = ["W291"]
 # gi.require_version() has to run before the GTK imports it guards.

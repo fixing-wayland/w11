@@ -51,7 +51,7 @@ from support import FakeBackend, fake_view, fake_window            # noqa: E402
 from w11common.errors import CmdError                              # noqa: E402
 from support import stop_daemons_under                             # noqa: E402
 from wdotool import daemon as daemon_mod                           # noqa: E402
-from wdotool.x11_mini import X11Error                              # noqa: E402
+from hacks.window.x11_mini import X11Error                              # noqa: E402
 from xw11 import policy, req_write, server as server_mod           # noqa: E402
 from xw11 import shadow as shadow_mod, wire                        # noqa: E402
 

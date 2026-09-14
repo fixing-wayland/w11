@@ -23,7 +23,7 @@ Two rules the rest of the proxy leans on:
 import struct
 from typing import NamedTuple
 
-from wdotool.x11_mini import _MAX_REPLY_WORDS
+from hacks.window.x11_mini import _MAX_REPLY_WORDS
 
 
 class WireError(Exception):

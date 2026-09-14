@@ -43,12 +43,12 @@ import support
 from w11common import session
 from w11common.errors import CmdError
 from test_wwmctl_x11 import FakeXServer
-from wdotool import backend as backend_mod
-from wdotool import backend_hypr as hypr_mod
-from wdotool import x11_mini
-from wdotool.backend_hypr import HyprBackend
+from hacks.window import backend as backend_mod
+from hacks.window import backend_hypr as hypr_mod
+from hacks.window import x11_mini
+from hacks.window.backend_hypr import HyprBackend
 from wdotool.ctx import SoftCmdError
-from wdotool.hypr_ipc import HyprIPC
+from hacks.window.hypr_ipc import HyprIPC
 
 #: the four addresses of the recorded session, in the order the fixture lists them
 ADDRS = ("0x59daae6de8f0", "0x59daae69e360", "0x59daaec05920", "0x59daae933ac0")
@@ -794,7 +794,7 @@ class TheWiring(Base):
     def test_detect_reaches_it_from_the_socket_alone(self):
         """Detection's hypr arm sits above the bus checks because a Hyprland session owns neither
         org.kde.KWin nor org.gnome.Shell [M recon2/hyprland.md §2, `busctl --user list`]."""
-        from wdotool import backend_detect
+        from hacks.window import backend_detect
         srv = self.hypr()
         self.srv = srv
         backend_detect.reset()
@@ -806,7 +806,7 @@ class TheWiring(Base):
         self.assertEqual(b.sockpath, srv.path)
 
     def test_the_forced_spelling_builds_it_too(self):
-        from wdotool import backend_detect
+        from hacks.window import backend_detect
         srv = self.hypr()
         self.srv = srv
         backend_detect.reset()

@@ -40,7 +40,7 @@ gnome/
   README.md                       this file
 ```
 
-The Python side is `wdotool/backend_gnome.py` (a `dbus_mini` client of this
+The Python side is `hacks/window/backend_gnome.py` (a `dbus_mini` client of this
 interface; every backend method maps to one call) and
 `tests/test_backend_gnome.py` (a mock bridge on the in-process mock bus).
 
@@ -236,7 +236,7 @@ gdbus call --session --dest org.w11.Bridge --object-path /org/w11/Bridge \
 | `Raise` / `Lower` | `(t)` | |
 | `Move` | `(t, i x, i y)` | `move_frame(true, x, y)`; frame coordinates, logical pixels |
 | `Resize` | `(t, i w, i h)` | `move_resize_frame` keeping the frame's top-left |
-| `MoveResize` | `(t, i, i, i, i)` | `move_resize_frame` with all four numbers in one call, so a move and a resize cannot race each other across two configures. Exported since v1 and **no client calls it yet**: `wwmctl -e` on GNOME still sends `Resize` then `Move`, which is why a request that moves *and* resizes keeps its new size and its old position. The KWin backend takes the one-call path already (`wwmctl/core.py`, `move_resize`) |
+| `MoveResize` | `(t, i, i, i, i)` | `move_resize_frame` with all four numbers in one call, so a move and a resize cannot race each other across two configures. Exported since v1 and **no client calls it yet**: `wwmctl -e` on GNOME still sends `Resize` then `Move`, which is why a request that moves *and* resizes keeps its new size and its old position. The KWin backend takes the one-call path already (`hacks/window/wmctl.py`, `move_resize`) |
 | `SetState` | `(t, s state, s action) → b` | `state` ∈ `FULLSCREEN MAXIMIZED_HORZ MAXIMIZED_VERT MAXIMIZED HIDDEN ABOVE BELOW STICKY DEMANDS_ATTENTION SHADED SKIP_TASKBAR SKIP_PAGER MODAL`, `action` ∈ `add remove toggle`. `MAXIMIZED_HORZ`/`_VERT` are real per-axis operations on every release. **`MAXIMIZED` is not a shorthand for sending the two axis names in a row: it is the only correct way to ask for both.** Mutter unmaximizes to the window's current frame rect and takes only the axis it is unmaximizing from the saved rectangle, so a second single-axis call that beats the client's commit keeps the maximized half and is then saved as the restore size, measured on 46 and 50, `-b remove,maximized_vert,maximized_horz` left a 200,150 900x600 window at 200,32 900x1048. `toggle` of the pair follows the horizontal flag (**v3**; v1/v2 used "both are set"), which is Mutter's own rule for two atoms in one `_NET_WM_STATE` message. Returns `false` (and does nothing) for what Mutter cannot set: `SHADED`, `SKIP_*`, `MODAL`, `BELOW`. Unknown ids still raise `NotFound`. |
 | `MoveToWorkspace` | `(t, i index)` | `change_workspace_by_index`; `index < 0` = stick to all workspaces (EWMH 0xFFFFFFFF); `NotFound` for a missing workspace |
 | `SelectWindow` | `(u timeout_ms) → t` | **v2**: takes a stage grab and resolves with the window under the pointer at the next button press (`xdotool selectwindow`, including the window that already has focus); `0` when the press landed on no window. Escape, the deadline, a caller that disconnected and a disabled extension all come back as `Cancelled`. `timeout_ms = 0` means "as long as the user takes" and is still capped at 30 seconds, as is any larger value, a grab is never held indefinitely, and a finished selection leaves behind a quiet period as long as the grab it held, so a caller cannot re-arm in a loop (`Unsupported` until it passes). Set your D-Bus call timeout above it (the clients use none). v1 resolved on the next *focus change* instead. |
@@ -628,7 +628,7 @@ repo can fix; the bugs that *were* fixable have been.
 
   When wdotool may read the key state it says which modifier it could not
   clear, once per command, `EVIOCGKEY` on `/dev/input/event*`,
-  `wdotool/keystate.py`, reading only, never deciding what to inject. That
+  `hacks/input/keystate.py`, reading only, never deciding what to inject. That
   read needs **root**: logind's `uaccess` ACL covers `/dev/uinput` (and
   joysticks, and sound) but *not* keyboards, measured on 24.04 and 26.04
   alike, the seat user cannot open `/dev/input/event*` (`crw-rw---- root:input`,

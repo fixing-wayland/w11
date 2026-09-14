@@ -19,8 +19,8 @@ the kernel sink only the codes `uinput.keyboard()` registered arrive, which 435 
 
 import re
 
-from wdotool.keysyms import KEYSYM_TO_UNICODE, NAME_TO_KEYSYM
-from wdotool.us_keymap import TEXT as _UPLOADED
+from hacks.input.keysyms import KEYSYM_TO_UNICODE, NAME_TO_KEYSYM
+from hacks.input.us_keymap import TEXT as _UPLOADED
 
 # evdev keycodes (input-event-codes.h)
 KEY_ESC = 1

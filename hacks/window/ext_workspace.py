@@ -30,7 +30,7 @@ caller owns the connection and its round trips, the same contract `backend_wlr.p
 
 import struct
 
-from wdotool.backend import Workspace
+from hacks.window.backend import Workspace
 
 INTERFACE = "ext_workspace_manager_v1"
 VERSION = 1

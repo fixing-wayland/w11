@@ -29,7 +29,7 @@ fd is held between samples.
 import fcntl
 import os
 
-from wdotool.uinput import EV_KEY
+from hacks.input.uinput import EV_KEY
 
 INPUT_DIR = "/dev/input"
 

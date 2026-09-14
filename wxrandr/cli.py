@@ -24,8 +24,8 @@ import re
 import sys
 
 from w11common import distro, passthrough, stdio
-from wxrandr import core, gnome_overlap
-from wxrandr.core import ArgErr, Fatal, Stanza
+from hacks.display import core, gnome_overlap
+from hacks.display.core import ArgErr, Fatal, Stanza
 
 _PERSIST_CONFLICT = (
     "--persistent and %s cannot be used together: %s applies a layout GNOME's "
@@ -797,7 +797,7 @@ def _probe_sway(verbose=False):
 
 def _probe_kwin():
     from w11common import session as wsession
-    from wxrandr import kwin as kwin_mod
+    from hacks.display import kwin as kwin_mod
     conn = kwin_mod.probe()
     if conn is None:
         if wsession.find_wayland_socket() is None:
@@ -816,7 +816,7 @@ def _probe_kwin():
 
 def _probe_mutter():
     from w11common import session as wsession
-    from wxrandr import mutter as mutter_mod
+    from hacks.display import mutter as mutter_mod
     bus = mutter_mod.probe()
     if bus is None:
         if not wsession.find_session_bus():
@@ -882,7 +882,7 @@ def _probe_hypr(verbose=False):
         return Probe("hypr", False,
                      "no Hyprland IPC socket ($HYPRLAND_INSTANCE_SIGNATURE)")
     try:
-        from wxrandr import hypr as hypr_mod
+        from hacks.display import hypr as hypr_mod
     except ImportError:
         # The socket says this really is Hyprland, and `hypr` is second in AUTO_ORDER, so an ImportError here
         # escapes probe_backend() and kills every wxrandr invocation on a Hyprland desktop -- including
@@ -897,7 +897,7 @@ def _probe_cinnamon():
     org.cinnamon.Muffin.DisplayConfig and never org.gnome.Mutter.DisplayConfig [M recon2/cinnamon.md §2.2], so
     this is a separate name on the same bus and not a second flavour of the mutter probe."""
     from w11common import session as wsession
-    from wxrandr import mutter as mutter_mod
+    from hacks.display import mutter as mutter_mod
     bus = mutter_mod.probe(flavor=mutter_mod.MUFFIN)
     if bus is None:
         if not wsession.find_session_bus():
@@ -1263,7 +1263,7 @@ class Session:
             # session without sway has already left through _cant_open()
             self.impl = core.SwayBackend(ipc, core.wlr_snapshot_safe())
         elif self.backend == "kwin":
-            from wxrandr import kwin as kwin_mod
+            from hacks.display import kwin as kwin_mod
             if kprobe is None and wsession.find_wayland_socket() is None:
                 self._cant_open()
             try:
@@ -1273,7 +1273,7 @@ class Session:
             except (OSError, RuntimeError, ValueError):
                 self._cant_open()
         elif self.backend == "mutter":
-            from wxrandr import mutter as mutter_mod
+            from hacks.display import mutter as mutter_mod
             try:
                 # no bus at all -> "Can't open display"; a bus without
                 # DisplayConfig raises Fatal with a one-line explanation
@@ -1281,13 +1281,13 @@ class Session:
             except (mutter_mod.DBusError, OSError, ValueError):
                 self._cant_open()
         elif self.backend == "hypr":
-            from wxrandr import hypr as hypr_mod
+            from hacks.display import hypr as hypr_mod
             # the probe's HyprIPC, so the socket path is found once per run; it holds no connection, so
             # reusing it costs nothing and closing it twice is safe. No arm for a missing socket: HyprIPC
             # opens nothing here and the probe has already refused a session that has none, by name.
             self.impl = hypr_mod.HyprOutputs(ipc=reuse("hypr"))
         elif self.backend == "cinnamon":
-            from wxrandr import mutter as mutter_mod
+            from hacks.display import mutter as mutter_mod
             try:
                 # Muffin's DisplayConfig is Mutter's interface under Cinnamon's three names, so this is the
                 # mutter arm above with the flavour swapped -- including the connection the probe opened,
@@ -1331,7 +1331,7 @@ class Session:
         # tests/test_wxrandr_cinnamon.py: without this the `--dryrun --verbose` plan omits the crtc lines
         # for the neighbours the apply shifts and promises `screen 0: 5760x1600` where the run leaves 5520
         if getattr(self.impl, "flavor", None) is not None:
-            from wxrandr import mutter as mutter_mod
+            from hacks.display import mutter as mutter_mod
             moved = {n for n, _p, _via in mutter_mod.keep_adjacent(targets, dims, pos)}
             for t in targets:
                 if t.name in moved:
@@ -1524,7 +1524,7 @@ def _check_screen_size(opts: Opts, targets, dims, pos):
 
 
 def _apply_gamma(sess: Session, opts: Opts, outputs):
-    from wxrandr import gamma as gammamod
+    from hacks.display import gamma as gammamod
     from w11common import session as wsession
     hit = wsession.find_wayland_socket()
     sock = hit[2] if hit else None

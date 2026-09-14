@@ -39,8 +39,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import support
 from w11common import session
-from wdotool.hypr_ipc import HyprIPC
-from wxrandr import cli, core, hypr
+from hacks.window.hypr_ipc import HyprIPC
+from wxrandr import cli
+from hacks.display import core, hypr
 
 #: `NAME,WxH@Hz,XxY,SCALE` and the keyword pairs after it
 _LINE = re.compile(r"^([^,]+),(.*)$")
@@ -840,7 +841,7 @@ class TheTwoClients(Base):
     package speaks."""
 
     def pair(self, srv, timeout=10.0):
-        from wdotool.hypr_ipc import HyprIPC as WdotoolIPC
+        from hacks.window.hypr_ipc import HyprIPC as WdotoolIPC
         return hypr.HyprIPC(srv.path, timeout=timeout), WdotoolIPC(srv.path, timeout=timeout)
 
     def test_no_module_under_wxrandr_imports_wdotool(self):
@@ -918,7 +919,7 @@ class TheTwoClients(Base):
 
     def test_no_socket_at_all_is_the_same_sentence_in_both(self):
         from w11common.errors import CmdError
-        from wdotool.hypr_ipc import HyprIPC as WdotoolIPC
+        from hacks.window.hypr_ipc import HyprIPC as WdotoolIPC
         tmp = tempfile.mkdtemp(prefix="wxr-hypr-bare-")
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         old = session.RUN_USER_DIR

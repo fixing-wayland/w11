@@ -42,8 +42,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from support import (FakeXServer, HeadlessSway, _pad4,     # noqa: F401
                      _recvn, write_xauth)
 
-from wdotool import x11_mini
-from wdotool.x11_mini import X11Conn, X11Error, XUnavailable
+from hacks.window import x11_mini
+from hacks.window.x11_mini import X11Conn, X11Error, XUnavailable
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.

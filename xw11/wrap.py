@@ -382,7 +382,7 @@ def proxy_xauthority(uid=None) -> str | None:
     by the same `find_cookie()` the proxy used, which answers with the file the
     cookie came from.  That file is the one the proxy wrote into (design
     section 2.5)."""
-    from wdotool import x11_mini
+    from hacks.window import x11_mini
     from xw11 import display as display_mod
     got = display_mod.read_display_file(uid=uid)
     if not got:

@@ -42,7 +42,8 @@ os.environ["W11_PASSTHROUGH"] = "never"
 
 import support
 from w11common.errors import CmdError
-from wdotool import daemon, vkbd, vptr
+from wdotool import daemon
+from hacks.input import vkbd, vptr
 
 
 def _inputs(rig):

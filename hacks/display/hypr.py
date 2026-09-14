@@ -35,8 +35,8 @@ import socket
 import time
 
 from w11common import session as wsession
-from wxrandr import core
-from wxrandr.core import Fatal, Mode, OutputState
+from hacks.display import core
+from hacks.display.core import Fatal, Mode, OutputState
 
 #: `1920x1080@75.00Hz`, the shape of every string in `availableModes`
 #: [M recon2/hyprland.md fixtures, tests/fixtures/hypr/monitors.json]

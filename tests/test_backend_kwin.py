@@ -40,9 +40,9 @@ from w11common.dbus_mini import ERR, Bus, DBusError, Message, Variant
 from w11common.errors import CmdError
 import support
 from test_dbus_mini import MockBus
-from wdotool import backend, backend_detect, backend_kwin, kwin_js, xid_match
-from wdotool.backend import hit_test
-from wdotool.backend_kwin import (BUS_NAME, IFACE, KWIN_IFACE,
+from hacks.window import backend, backend_detect, backend_kwin, kwin_js, xid_match
+from hacks.window.backend import hit_test
+from hacks.window.backend_kwin import (BUS_NAME, IFACE, KWIN_IFACE,
                                   KWIN_NAME, KWIN_PATH, OBJECT_PATH,
                                   SCRIPTING_IFACE, SCRIPTING_PATH,
                                   SCRIPT_IFACE, VD_IFACE, VD_PATH,
@@ -2515,19 +2515,19 @@ class TheMatcherMoved(unittest.TestCase):
     def test_the_module_carries_no_copy_of_its_own(self):
         """A second definition left behind in backend_kwin.py would keep every test above green while the
         wlroots backends read a matcher nobody exercises."""
-        with open(os.path.join(ROOT, "wdotool", "backend_kwin.py"), encoding="utf-8") as fh:
+        with open(os.path.join(ROOT, "hacks", "window", "backend_kwin.py"), encoding="utf-8") as fh:
             src = fh.read()
         self.assertNotIn("def _match_xids(", src)
         self.assertNotIn("def _simplified(", src)
-        self.assertIn("from wdotool.xid_match import match_xids", src)
+        self.assertIn("from hacks.window.xid_match import match_xids", src)
 
     def test_it_imports_without_backend_kwin(self):
         """The point of the move: a backend that has no D-Bus, no KWin scripting and no Qt gets the matcher
         without dragging 1200 lines of KWin in behind it."""
         out = subprocess.run(
             [sys.executable, "-c",
-             "import sys; from wdotool import xid_match; "
-             "print('wdotool.backend_kwin' in sys.modules); "
+             "import sys; from hacks.window import xid_match; "
+             "print('hacks.window.backend_kwin' in sys.modules); "
              "print(xid_match.match_xids([], []))"],
             capture_output=True, text=True, cwd=ROOT, timeout=60)
         self.assertEqual(out.returncode, 0, out.stderr)

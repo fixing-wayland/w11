@@ -41,7 +41,7 @@ import stat
 import struct
 
 from w11common.errors import CmdError
-from wdotool import x11_mini
+from hacks.window import x11_mini
 
 #: Where the sockets live. Read at call time and not captured, so that a test
 #: pointing `x11_mini._SOCK_DIR` at a temp directory moves the proxy and the

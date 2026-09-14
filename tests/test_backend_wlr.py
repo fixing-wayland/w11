@@ -37,10 +37,11 @@ from w11common import session
 from w11common.errors import CmdError
 from support import env
 from test_wwmctl_x11 import FakeXServer
-from wdotool import backend, backend_wlr, cli, x11_mini, xid_match
-from wdotool.backend_wlr import BASE_ID, WlrBackend
+from wdotool import cli
+from hacks.window import backend, backend_wlr, x11_mini, xid_match
+from hacks.window.backend_wlr import BASE_ID, WlrBackend
 from wdotool.ctx import Context
-from wxprop import core as wxcore
+from hacks.property import core as wxcore
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.
@@ -834,7 +835,7 @@ class XPlaneGeometry(FakeXPlane, WlrTest):
                 "list; their X ids are left unset\n")
         # The prefix is whatever main() last named the process (wwmctl's CLI tests leave it at
         # "wwmctl" when the whole suite runs in one interpreter, run 2026-09-12); pin it for this test.
-        from wdotool import backend as backend_mod
+        from hacks.window import backend as backend_mod
         self.addCleanup(backend_mod.set_program, backend_mod.program())
         backend_mod.set_program("wdotool")
         self.x_server(clients=self.TIED)

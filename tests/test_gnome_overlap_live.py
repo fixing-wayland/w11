@@ -62,7 +62,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 
 from support import HeadlessSway
-from wxrandr import gnome_overlap
+from hacks.display import gnome_overlap
 
 #: the one switch that lets anything in this file write into a compositor.
 LIVE_VAR = "WXRANDR_LIVE_GNOME"
@@ -134,7 +134,7 @@ def gnome_reason():
 
 def monitors_xml_digest():
     """sha256 of ~/.config/monitors.xml, or "absent"."""
-    from wxrandr import monitors_xml
+    from hacks.display import monitors_xml
     path = monitors_xml.default_path()
     try:
         with open(path, "rb") as fh:
@@ -364,7 +364,7 @@ class OverlapOnRealGnome(unittest.TestCase):
         tries again and records the answer rather than asserting one, because
         "unreachable" is a legitimate result and a test that demanded the branch
         fire would be demanding a race."""
-        from wxrandr import monitors_xml
+        from hacks.display import monitors_xml
         path = monitors_xml.default_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
         loop = subprocess.Popen(

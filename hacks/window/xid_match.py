@@ -19,7 +19,7 @@ Callers hand it two lists of plain dicts, which is what keeps it free of any one
 
 and get back {handle: xid} for the pairs it is sure of."""
 
-from wdotool.backend import warn as _warn
+from hacks.window.backend import warn as _warn
 
 
 def simplified(s: str) -> str:

@@ -34,7 +34,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from support import HeadlessSway                                    # noqa: E402
-from wdotool import x11_mini                                       # noqa: E402
+from hacks.window import x11_mini  # noqa: E402
 from xw11 import display as display_mod                            # noqa: E402
 from xw11 import server as server_mod                              # noqa: E402
 from xw11 import wire                                              # noqa: E402
@@ -1263,7 +1263,7 @@ class WlrFloor(ProxyLive):
         # publishes on some builds (Arch's, Ubuntu 26.10's) and not on others
         # (Ubuntu 26.04's) -- CI run 34563917823 measured both; the registry decides
         reg = subprocess.run(
-            [sys.executable, "-c", "from wdotool import backend_detect as b; "
+            [sys.executable, "-c", "from hacks.window import backend_detect as b; "
              "print(' '.join(sorted(b.session_registry() or {})))"],
             env=self.env(through=False), capture_output=True, text=True, timeout=30)
         if "ext_workspace_manager_v1" in reg.stdout.split():
@@ -2172,7 +2172,7 @@ class PointerRows(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from wdotool import backend_detect
+        from hacks.window import backend_detect
 
         cls.rig = HeadlessSway("xw11-pointer-", need_display=True)
         cls.saved = {k: os.environ.get(k)
@@ -2202,7 +2202,7 @@ class PointerRows(unittest.TestCase):
 
     @classmethod
     def _restore(cls):
-        from wdotool import backend_detect
+        from hacks.window import backend_detect
 
         for key, value in cls.saved.items():
             if value is None:
@@ -2429,7 +2429,7 @@ class InputLands(ProxyLive):
             return None
         path = os.path.join(cls.rig.rtdir, cls.rig.wayland_display())
         try:
-            from wdotool import vkbd, vptr
+            from hacks.input import vkbd, vptr
         except ImportError as e:             # pragma: no cover - a broken tree
             return str(e)
         for opener in (vkbd.VirtualKeyboard, vptr.VirtualPointer):

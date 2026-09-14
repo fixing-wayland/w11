@@ -65,7 +65,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Everything that runs on a user's machine as one of our commands: the six
 # tools, and the package they all share.
 PACKAGES = ("w11common", "wdotool", "wwmctl", "wxprop", "wxrandr", "warandr",
-            "wmirror")
+            "wmirror", "hacks")
 
 # The other half of what a user installs: the GNOME Shell extension and the
 # script that installs it and the udev rule. The extension runs inside
@@ -185,7 +185,7 @@ class NoPortalNoPolkit(unittest.TestCase):
         callers = sorted({h[0] for h in _hits_of(
             [f for pkg in PACKAGES for f in _files(os.path.join(ROOT, pkg))],
             re.compile(r"org\.freedesktop\.portal", re.IGNORECASE))})
-        self.assertEqual(callers, ["wdotool/xkbmap.py"])
+        self.assertEqual(callers, ["hacks/input/xkbmap.py"])
 
     def test_the_extension_and_installer_do_not_either(self):
         """`gnome/` is installed too, and the installer runs as root."""

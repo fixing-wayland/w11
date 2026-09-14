@@ -51,7 +51,7 @@ import time
 from w11common import session
 from w11common.dbus_mini import ERR, Bus, DBusError, no_bus_text
 from w11common.errors import CmdError
-from wdotool.backend import View, Window, WindowBackend, Workspace, warn
+from hacks.window.backend import View, Window, WindowBackend, Workspace, warn
 from wdotool.ctx import NoSessionError
 
 BUS_NAME = "org.w11.Bridge"

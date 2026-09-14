@@ -36,9 +36,9 @@ import struct
 import time
 
 from w11common.errors import CmdError
-from wdotool import backend as backend_mod
-from wdotool import backend_detect
-from wdotool import x11_mini
+from hacks.window import backend as backend_mod
+from hacks.window import backend_detect
+from hacks.window import x11_mini
 from wdotool.ctx import NoSessionError
 from xw11 import policy
 from xw11 import upstream as upstream_mod

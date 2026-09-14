@@ -36,7 +36,8 @@ os.environ.setdefault("WDOTOOL_LAYOUT", "us")
 import wl_fake
 from support import RecorderDev
 from w11common.wayland_mini import WlConn
-from wdotool import cli, daemon, keymap, us_keymap, vkbd, xkbmap
+from wdotool import cli, daemon
+from hacks.input import keymap, us_keymap, vkbd, xkbmap
 
 
 def cosmic_globals(served):

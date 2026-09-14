@@ -43,7 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import support                                                      # noqa: E402
 from support import ProxyRig, _recvn                                # noqa: E402
 from w11common.errors import CmdError                               # noqa: E402
-from wdotool import x11_mini                                        # noqa: E402
+from hacks.window import x11_mini  # noqa: E402
 from xw11 import display as display_mod                             # noqa: E402
 from xw11 import server as server_mod                               # noqa: E402
 from xw11 import policy, wire                                       # noqa: E402

@@ -298,7 +298,7 @@ first-paint check.
 
 Three more per-desktop settings the build writes, each for one measured reason:
 `desktop_wayfire` gives `wayfire.ini` `[input] xkb_layout = us,de`, which is what makes
-`wdotool/xkbmap.py`'s `WayfireLayouts` reachable at all; `desktop_mate` sets
+`hacks/input/xkbmap.py`'s `WayfireLayouts` reachable at all; `desktop_mate` sets
 `org.mate.SettingsDaemon.plugins.xrandr turn-on-external-monitors-at-startup=true`, whose own
 default is false and MATE is the only flavor where it is; and `desktop_lxqt_wayland` calls
 `lxqt_wayland_desktops`, which patches `/usr/share/lxqt/wayland/labwc/rc.xml` from one desktop to
@@ -1217,7 +1217,7 @@ the udev rule that hands the seat user an ACL lives under `gnome/` but is not GN
 (`sudo sh gnome/install-bridge.sh --udev` installs it on any of the nine).
 
 **Hyprland** (`resolute-hypr`, `arch-hypr`) — the first compositor in this tree with a
-first-class backend on **both** sides (`wdotool/backend_hypr.py`, `wxrandr/hypr.py`) after
+first-class backend on **both** sides (`hacks/window/backend_hypr.py`, `hacks/display/hypr.py`) after
 having been measured on the generic wlroots floor, so the row worth writing is the difference,
 measured on 0.53.3 in the recon's VM [recon2/hyprland §3] and re-measured on 0.56.2
 [recon2/arch §3.4]. Windows: real geometry and pid (`hyprctl -j clients` publishes `at`, `size`,
@@ -1335,7 +1335,7 @@ is owed that sentence [recon2/xfce-wayland §1].
 `zwlr_foreign_toplevel_manager_v1` at all**, which is why every window command answered `no
 Wayland session found: … the compositor does not offer wlr-foreign-toplevel` on a live COSMIC
 session while `wxrandr`, `warandr`, `wmirror --check` and `wdotool type` all already worked
-[recon2/cosmic §3, recon2/arch §3.5]. `wdotool/backend_cosmic.py` is a middle capability tier:
+[recon2/cosmic §3, recon2/arch §3.5]. `hacks/window/backend_cosmic.py` is a middle capability tier:
 real geometry (when the `geometry` event arrives — cosmic-comp sends it only alongside
 `output_enter` or on a change, and in the nested rig it never arrived at all), real workspaces
 over `ext_workspace_manager_v1`, activate/close/maximize/minimize/fullscreen gated on the

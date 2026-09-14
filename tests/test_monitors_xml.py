@@ -35,7 +35,7 @@ sys.path.insert(0, ROOT)
 # The suite never hands a tool over to the real X11 one: see tests/conftest.py.
 os.environ["W11_PASSTHROUGH"] = "never"
 
-from wxrandr import monitors_xml as mx
+from hacks.display import monitors_xml as mx
 
 FIXTURES = os.path.join(ROOT, "tests", "fixtures")
 

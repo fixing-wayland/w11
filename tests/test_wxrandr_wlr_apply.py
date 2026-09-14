@@ -42,8 +42,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import wl_fake
 from w11common.wayland_mini import WlConn
-from wxrandr import core
-from wxrandr.core import Fatal, State, WlrOutputs, build_targets, snapshot_wlr
+from hacks.display import core
+from hacks.display.core import Fatal, State, WlrOutputs, build_targets, snapshot_wlr
 
 
 class Live(unittest.TestCase):

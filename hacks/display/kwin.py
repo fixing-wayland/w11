@@ -184,12 +184,12 @@ import struct
 import time
 
 from w11common import session as wsession
-from wxrandr import core
-from wxrandr.core import Fatal, Mode, OutputState, warn
+from hacks.display import core
+from hacks.display.core import Fatal, Mode, OutputState, warn
 # Plasma 5.27's logical-size rule is Mutter's layout-mode-1 rule (transform
 # swap, then C roundf of px/scale); reuse the tested helper instead of a copy.
-from wxrandr.mutter import logical_size as round_logical_size
-from wxrandr.mutter import round_half_away
+from hacks.display.mutter import logical_size as round_logical_size
+from hacks.display.mutter import round_half_away
 
 DEV = "kde_output_device_v2"
 REG = "kde_output_device_registry_v2"

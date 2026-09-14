@@ -25,9 +25,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from wl_fake import wstr
 from w11common import procs
-from wxrandr import core
-from wxrandr import gamma as gammamod
-from wxrandr.core import State
+from hacks.display import core
+from hacks.display import gamma as gammamod
+from hacks.display.core import State
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.

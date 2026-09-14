@@ -15,8 +15,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from support import RecorderDev
 from w11common.errors import CmdError
-from wdotool import cli, daemon, input_cmds, keymap, uinput
-from wdotool.backend import Window, WindowBackend
+from wdotool import cli, daemon, input_cmds
+from hacks.input import keymap, uinput
+from hacks.window.backend import Window, WindowBackend
 from wdotool.ctx import Context
 
 # The suite never hands a tool over to the real X11 one: see

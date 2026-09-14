@@ -49,7 +49,7 @@ import socket
 import struct
 import time
 
-from wdotool import x11_mini
+from hacks.window import x11_mini
 from xw11 import policy, wire
 
 #: The whole startup burst is pipelined and then waited for. Five seconds is

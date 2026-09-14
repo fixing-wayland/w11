@@ -39,7 +39,8 @@ from w11common import session as w11_session
 from w11common.dbus_mini import ERR, Bus, DBusError, Variant
 from support import FakeHypr, FakeWayfire, RecorderDev, env, fixture_json
 from test_dbus_mini import MockBus
-from wdotool import cli, daemon, keymap, keys_cmds, xkbmap
+from wdotool import cli, daemon, keys_cmds
+from hacks.input import keymap, xkbmap
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.

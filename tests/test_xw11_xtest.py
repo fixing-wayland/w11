@@ -452,7 +452,7 @@ class NamesForModifiers(XtestCase):
         is `(29, False)` and `resolve_token("0xffe3")` is "not reachable on the
         US layout" [M 2026-09-10, this box], so a hex spec would have made
         every ctrl+ chord unreachable (design section 6.2 step 4)."""
-        from wdotool import keymap
+        from hacks.input import keymap
         for name in ("Control_L", "Return", "a", "Shift_L"):
             self.assertIsInstance(keymap.resolve_token(name, None), tuple,
                                   "%s must resolve" % name)
@@ -1100,7 +1100,7 @@ class TableFeeds(unittest.TestCase):
         one `keymap.resolve_token` accepts as a name at all -- it may still be
         unreachable on a layout, which is what the typed fallback is for, but
         it must never be "(symbol) No such key name"."""
-        from wdotool import keymap
+        from hacks.input import keymap
         reachable, unreachable = 0, 0
         for keysym, name in list(xtest.KEYSYM_NAMES.items())[:400]:
             got = keymap.resolve_token(name, None)

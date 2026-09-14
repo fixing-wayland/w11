@@ -693,7 +693,7 @@ unavailable one is one line saying what was missing, never a silent fallback.
 From Plasma 6.7 KWin publishes its outputs through a registry object instead of as
 `wl_registry` globals, and `wxrandr` switches discovery paths to match, measured
 against `kscreen-doctor` on a real 6.7.4 session, see
-[docs/WXRANDR.md § KWin backend](docs/WXRANDR.md#kwin-backend-wxrandrkwinpy).
+[docs/WXRANDR.md § KWin backend](docs/WXRANDR.md#kwin-backend-hacksdisplaykwinpy).
 
 ```console
 $ wxrandr --backends
@@ -1171,7 +1171,7 @@ XWayland window (AGENTS.md route 5, a real ConfigureWindow) or a patched composi
 native one (route 6)
 ```
 
-That is one line, wrapped here; `wdotool/backend_wlr.py`'s `NO_GEOMETRY` is the whole of
+That is one line, wrapped here; `hacks/window/backend_wlr.py`'s `NO_GEOMETRY` is the whole of
 it, and the window id and the rc 1 are a live labwc's, 2026-09-08. **COSMIC**'s is the
 same shape with its own reason and its own rung: `the COSMIC toplevel protocol has no
 move, resize, raise or lower; not yet here, and the route is a patched cosmic-comp
@@ -1195,7 +1195,7 @@ processes can open it, the real `xprop` from a root shell included. Rather than 
 **(f)** KWin applies a layout immediately and permanently, with no temporary mode and
 no confirmation dialog, and says so on stderr together with the line that puts the
 previous layout back:
-[docs/WXRANDR.md § KWin backend](docs/WXRANDR.md#kwin-backend-wxrandrkwinpy).
+[docs/WXRANDR.md § KWin backend](docs/WXRANDR.md#kwin-backend-hacksdisplaykwinpy).
 
 **(g)** X11 answers are the X server's own, and whether an output is marked `primary`
 is the desktop's business.
@@ -1323,7 +1323,7 @@ load a script into KWin. **Cinnamon is the same note, only stronger**:
 `org.Cinnamon.Eval` grants arbitrary code execution inside the shell to every client of
 the session bus, with no consent step and no unsafe-mode gate, and it is there whether
 or not this project exists. wdotool uses what is already open; it opens nothing. What
-it sends is one constant program per operation out of `wdotool/cinnamon_js.py`, and
+it sends is one constant program per operation out of `hacks/window/cinnamon_js.py`, and
 only integers are ever interpolated into one — window ids, coordinates and workspace
 numbers. Titles and `WM_CLASS` strings come out and never go back in. And **running as
 root** grants nothing standing to anybody.

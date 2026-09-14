@@ -25,7 +25,7 @@ import sys
 import time
 
 from w11common import session, stdio
-from wdotool import backend, x11_mini
+from hacks.window import backend, x11_mini
 from xw11 import display as display_mod
 from xw11 import server as server_mod
 from xw11.server import Server

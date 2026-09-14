@@ -32,10 +32,11 @@ from w11common.dbus_mini import Bus
 from test_backend_gnome import (CALC, DESKTOP, EDITOR, XTERM, XTERM_XID,
                                 MockBridge, _Base)
 from test_wxprop_cli import _CapStdout
-from wdotool import backend_detect, backend_gnome
-from wdotool.backend_gnome import IFACE, OBJECT_PATH, GnomeBackend
-from wdotool.x11_mini import X11Error
-from wxprop import cli, core
+from hacks.window import backend_detect, backend_gnome
+from hacks.window.backend_gnome import IFACE, OBJECT_PATH, GnomeBackend
+from hacks.window.x11_mini import X11Error
+from wxprop import cli
+from hacks.property import core
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.

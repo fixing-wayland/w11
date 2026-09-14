@@ -48,7 +48,8 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 
 from test_gnome_overlap import Case, EXT_DIR, GIR_DIR, FakeOverlap, load_gen_gir
-from wxrandr import cli, gnome_overlap
+from wxrandr import cli
+from hacks.display import gnome_overlap
 
 os.environ["W11_PASSTHROUGH"] = "never"
 
@@ -348,8 +349,8 @@ class NotADefault(Case):
     def test_the_word_force_appears_in_no_environment_lookup(self):
         """Not a behaviour test: a proof from the source that there is no
         variable to find.  Every os.environ read in the two modules is named."""
-        for mod in ("wxrandr/cli.py", "wxrandr/mutter.py",
-                    "wxrandr/gnome_overlap.py"):
+        for mod in ("wxrandr/cli.py", "hacks/display/mutter.py",
+                    "hacks/display/gnome_overlap.py"):
             with open(os.path.join(ROOT, mod), encoding="utf-8") as fh:
                 src = fh.read()
             for m in re.finditer(r"environ(?:\.get)?\(?\[?[\"']([A-Z_]+)[\"']", src):
@@ -413,7 +414,7 @@ class NeverRemembered(Case):
     def test_the_applying_path_reads_the_agreement_only_when_not_forcing(self):
         """From the source, because this is a structural claim: there is one
         read of the agreement on the applying path and it is guarded."""
-        with open(os.path.join(ROOT, "wxrandr", "mutter.py"),
+        with open(os.path.join(ROOT, "hacks", "display", "mutter.py"),
                   encoding="utf-8") as fh:
             src = fh.read()
         body = src[src.index("def apply_overlap"):]
@@ -801,7 +802,7 @@ class TheTable(unittest.TestCase):
         code that *builds* a soname or a namespace from an integer, because
         mutter 51 stopped following the arithmetic that would make it right."""
         roots = [os.path.join(ROOT, p) for p in
-                 ("wxrandr", "warandr", "gnome", "w11common")]
+                 ("wxrandr", "warandr", "gnome", "w11common", "hacks")]
         for root in roots:
             for dirpath, _dirs, files in os.walk(root):
                 for name in files:

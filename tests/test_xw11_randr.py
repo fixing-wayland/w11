@@ -62,9 +62,9 @@ from support import (FakeBackend, FakeRandrBackend, ProxyRig,       # noqa: E402
                      fake_window, install_fake_randr, randr_mode,
                      randr_output)
 from w11common.dbus_mini import Bus                                 # noqa: E402
-from wxrandr import core as wcore                                   # noqa: E402
-from wxrandr import kwin as wkwin                                   # noqa: E402
-from wxrandr import mutter as wmutter                               # noqa: E402
+from hacks.display import core as wcore  # noqa: E402
+from hacks.display import kwin as wkwin  # noqa: E402
+from hacks.display import mutter as wmutter  # noqa: E402
 from xw11 import client as client_mod                               # noqa: E402
 from xw11 import policy, randr, upstream, wire                      # noqa: E402
 

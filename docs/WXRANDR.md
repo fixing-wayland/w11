@@ -1037,7 +1037,7 @@ of it needs a debugger:
    of the struct has moved, because then the description's *shape* is wrong and
    not just its numbers. Adding a generation is one record in
    `gnome/w11-overlap@w11/generations.json`, the same record in
-   `GENERATIONS` in `wxrandr/gnome_overlap.py`, one run of the script above —
+   `GENERATIONS` in `hacks/display/gnome_overlap.py`, one run of the script above —
    which writes the `.gir`, the `.typelib` and `metadata.json`'s `shell-version`
    out of the table — and then the three-head measurement.
    [Technical.md § 6](Technical.md#the-table-and-adding-a-gnome-generation) has the
@@ -1142,7 +1142,7 @@ On GNOME and KDE the route left is the desktop portal's ScreenCast (AGENTS.md
 route 4), which asks once per session and is not wired up here yet, which makes
 it useless from the hotkey a layout script exists for.
 
-## Hyprland backend (`wxrandr/hypr.py`)
+## Hyprland backend (`hacks/display/hypr.py`)
 
 `--backend hypr` (alias `hyprland`, `WXRANDR_BACKEND=hypr`) reads `hyprctl -j monitors
 all` and applies with one `hyprctl keyword monitor
@@ -1212,15 +1212,15 @@ the route is a validating call in Hyprland's IPC (route 6).
 `zwlr_gamma_control_manager_v1`, which Hyprland advertises at v1, and not through the
 backend.
 
-**`wxrandr/hypr.py` carries a second copy of `wdotool/hypr_ipc.py`'s reader on purpose.**
+**`hacks/display/hypr.py` carries a second copy of `hacks/window/hypr_ipc.py`'s reader on purpose.**
 `scripts/build-pyz.sh` builds `dist/wxrandr` out of `w11common` and `wxrandr` alone, so a
 `from wdotool...` there would work from the .deb and quietly not from the zipapp — and on
 Hyprland "quietly" means falling back to a wlr path that cannot apply. This is the same
-trade `wdotool/layoutbox.py` already makes with Mutter's logical-size rule, and it is
+trade `hacks/input/layoutbox.py` already makes with Mutter's logical-size rule, and it is
 pinned the same way: `tests/test_wxrandr_hypr.py:TheTwoClients` drives both clients
 against one double and insists on the same bytes and the same sentences.
 
-## Mutter backend (`wxrandr/mutter.py`)
+## Mutter backend (`hacks/display/mutter.py`)
 
 Mutter has no `zwlr_output_management`; its display API is the D-Bus object
 `/org/gnome/Mutter/DisplayConfig` (`GetCurrentState` + `ApplyMonitorsConfig`), which any
@@ -1380,7 +1380,7 @@ implementation's flavour instead. What a Cinnamon user sees that they did not:
 | `--dryrun --verbose` plan | a screen 240 px too wide (`5760x1600` where the run leaves `5520x1600`) | the neighbours the apply shifts are in the plan |
 | `--listmonitors` | the primary not first | the primary first, as RandR 1.5 does |
 
-Every GNOME string is byte-identical, because the words come off `wxrandr/mutter.py`'s
+Every GNOME string is byte-identical, because the words come off `hacks/display/mutter.py`'s
 `Flavor` record (`.name`, `.desktop`, `.compositor`). One wording change reaches beyond
 Cinnamon: `--unsafe-gnome-overlap` on `kwin`, `sway` and `wlr` now ends *...which places
 overlapping monitors without any of this* where it used to end *...without it* — one
@@ -1403,7 +1403,7 @@ is GNOME Settings' own name for that switch and stays capitalised on both.
 Tests: `tests/test_wxrandr_cinnamon.py` — `FakeMutter` on a `MutterMockBus(flavor=MUFFIN)`,
 the same fake with three names swapped.
 
-## KWin backend (`wxrandr/kwin.py`)
+## KWin backend (`hacks/display/kwin.py`)
 
 **This is the Wayland session only.** Plasma on Xorg is a plain X11 session: the X
 server's RandR is the truth there, so `main()` hands over to the real `xrandr` before
@@ -1727,7 +1727,7 @@ accepted. What each group does here:
   a compositor that has rearranged and nothing at all on one that has not. labwc 0.9.3 is
   the only compositor measured that reaches the second send; sway 1.11 forced onto
   `--backend wlr` does not, and Hyprland is not on this code path at all — detection sends
-  it to `wxrandr/hypr.py`, whose `_verify_applied` is this read-back's analogue there. A
+  it to `hacks/display/hypr.py`, whose `_verify_applied` is this read-back's analogue there. A
   compositor that ignores the retry too gets the numbers in a sentence — `xrandr: the
   compositor accepted the position 1920,0 for Virtual-2 and put it at 5760,0 both times` —
   instead of a layout nobody asked for.

@@ -109,7 +109,7 @@ class I3Live(unittest.TestCase):
 
     def i3_run(self, command):
         """One RUN_COMMAND over i3's own socket, so a test can arrange the session without i3-msg."""
-        from wxrandr.core import SwayIPC
+        from hacks.display.core import SwayIPC
         ipc = SwayIPC(sockpath=self.rig.sock)
         try:
             reply = ipc.msg(0, command)
@@ -178,7 +178,7 @@ class I3Live(unittest.TestCase):
         """The control for the test above, and the measured bug itself: `search` printed i3's node id
         `97479943571072` where the real xdotool printed `8388621`, and `xwininfo -root -tree` has never
         heard of it.  Without this, an id set the tree happened to contain would pass either way."""
-        from wxrandr.core import SwayIPC
+        from hacks.display.core import SwayIPC
         ipc = SwayIPC(sockpath=self.rig.sock)
         self.addCleanup(ipc.close)
         cons = []
@@ -250,7 +250,7 @@ class I3Live(unittest.TestCase):
     def test_the_apply_i3_would_have_refused_says_so_in_its_own_words(self):
         """Why the refusal is up front rather than a relayed error: what i3 says to an `output` command is a
         parse error listing every command it does have."""
-        from wxrandr.core import SwayIPC
+        from hacks.display.core import SwayIPC
         ipc = SwayIPC(sockpath=self.rig.sock)
         self.addCleanup(ipc.close)
         reply = ipc.msg(0, "output screen position 0 0")

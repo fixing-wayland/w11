@@ -28,10 +28,10 @@ import os
 
 from w11common import session
 from w11common.errors import CmdError
-from wdotool.backend import View, Window, WindowBackend, Workspace, mint_id, mint_map, warn
+from hacks.window.backend import View, Window, WindowBackend, Workspace, mint_id, mint_map, warn
 from wdotool.ctx import SoftCmdError
-from wdotool.hypr_ipc import HyprIPC
-from wdotool.xid_match import match_xids
+from hacks.window.hypr_ipc import HyprIPC
+from hacks.window.xid_match import match_xids
 
 #: `fullscreen` in `hyprctl -j clients`: 0 none, 1 maximize, 2 fullscreen.
 #: Measured: `windowstate --add FULLSCREEN` took the field from 0 to 2, with
@@ -608,7 +608,7 @@ class HyprBackend(WindowBackend):
         display = session.find_x_display() or os.environ.get("DISPLAY") or None
         xauth = session.find_xauthority() or None
         try:
-            from wdotool import x11_mini
+            from hacks.window import x11_mini
             self._x = x11_mini.X11Conn(display, xauthority=xauth)
         except Exception:  # no X plane: xid stays 0
             self._x = None

@@ -49,7 +49,7 @@ import time
 
 from w11common import session
 from w11common.errors import CmdError
-from wdotool import x11_mini
+from hacks.window import x11_mini
 from xw11 import client as client_mod
 from xw11 import display as display_mod
 from xw11 import ewmh as ewmh_mod

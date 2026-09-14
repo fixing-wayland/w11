@@ -64,8 +64,8 @@ import struct
 
 from w11common import session as wsession
 from w11common.dbus_mini import Bus, DBusError, Variant
-from wxrandr import core, gnome_overlap, monitors_xml
-from wxrandr.core import Fatal, Mode, OutputState, round_half_away, warn  # noqa: F401
+from hacks.display import core, gnome_overlap, monitors_xml
+from hacks.display.core import Fatal, Mode, OutputState, round_half_away, warn  # noqa: F401
 
 class Flavor(collections.namedtuple(
         "Flavor", "name dest path iface desktop compositor config_name keep_dialog")):

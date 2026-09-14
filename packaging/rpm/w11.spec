@@ -144,7 +144,7 @@ table has not measured.
 
 %install
 %pyproject_install
-%pyproject_save_files w11common wdotool wwmctl wxprop wxrandr warandr wmirror xw11
+%pyproject_save_files w11common wdotool wwmctl wxprop wxrandr warandr wmirror xw11 hacks
 
 install -Dpm 0644 gnome/60-w11-uinput.rules \
     %{buildroot}%{_udevrulesdir}/60-w11-uinput.rules

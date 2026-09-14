@@ -26,11 +26,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from w11common.errors import CmdError
-from wdotool.backend import Window
-from wdotool.backend_cosmic import CosmicBackend
-from wdotool.backend_sway import SwayBackend
-from wdotool.backend_wlr import WlrBackend
-from wwmctl import cli, core
+from hacks.window.backend import Window
+from hacks.window.backend_cosmic import CosmicBackend
+from hacks.window.backend_sway import SwayBackend
+from hacks.window.backend_wlr import WlrBackend
+from wwmctl import cli
+from hacks.window import wmctl as core
 from wwmctl.cli import WMCTRL_VERSION
 
 # The suite never hands a tool over to the real X11 one: see
@@ -1370,7 +1371,7 @@ class BuildScriptTest(unittest.TestCase):
     def test_build_emits_both_zipapps(self):
         with tempfile.TemporaryDirectory(prefix="wwmctl-build-") as tmp:
             for d in ("w11common", "wdotool", "wwmctl", "wxprop", "wxrandr",
-                      "warandr", "wmirror", "xw11", "scripts"):
+                      "warandr", "wmirror", "xw11", "hacks", "scripts"):
                 shutil.copytree(os.path.join(ROOT, d), os.path.join(tmp, d),
                                 ignore=shutil.ignore_patterns("__pycache__"))
             p = subprocess.run(["sh", os.path.join(tmp, "scripts",
@@ -1476,7 +1477,7 @@ class BrokenStdoutTest(unittest.TestCase):
             raise BrokenPipeError(32, "Broken pipe")
 
     def test_broken_pipe_exits_1_quietly(self):
-        from wwmctl import core
+        from hacks.window import wmctl as core
         old_detect = core._detect_backend
         core._detect_backend = lambda: FakeSwayBackend(
             [dict(s) for s in SPECS])
@@ -1504,7 +1505,7 @@ class BrokenStdoutTest(unittest.TestCase):
             opened.close()
 
     def test_stdout_none_list_exits_0(self):
-        from wwmctl import core
+        from hacks.window import wmctl as core
         old_detect = core._detect_backend
         core._detect_backend = lambda: FakeSwayBackend(
             [dict(s) for s in SPECS])
@@ -1531,7 +1532,7 @@ class NoSessionErrorTest(unittest.TestCase):
     wmctrl's diagnostics. wmctrl itself never says another program's name."""
 
     def _run_with(self, exc):
-        from wdotool import backend
+        from hacks.window import backend
         backend.set_program("wdotool")           # as a wdotool run leaves it
 
         def detect():

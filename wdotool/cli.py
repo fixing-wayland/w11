@@ -10,7 +10,8 @@ import sys
 
 from w11common import passthrough, stdio
 from w11common.errors import CmdError
-from wdotool import backend, commands
+from wdotool import commands
+from hacks.window import backend
 from wdotool.cnum import atoi as _atoi
 from wdotool.ctx import Context
 
@@ -403,7 +404,7 @@ def _main(argv: list[str] | None = None) -> int:
     # Hidden diagnostic (B13): dump the compositor's keymap and what wdotool
     # makes of it. Ours, like __daemon: never a passthrough, never in `help`.
     if len(argv) > 1 and argv[1] == "__keymap":
-        from wdotool import xkbmap
+        from hacks.input import xkbmap
 
         return xkbmap.diagnostic_main(argv[2:])
 

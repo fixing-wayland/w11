@@ -29,7 +29,7 @@ import time
 import traceback
 
 from w11common.errors import CmdError
-from wdotool import keymap, keystate, layoutbox, uinput, vkbd, vptr, xkbmap
+from hacks.input import keymap, keystate, layoutbox, uinput, vkbd, vptr, xkbmap
 
 # Per-euid log path: /tmp is shared, and a root-owned log must not break (or
 # leak into) another user's daemon spawn.

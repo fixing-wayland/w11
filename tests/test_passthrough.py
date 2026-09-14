@@ -917,7 +917,7 @@ class SuiteGuard(Base):
         # those runs reach real backend detection, which caches a session-bus
         # connection; drop it here rather than at interpreter exit, where
         # unittest's warning filter would print a ResourceWarning
-        from wdotool import backend_detect
+        from hacks.window import backend_detect
         backend_detect.reset()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", ResourceWarning)
@@ -1403,7 +1403,7 @@ class MeasuredSessions(Base):
         here, and the answer is still x11, because the bus is not consulted at all."""
         from test_dbus_mini import MockBus
         from w11common.dbus_mini import Bus
-        from wdotool import backend_detect
+        from hacks.window import backend_detect
         self.x11_session()
         mock_bus = MockBus()
         self.addCleanup(mock_bus.srv.close)

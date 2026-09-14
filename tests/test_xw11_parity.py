@@ -35,7 +35,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # and tests/test_passthrough.py; this line covers `python3 tests/<file>.py`.
 os.environ["W11_PASSTHROUGH"] = "never"
 
-from wdotool import cli, x11_mini                                   # noqa: E402
+from wdotool import cli  # noqa: E402
+from hacks.window import x11_mini  # noqa: E402
 from xw11 import display as display_mod                             # noqa: E402
 
 SCRIPT = os.path.join(ROOT, "scripts", "parity-oracle.sh")

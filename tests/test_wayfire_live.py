@@ -185,7 +185,7 @@ class WayfireLive(unittest.TestCase):
         arm has to beat [M recon2/wayfire.md §1.1, §2]."""
         code = ("import json, os, sys;"
                 "sys.path.insert(0, %r);"
-                "from wdotool import backend_detect;"
+                "from hacks.window import backend_detect;"
                 "b = backend_detect.detect();"
                 "print(json.dumps([b.name, type(b).__name__]))" % ROOT)
         p = subprocess.run([sys.executable, "-c", code], env=self.env(),
@@ -310,7 +310,7 @@ class WayfireLive(unittest.TestCase):
         # of `xterm` can only have come off the X server this backend found through stipc.
         code = ("import json, sys;"
                 "sys.path.insert(0, %r);"
-                "from wdotool import backend_detect;"
+                "from hacks.window import backend_detect;"
                 "rows = [v for v in backend_detect.detect().views() if v.window.title == 'fwxlive'];"
                 "print(json.dumps([[v.xid, v.instance, v.cls, v.app_id, v.client_type] for v in rows]))"
                 % ROOT)
@@ -423,7 +423,7 @@ class WayfireLive(unittest.TestCase):
         self.assertEqual(state["possible-layouts"], ["English (US)", "German"])
         code = ("import json, sys;"
                 "sys.path.insert(0, %r);"
-                "from wdotool import xkbmap;"
+                "from hacks.input import xkbmap;"
                 "s = xkbmap.fetch();"
                 "print(json.dumps([s.group, s.group_known, s.mods_seen]))" % ROOT)
         p = subprocess.run([sys.executable, "-c", code], env=self.env(),

@@ -38,9 +38,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ["W11_PASSTHROUGH"] = "never"
 
 from test_backend_kwin import UU, WID, XTERM_XID, _Base, _FakeX
-from wdotool import backend, backend_detect, backend_kwin
+from hacks.window import backend, backend_detect, backend_kwin
 from wdotool import cli as wdotool_cli
-from wwmctl import cli, core
+from wwmctl import cli
+from hacks.window import wmctl as core
 
 #: the twin xterm the tie tests add: a second window of the same client, same
 #: class, same title, same rectangle. Only its place in windowList() (ix) and

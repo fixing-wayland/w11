@@ -71,7 +71,7 @@ import time
 import unicodedata
 import warnings
 
-from wdotool.keysyms import KEYSYM_TO_UNICODE, NAME_TO_KEYSYM
+from hacks.input.keysyms import KEYSYM_TO_UNICODE, NAME_TO_KEYSYM
 
 # Modifier *bits* of an entry's mask. MOD_SHIFT is 1 so that the fixed US
 # table's `shifted` boolean and a reverse-map mask are the same value.
@@ -1654,7 +1654,7 @@ UINPUT_NODE = "/dev/uinput"
 #: rather than that constant alone: a daemon started with `WDOTOOL_UINPUT_PATH=/dev/uinput2` opens THAT
 #: node, and a fourth rule comparing st_rdev against /dev/uinput would find no fd of its own and quietly
 #: encode for the session's group instead of its device's -- the exact failure the rule exists to end.
-#: The name is not imported from wdotool.uinput: that module opens the kernel device at import-adjacent
+#: The name is not imported from hacks.input.uinput: that module opens the kernel device at import-adjacent
 #: call sites and every reader here (`keys explain`, the passthrough probe) would carry it for one string.
 UINPUT_PATH_ENV = "WDOTOOL_UINPUT_PATH"
 
@@ -1782,7 +1782,7 @@ class HyprLayouts(_IpcLayouts):
 
     def _index(self):
         from w11common import session
-        from wdotool.hypr_ipc import HyprIPC
+        from hacks.window.hypr_ipc import HyprIPC
 
         path = self.sockpath or session.find_hypr_socket()
         if not path:
@@ -1887,7 +1887,7 @@ class WayfireLayouts(_IpcLayouts):
     def _index(self):
         from w11common import session
         from w11common.errors import CmdError
-        from wdotool.backend_wayfire import _WayfireIPC
+        from hacks.window.backend_wayfire import _WayfireIPC
 
         path = self.sockpath or session.find_wayfire_socket()
         if not path:
@@ -2143,7 +2143,7 @@ def _expected_us() -> dict:
     them here made `us` + `caps:swapescape` -- a plain US session by any honest reading -- fail the check and
     drag the whole reverse map in (B2).
     """
-    from wdotool import keymap as _keymap
+    from hacks.input import keymap as _keymap
 
     out: dict = {}
     for ch, (code, shifted) in _keymap.CHAR_TO_KEY.items():
@@ -2329,7 +2329,7 @@ def diagnostic_main(argv) -> int:
         if bypass:
             # Answer from the table wdotool would actually use, or the
             # diagnostic contradicts the "us bypass: yes" line above it.
-            from wdotool import keymap as _keymap
+            from hacks.input import keymap as _keymap
 
             print("(the US bypass is in effect: these are the built-in US "
                   "table's keystrokes, which is what wdotool sends)")

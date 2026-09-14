@@ -29,7 +29,7 @@ sys.path.insert(0, ROOT)
 # tests/<file>.py` does not.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from wdotool import x11_mini                                       # noqa: E402
+from hacks.window import x11_mini  # noqa: E402
 from xw11 import policy                                           # noqa: E402
 from xw11 import wire                                             # noqa: E402
 

@@ -28,8 +28,8 @@ import time
 
 from w11common import session
 from w11common.errors import CmdError
-from wdotool.backend import View, Window, WindowBackend, Workspace
-from wdotool.xid_match import match_xids
+from hacks.window.backend import View, Window, WindowBackend, Workspace
+from hacks.window.xid_match import match_xids
 
 # Deadline for the command socket only, and the same 10 s the sway backend uses: every reply is built inside
 # Wayfire's own event loop, so silence means the compositor is wedged rather than busy.
@@ -707,7 +707,7 @@ class WayfireBackend(WindowBackend):
             return None
         info = self.x_info() or ("", "")
         try:
-            from wdotool import x11_mini
+            from hacks.window import x11_mini
             self._x = x11_mini.X11Conn(info[0] or None, xauthority=info[1] or None)
         except Exception:  # no X plane: every xid stays 0
             self._x = None

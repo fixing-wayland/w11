@@ -29,6 +29,10 @@ import tokenize
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = ["wdotool", "wwmctl", "wxprop", "wxrandr", "warandr", "wmirror", "xw11"]
+
+#: where each tool's engine modules moved to: `options_in_code` reads these beside the tool's own directory
+HACKS = {"wdotool": ("hacks/input", "hacks/window"), "wwmctl": ("hacks/window",),
+         "wxrandr": ("hacks/display",), "wxprop": ("hacks/property",), "wmirror": ("hacks/mirror",)}
 OPT = re.compile(r"""["'](--[a-z][a-z0-9-]+)["']""")
 IN_TEXT = re.compile(r"(--[a-z][a-z0-9-]+)")
 
@@ -163,12 +167,13 @@ LONGOPT = re.compile(r'(?<=[\[,)])\s*\(\s*"([a-z][a-z0-9-]*)"\s*,\s*(?:True|Fals
 def options_in_code(tool):
     """Every long option spelled in the package's own source, code only."""
     found = set()
-    d = os.path.join(ROOT, tool)
-    for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-        if name.endswith(".py"):
-            src = code_only(os.path.join(d, name))
-            found |= set(OPT.findall(src))
-            found |= {"--" + n for n in LONGOPT.findall(src)}
+    for sub in (tool,) + HACKS.get(tool, ()):
+        d = os.path.join(ROOT, sub)
+        for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if name.endswith(".py"):
+                src = code_only(os.path.join(d, name))
+                found |= set(OPT.findall(src))
+                found |= {"--" + n for n in LONGOPT.findall(src)}
     return found
 
 

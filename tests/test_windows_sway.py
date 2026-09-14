@@ -302,7 +302,7 @@ class SwayWindowTest(unittest.TestCase):
         # publishes ext_workspace_manager_v1 and the floor answers over it, Ubuntu's
         # 1.11 does not and the floor says so (CI run 34364127816 measured both).
         reg = subprocess.run(
-            [sys.executable, "-c", "from wdotool import backend_detect as b; "
+            [sys.executable, "-c", "from hacks.window import backend_detect as b; "
              "print(' '.join(sorted(b.session_registry() or {})))"],
             env=self._wdo_env(None), capture_output=True, text=True, cwd=ROOT, timeout=30)
         has_ws = "ext_workspace_manager_v1" in reg.stdout.split()

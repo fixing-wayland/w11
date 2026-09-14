@@ -48,7 +48,7 @@ nothing in it imports anything of `wdotool`: the package is closed, which is wha
 a zipapp of a display tool carry it and nothing else.
 
 `wdotool/` is a second shared layer, but only for the two window tools: `wwmctl` and
-`wxprop` drive its window backends and its X11 wire client (`wdotool/x11_mini.py`).
+`wxprop` drive its window backends and its X11 wire client (`hacks/window/x11_mini.py`).
 The three display tools do not touch it at all, which is what their bundles show: they
 carry `w11common` and their own packages, and nothing of `wdotool` (see § [The
 single-file builds](#the-single-file-builds)). It was not always so. Until this release
@@ -72,12 +72,12 @@ an original's name. What each bundle contains:
 
 | bundle | packages inside | why |
 |---|---|---|
-| `dist/wdotool` | `w11common`, `wdotool` | the tool itself |
-| `dist/wwmctl` | `w11common`, `wdotool`, `wwmctl` | the window backends and `x11_mini` live in `wdotool` |
-| `dist/wxprop` | `w11common`, `wdotool`, `wxprop` | same |
-| `dist/wxrandr` | `w11common`, `wxrandr` | the tool itself: nothing of `wdotool` is reached any more |
-| `dist/warandr` | `w11common`, `wxrandr`, `warandr` | on Wayland it runs the same interpreter with `-m wxrandr`, `PYTHONPATH` pointing at the zipapp itself |
-| `dist/wmirror` | `w11common`, `wxrandr`, `wmirror` | it reads the layout through wxrandr's own wlr client, and the detached supervisor is this same zipapp re-entered by fork |
+| `dist/wdotool` | `w11common`, `wdotool`, `hacks.input`, `hacks.window` | the tool itself; the input and window hacks it drives |
+| `dist/wwmctl` | `w11common`, `wdotool`, `wwmctl`, `hacks.input`, `hacks.window` | the window backends and `x11_mini` live in `hacks.window` |
+| `dist/wxprop` | `w11common`, `wdotool`, `wxprop`, `hacks.input`, `hacks.window`, `hacks.property` | same |
+| `dist/wxrandr` | `w11common`, `wxrandr`, `hacks.display` | the tool itself: nothing of `wdotool` is reached any more |
+| `dist/warandr` | `w11common`, `wxrandr`, `warandr`, `hacks.display` | on Wayland it runs the same interpreter with `-m wxrandr`, `PYTHONPATH` pointing at the zipapp itself |
+| `dist/wmirror` | `w11common`, `wxrandr`, `wmirror`, `hacks.display`, `hacks.mirror` | it reads the layout through wxrandr's own wlr client, and the detached supervisor is this same zipapp re-entered by fork |
 
 zipapp copies whole package directories, so a bundle that needs three files of
 `wdotool` carries all of it. Do not state a byte size for any of these here: the
@@ -319,7 +319,7 @@ itself holds, missing anything the X server or XTEST put there — the
 documented Wayland approximations on a platform that has none). `wxrandr`:
 the X server's RandR is the truth, and our Mutter backend on GNOME-on-Xorg is
 at best a second opinion. `wwmctl` *does* carry an X11 wire client
-(`wdotool/x11_mini.py`), and it is still not enough: `-m`, `-d` viewport and
+(`hacks/window/x11_mini.py`), and it is still not enough: `-m`, `-d` viewport and
 workarea, `-e` gravity math, `-r -b` state toggles, `-x` class matching and
 `:SELECT:` (which needs `GrabPointer`/`QueryPointer`, not in `x11_mini`) would
 all have to be reimplemented and their byte parity re-proved against the real
@@ -370,10 +370,10 @@ binary (`gdbus`, `busctl`, `swaymsg`, `hyprctl`, `xprop`) to do its talking.
 |---|---|---|
 | `w11common/dbus_mini.py` | D-Bus, session bus or any `unix:` address | `DBusError(name, message)` for ERROR replies **and** for local failures, under `org.freedesktop.DBus.Error.` + `NoServer`/`AuthFailed`/`NoReply`/`Disconnected`. Nothing socket-level escapes: a peer that closes mid-SASL comes back as `Disconnected`, not as a bare `ConnectionResetError` |
 | `w11common/wayland_mini.py` | the Wayland wire protocol | exceptions from the socket, with a deadline on every roundtrip. A wedged compositor times out and the caller degrades, rather than hanging the daemon |
-| `wdotool/x11_mini.py` | the X11 core protocol against Xwayland or Xorg | two classes, and every caller treats both as "degrade gracefully": `XUnavailable` for anything connection-level (no server, bad `DISPLAY`, auth rejected, connection lost) and `X11Error` for errors the server reports (BadWindow and friends) |
-| `wdotool/hypr_ipc.py` | Hyprland's request socket (`$XDG_RUNTIME_DIR/hypr/<sig>/.socket.sock`) | send the request as text, read the reply to EOF, close — one connection per request, which is the whole protocol. `j/<name>` for JSON, `dispatch`/`keyword` for the two mutating verbs, and `.socket2.sock`'s `name>>payload` line stream for events |
-| `wdotool/backend_wayfire.py`'s `_WayfireIPC` | Wayfire's JSON IPC | a native-endian int32 length and a JSON body, both ways; one connection for commands and one per `watch()` |
-| `wdotool/backend_detect.py` | nothing itself — it decides which window backend to build | one `ListNames` over `dbus_mini` answers the KWin, GNOME and Cinnamon questions at once, and the connection is handed to the backend that wins rather than opened twice |
+| `hacks/window/x11_mini.py` | the X11 core protocol against Xwayland or Xorg | two classes, and every caller treats both as "degrade gracefully": `XUnavailable` for anything connection-level (no server, bad `DISPLAY`, auth rejected, connection lost) and `X11Error` for errors the server reports (BadWindow and friends) |
+| `hacks/window/hypr_ipc.py` | Hyprland's request socket (`$XDG_RUNTIME_DIR/hypr/<sig>/.socket.sock`) | send the request as text, read the reply to EOF, close — one connection per request, which is the whole protocol. `j/<name>` for JSON, `dispatch`/`keyword` for the two mutating verbs, and `.socket2.sock`'s `name>>payload` line stream for events |
+| `hacks/window/backend_wayfire.py`'s `_WayfireIPC` | Wayfire's JSON IPC | a native-endian int32 length and a JSON body, both ways; one connection for commands and one per `watch()` |
+| `hacks/window/backend_detect.py` | nothing itself — it decides which window backend to build | one `ListNames` over `dbus_mini` answers the KWin, GNOME and Cinnamon questions at once, and the connection is handed to the backend that wins rather than opened twice |
 
 
 **The detection order** is: `WDOTOOL_BACKEND` → the sway/i3 IPC socket → the Hyprland
@@ -429,7 +429,7 @@ format 32 come back as unsigned 32-bit ints (EWMH's `-1` reads as `0xFFFFFFFF`),
 handlers, `roundtrip`, and file-descriptor passing. Its callers are the daemon
 (`wl_output` geometry, preferring `zxdg_output` logical size and position when
 advertised), `backend_wlr` (foreign-toplevel), `vkbd`/`vptr` (the two virtual-device
-protocols), `wxrandr`'s wlr and KWin backends and `wxrandr/gamma.py`.
+protocols), `wxrandr`'s wlr and KWin backends and `hacks/display/gamma.py`.
 
 ```
 c = WlConn(socket_path)
@@ -509,7 +509,7 @@ Pure-stdlib D-Bus client for the session bus and any `unix:` address (QEMU's
 
 ## 4. Window backends
 
-Eight backends implement one interface, `wdotool/backend.py:WindowBackend`, and three
+Eight backends implement one interface, `hacks/window/backend.py:WindowBackend`, and three
 tools drive them: `wdotool`'s window commands, all of `wwmctl`, and `wxprop` for
 native windows. A backend is an object with these methods, and nothing above it
 reaches into a backend's privates any more.
@@ -554,7 +554,7 @@ knowing before writing one.
 | **GNOME** (`backend_gnome.py`) | `Meta.Window.get_id()`, through the bridge | for the life of the window | XWayland windows also carry their real X id in `views()`, which is what `wwmctl -l` prints |
 | **Cinnamon** (`backend_cinnamon.py`) | `get_stable_sequence()`, with the xid straight from `get_xwindow()` | for the life of the window | `get_xwindow()` is the real X id for an X client and 0 for a native one, so this backend needs no matching against `_NET_CLIENT_LIST` at all. Not `get_id()`, which is a ~3e9 counter — two windows measured 3070932382 and 2959920136 |
 | **KDE** (`backend_kwin.py`) | minted: `0x40000000 \| 30 bits of internalId`, because the scripting API has no numeric window id at all | while the window lives | no. The range is deliberately outside the one Xwayland hands its clients, so a native id is never mistaken for an X id in the same listing |
-| **Hyprland** (`backend_hypr.py`) | minted from the compositor's `address` with `backend.mint_id()` | for the life of the window, and the same in two processes | XWayland windows are joined to `_NET_CLIENT_LIST` through `wdotool/xid_match.py` |
+| **Hyprland** (`backend_hypr.py`) | minted from the compositor's `address` with `backend.mint_id()` | for the life of the window, and the same in two processes | XWayland windows are joined to `_NET_CLIENT_LIST` through `hacks/window/xid_match.py` |
 | **Wayfire** (`backend_wayfire.py`) | the view's own `id` from `window-rules/list-views`, unchanged | while the view lives | nothing is minted, and nothing collides with an Xwayland id — Wayfire's ids start at 1 and count up |
 | **COSMIC** (`backend_cosmic.py`) | `backend.mint_id(identifier)` over the 32-character `identifier` — `0x40000000 \| 30 bits of blake2b` | for the life of the window, across processes | no, and it is out of Xwayland's range on purpose |
 | **wlr** (`backend_wlr.py`) | `1000000 + enumeration order` | within one process only — closing the first-arrived window renames the survivor | no |
@@ -593,7 +593,7 @@ viewport currently in front, so a view one screen to the left of it reads a nega
 `x: -882`), and the output's own origin has to come off first on a multi-head layout. A
 sticky view is on all nine and reports desktop -1, as it does everywhere else.
 
-**The X-id matcher, and who has how much of it.** `wdotool/xid_match.py` is KWin's
+**The X-id matcher, and who has how much of it.** `hacks/window/xid_match.py` is KWin's
 matcher moved out of `backend_kwin.py` unchanged — pid and `WM_CLASS` are filters, title
 and geometry distance are the score, the position in each list breaks a tie, and a pair
 that agrees on nothing keeps xid 0. Every backend whose compositor publishes toplevels
@@ -605,7 +605,7 @@ geometry, no list-order tie-break — so a tie there keeps xid 0 more often.
 **The desktop mapping of the wlr floor.** Desktops exist wherever the compositor
 publishes `ext_workspace_manager_v1` (labwc, Budgie 10.10, Xfce 4.20 on Wayland, COSMIC)
 and the refusal stands where it does not (sway 1.11, Wayfire 0.10).
-`wdotool/ext_workspace.py` is the client: `activate` on the handle plus `commit` on the
+`hacks/window/ext_workspace.py` is the client: `activate` on the handle plus `commit` on the
 manager, workspaces ordered by `(coordinates, arrival)`, which covers both COSMIC
 (coordinates `[1]`, `[2]`) and labwc/Budgie (no `coordinates` event at all).
 `window_desktop` stays -1 on every one of them, because neither foreign-toplevel protocol
@@ -656,7 +656,7 @@ instead, which is the obvious repair and was implemented and measured, lands eve
 target at twice the coordinate asked for. What that state really breaks is
 `getdisplaygeometry`, which then describes a desktop that is not being drawn, and on
 the wire it is byte for byte a legitimate physical-mode session where the same numbers
-are right. So `wdotool/layoutbox.py` gates on the signature the two share (a head whose
+are right. So `hacks/input/layoutbox.py` gates on the signature the two share (a head whose
 logical size is its raw mode size while it claims `wl_output.scale` >= 2), asks
 `org.gnome.Mutter.DisplayConfig` only then, and turns a disagreement into one
 diagnostic rather than a different box. The gate is the point: the common session never
@@ -715,7 +715,7 @@ failure so the guess and its notice stand exactly as they did.
   layouts, an `mru-sources` head no longer in `sources`, and a source that is not an
   `xkb` layout are refused rather than answered.
 * **Hyprland** (`xkbmap.HyprLayouts`): `j/devices` on
-  `$XDG_RUNTIME_DIR/hypr/<sig>/.socket.sock`, the same socket `wdotool/hypr_ipc.py`
+  `$XDG_RUNTIME_DIR/hypr/<sig>/.socket.sock`, the same socket `hacks/window/hypr_ipc.py`
   serves the window backend from. Hyprland keeps XKB state **per device**, so the
   question is which keyboard row to read, and the recorded `devices.json` is the trap:
   four keyboards on one `us,de` session, `main: true` on wdotool's own
@@ -794,7 +794,7 @@ This file does not repeat it.
 **One number parser.** `wdotool/cnum.py` is C's `atoi`/`atof`/`strtol` with C's
 semantics (leading space, optional sign, stop at the first character that is not a
 digit, and `[0-9]` rather than `\d`, so a Unicode digit gives 0 exactly as C does).
-`wwmctl/core.py` and `wxprop/cli.py` import it aliased as `_atoi`. There is one copy,
+`hacks/window/wmctl.py` and `wxprop/cli.py` import it aliased as `_atoi`. There is one copy,
 and the parity tests are what keep it honest.
 
 **One getopt wrapper.** `cli._opts` takes the command name and parses one command's
@@ -835,7 +835,7 @@ everything §6 says about adjacency, gaps, mirroring and one-primary applies ver
 and on three heads a live muffin was made to print `not adjacent` for the first time.
 Eight behaviours that used to be keyed on the token `mutter` are keyed on the
 implementation's flavour instead, and every GNOME string is byte-identical because the
-words come off `wxrandr/mutter.py:Flavor` (`.name`, `.desktop`, `.compositor`). Muffin
+words come off `hacks/display/mutter.py:Flavor` (`.name`, `.desktop`, `.compositor`). Muffin
 also still exports `GetCrtcGamma`/`SetCrtcGamma`, which mutter's GNOME 46/50 do not; even
 so `--brightness`/`--gamma` answer `--brightness/--gamma are not supported on Muffin (no
 gamma LUT API)` with rc 0 rather than dying on the wlr path's `cannot set gamma: no
@@ -980,7 +980,7 @@ changed is what the numbers mean. GNOME Settings' own 200% scaling writes exactl
 same file, so this is not a wxrandr defect — but `--persistent` is the moment the user
 chooses to save, and it is the moment to say so.
 
-**What `wxrandr --persistent` therefore does** (`wxrandr/monitors_xml.py`, about 200
+**What `wxrandr --persistent` therefore does** (`hacks/display/monitors_xml.py`, about 200
 lines, none of it reached by a temporary apply):
 
 1. reads the file before the apply and prints one line when Mutter has already
@@ -1332,7 +1332,7 @@ a generation whose names follow no scheme at all is still one record.
 There are two copies of the table and there have to be: the extension is installed
 into `~/.local/share/gnome-shell/extensions` and `wxrandr` into a venv or a `.deb`,
 and neither can read the other's files at run time. So `GENERATIONS` in
-`wxrandr/gnome_overlap.py` carries the same records, and
+`hacks/display/gnome_overlap.py` carries the same records, and
 `tests/test_overlap_force.py` compares them field for field and names the file to
 fix. Everything else is *generated* from the table:
 `gnome/overlap-typelib/gen-gir.py` writes the `.gir`, compiles the `.typelib`, and
@@ -1380,7 +1380,7 @@ typelibs must be present and which shells to warn about. There is no fourth plac
 
    ```console
    $ $EDITOR gnome/w11-overlap@w11/generations.json
-   $ $EDITOR wxrandr/gnome_overlap.py          # GENERATIONS, the same record
+   $ $EDITOR hacks/display/gnome_overlap.py          # GENERATIONS, the same record
    $ python3 gnome/overlap-typelib/gen-gir.py  # .gir, .typelib, metadata.json
    $ python3 gnome/overlap-typelib/gen-gir.py --check   # proves nothing is stale
    $ python3 -m unittest discover -s tests
@@ -1768,7 +1768,7 @@ check it, and none of it needs a debugger:
    cause. Everything below is that output read closely.
 2. **`shell-version`** — a new GNOME. The allowlist is the table,
    `gnome/w11-overlap@w11/generations.json` and its twin
-   `GENERATIONS` in `wxrandr/gnome_overlap.py`; `metadata.json` is generated from it
+   `GENERATIONS` in `hacks/display/gnome_overlap.py`; `metadata.json` is generated from it
    and a test proves the two copies identical. The refusal prints what to add: the
    versions found, the `MetaMonitorsConfig` size this build reports, what is shipped
    to compare it against, the two files the record goes in and what to run
@@ -1970,7 +1970,7 @@ anything ships. That keeps the arithmetic honest without letting the compositor 
 its own work. Carrying descriptions for more generations is likewise a matter of
 measuring them, not of writing more of them: the table takes any number of records,
 everything else is generated from it, and the one copy that cannot be generated --
-`GENERATIONS` in `wxrandr/gnome_overlap.py`, because wxrandr and the extension are
+`GENERATIONS` in `hacks/display/gnome_overlap.py`, because wxrandr and the extension are
 installed in different places -- is held to it by a test that names the file to fix.
 
 > **The one warning worth its own line: never hand-edit `monitors.xml` to force an
@@ -1986,7 +1986,7 @@ into the file that the reader then rejects in full, for ever. Reader and writer
 disagree, and the disagreement is silent and permanent, which is the real reason
 nothing in this tree writes that file itself: `--persistent` asks *gnome-shell* for
 its "Keep changes?" dialog and lets Mutter write, and that is the only route we take
-([WXRANDR.md](WXRANDR.md#mutter-backend-wxrandrmutterpy)).
+([WXRANDR.md](WXRANDR.md#mutter-backend-hacksdisplaymutterpy)).
 
 **So what the tools say instead.** wxrandr keeps passing the layout on unchanged and
 attributing the refusal to Mutter by name; nothing here pretends to a workaround. The
@@ -2004,8 +2004,8 @@ therefore useless from a hotkey.
 ## 7. Detached children, runtime paths and stdio
 
 **One detach protocol.** `w11common/procs.py` is the whole of it, and both callers use
-it: `wxrandr/gamma.py`'s holder, which keeps a `zwlr_gamma_control` alive for as long
-as a brightness is set, and `wmirror/supervise.py`, which owns one `wl-mirror`.
+it: `hacks/display/gamma.py`'s holder, which keeps a `zwlr_gamma_control` alive for as long
+as a brightness is set, and `hacks/mirror/supervise.py`, which owns one `wl-mirror`.
 
     proc_starttime  zombie  owned_by_us  alive  wait_gone  kill_bounded  emit
     spawn_detached(child_main, deadline, on_line)
@@ -2173,13 +2173,13 @@ real comparison.
 | `w11common/wayland_mini.py` | exercised by every wire test above | `wl_fake` |
 | `wwmctl/` | `test_wwmctl_cli`, `test_wwmctl_live`, `test_wwmctl_hardening`, `test_wwmctl_gnome`, `test_wwmctl_kwin` | `FakeSwayBackend`, `FakeX11`; real sway with XWayland for the live file; the fake KWin of `test_backend_kwin` on the mock bus, with `_FakeX` as the Xwayland client list, for the Plasma file |
 | `wxprop/` | `test_wxprop_cli`, `test_wxprop_fmt`, `test_wxprop_live`, `test_wxprop_gnome`, `test_wxprop_x11`, `test_wxprop_kwin` | captured real-xprop bytes; a live XWayland server as the oracle; the same fake KWin, whose resident event script the test plays for `-spy`; `MockBus` (an empty session bus) in `test_wxprop_cli`, so the real `backend_detect.detect()` can be driven to its no-session error |
-| `wxrandr/hypr.py` | `test_wxrandr_hypr` | `support.FakeHypr` again, and `TheTwoClients`, which drives `wdotool/hypr_ipc.py` and `wxrandr/hypr.py`'s own copy of the reader against one double and insists on the same bytes and the same sentences |
-| `wxrandr/mutter.py` in its MUFFIN flavour | `test_wxrandr_cinnamon` | `FakeMutter` on a `MutterMockBus(flavor=MUFFIN)` — the same fake, three names swapped |
+| `hacks/display/hypr.py` | `test_wxrandr_hypr` | `support.FakeHypr` again, and `TheTwoClients`, which drives `hacks/window/hypr_ipc.py` and `hacks/display/hypr.py`'s own copy of the reader against one double and insists on the same bytes and the same sentences |
+| `hacks/display/mutter.py` in its MUFFIN flavour | `test_wxrandr_cinnamon` | `FakeMutter` on a `MutterMockBus(flavor=MUFFIN)` — the same fake, three names swapped |
 | `wxrandr/` | `test_wxrandr_unit`, `test_wxrandr_backend`, `test_wxrandr_mutter`, `test_wxrandr_kwin`, `test_wxrandr_live`, `test_wxrandr_hostile`, `test_wxrandr_gamma`, `test_wxrandr_wlr_apply`, `test_monitors_xml` | `FakeMutter` on the mock bus; a wire-level fake KWin; real sway with real `xrandr` through XWayland as the oracle; real `monitors.xml` files from both default installs; `FakeMutter`'s `emit_signal`/`swallow_apply`/`hangup_on_apply` and `KwinOutputServer.swallow_apply` for a compositor that half-answers |
-| `wxrandr/core.py`'s `SwayIPC` (the display half of the sway wire client) | `test_wxrandr_sway_wire` | `support.FakeSway` in its six modes — answering, gone mid-chain, badly framed JSON, wedged, refusing an `output` command in sway's words, and rows with no `rect` — driven through `cli.main --backend sway`, so what is asserted is the exit status and the one line the user gets |
-| `wxrandr/kwin.py` on a **real KWin** (Plasma 6.6, KWin 6.6.6): backend choice, the protocol and version `--print-backend --verbose` names, `--query` against `kscreen-doctor -o`, one `--right-of` apply and the restore line it prints, `--same-as` as a `replicationSource`, and F4.1's live twin (two same-title Xwayland xterms moved by X id) | `test_wxrandr_kwin_live` | nothing is faked: the QEMU rig (`vm/vmctl`, golden `resolute-kde`) with `kscreen-doctor` as the oracle. Opt-in twice — `VMCTL_LIVE=1 WXRANDR_LIVE_KWIN=1` — and skipped unless the named instance is already running, because this host runs one VM at a time |
-| `wxrandr/gnome_overlap.py` + `gnome/w11-overlap@w11/` | `test_gnome_overlap`, `test_overlap_consent`, `test_overlap_force` | the same mock bus with a mock `org.gnome.Shell` and a mock overlap extension on it, so a whole `--unsafe-gnome-overlap` run happens in-process; plain `node` running the extension's own `rules.js` against `monitors_xml.py`; and, for the shipped type descriptions, `g-ir-compiler` plus GIRepository in a subprocess per namespace — the shipped typelib and a fresh compile of the checked-in `.gir` are compared by *meaning* (namespace, no shared library, every function name and C symbol, every record's size and field offsets), because g-ir-compiler 1.86 writes 17 different reserved words per typelib than the compiler that produced the checked-in files. The consent file re-runs every refusal in the first with an agreement recorded, and asserts from the source that the agreement is read after the last one |
-| `wxrandr/gnome_overlap.py` + `gnome/w11-overlap@w11/` against a compositor that is really running | `test_gnome_overlap_live` | a private headless sway (`support.HeadlessSway`) as the negative — the flag has to be a refusal off GNOME before any bus call — and, gated on `WXRANDR_LIVE_GNOME=1` *and* an `org.gnome.Shell` that owns its name, a real gnome-shell on the rig: status, the agreement against `readelf -n` of the mapped libmutter, the apply and its printed undo, the forced-`--dryrun` refusal, and whether the moved-monitors.xml branch can be reached at all |
+| `hacks/display/core.py`'s `SwayIPC` (the display half of the sway wire client) | `test_wxrandr_sway_wire` | `support.FakeSway` in its six modes — answering, gone mid-chain, badly framed JSON, wedged, refusing an `output` command in sway's words, and rows with no `rect` — driven through `cli.main --backend sway`, so what is asserted is the exit status and the one line the user gets |
+| `hacks/display/kwin.py` on a **real KWin** (Plasma 6.6, KWin 6.6.6): backend choice, the protocol and version `--print-backend --verbose` names, `--query` against `kscreen-doctor -o`, one `--right-of` apply and the restore line it prints, `--same-as` as a `replicationSource`, and F4.1's live twin (two same-title Xwayland xterms moved by X id) | `test_wxrandr_kwin_live` | nothing is faked: the QEMU rig (`vm/vmctl`, golden `resolute-kde`) with `kscreen-doctor` as the oracle. Opt-in twice — `VMCTL_LIVE=1 WXRANDR_LIVE_KWIN=1` — and skipped unless the named instance is already running, because this host runs one VM at a time |
+| `hacks/display/gnome_overlap.py` + `gnome/w11-overlap@w11/` | `test_gnome_overlap`, `test_overlap_consent`, `test_overlap_force` | the same mock bus with a mock `org.gnome.Shell` and a mock overlap extension on it, so a whole `--unsafe-gnome-overlap` run happens in-process; plain `node` running the extension's own `rules.js` against `monitors_xml.py`; and, for the shipped type descriptions, `g-ir-compiler` plus GIRepository in a subprocess per namespace — the shipped typelib and a fresh compile of the checked-in `.gir` are compared by *meaning* (namespace, no shared library, every function name and C symbol, every record's size and field offsets), because g-ir-compiler 1.86 writes 17 different reserved words per typelib than the compiler that produced the checked-in files. The consent file re-runs every refusal in the first with an agreement recorded, and asserts from the source that the agreement is read after the last one |
+| `hacks/display/gnome_overlap.py` + `gnome/w11-overlap@w11/` against a compositor that is really running | `test_gnome_overlap_live` | a private headless sway (`support.HeadlessSway`) as the negative — the flag has to be a refusal off GNOME before any bus call — and, gated on `WXRANDR_LIVE_GNOME=1` *and* an `org.gnome.Shell` that owns its name, a real gnome-shell on the rig: status, the agreement against `readelf -n` of the mapped libmutter, the apply and its printed undo, the forced-`--dryrun` refusal, and whether the moved-monitors.xml branch can be reached at all |
 | `warandr/` | `test_warandr_model`, `test_warandr_parse`, `test_warandr_gui`, `test_overlap_consent` | `tests/fixtures/fake_xrandr.py`, a RandR simulator (which also simulates a GNOME with the overlap extension and its agreement); Xvfb plus xdotool driving the real editor, dialog included; the fake's `FAKE_XRANDR_OVERLAP_WITHDRAW_ON_APPLY` replays wxrandr withdrawing an agreement under the running window, with wxrandr's own `consent_drift()` sentence |
 | `wmirror/` | `test_wmirror_cli`, `test_wmirror_lifetime`, `test_wmirror_live` | a fake `wl-mirror` (`support.WL_MIRROR_STUB`), and the detach protocol driven for real; then a real headless sway (`swaymsg create_output` for the second head) with the same stub, where the supervisor's watch reads real zwlr_output_management events for the only time in the suite |
 | `xw11/wire.py`, `xw11/client.py` | `test_xw11_wire`, `test_xw11_client`, `test_xw11_read`, `test_xw11_write` | the layouts rendered out of `/usr/share/xcb/*.xml` and pinned as fixtures, so a locally built packet is compared byte for byte and never field by field; `support.ProxyRig`'s `raw()`, a bare socket with the setup done, for pipelined bytes |

@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import wl_fake
 from w11common.wayland_mini import WlConn
-from wdotool import ext_workspace
+from hacks.window import ext_workspace
 
 #: The three event opcodes this fixture sends by hand, spelled the way `wl_fake` spells them -- the module
 #: keeps them private because nothing outside it announced a workspace until now.

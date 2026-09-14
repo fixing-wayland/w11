@@ -47,7 +47,8 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 from w11common import dbus_mini
 from w11common.dbus_mini import Bus, Message, Variant
 import test_wxrandr_mutter as twm
-from wxrandr import cli, gnome_overlap, monitors_xml, mutter
+from wxrandr import cli
+from hacks.display import gnome_overlap, monitors_xml, mutter
 
 os.environ["W11_PASSTHROUGH"] = "never"
 
@@ -466,7 +467,7 @@ class Case(unittest.TestCase):
 
 
 def core_state(path):
-    from wxrandr.core import State
+    from hacks.display.core import State
     return State("overlap-test", path=path)
 
 
@@ -1228,7 +1229,8 @@ class NoOtherWayIn(unittest.TestCase):
     def _sources(self):
         out = {}
         for sub in ("wxrandr", "warandr", "wdotool", "wwmctl", "wxprop",
-                    "wmirror", "w11common"):
+                    "wmirror", "w11common", "hacks/input", "hacks/window",
+                    "hacks/display", "hacks/property", "hacks/mirror"):
             d = os.path.join(ROOT, sub)
             if not os.path.isdir(d):
                 continue
@@ -1241,8 +1243,8 @@ class NoOtherWayIn(unittest.TestCase):
     def test_only_two_modules_know_the_client_exists(self):
         importers = [p for p, s in self._sources().items()
                      if re.search(r"\bgnome_overlap\b", s)
-                     and p != "wxrandr/gnome_overlap.py"]
-        self.assertEqual(sorted(importers), ["wxrandr/cli.py", "wxrandr/mutter.py"])
+                     and p != "hacks/display/gnome_overlap.py"]
+        self.assertEqual(sorted(importers), ["hacks/display/mutter.py", "wxrandr/cli.py"])
 
     def test_apply_overlap_has_one_caller(self):
         callers = [(p, n) for p, s in self._sources().items()
@@ -1266,7 +1268,7 @@ class NoOtherWayIn(unittest.TestCase):
             self.assertFalse("environ" in line, line)
 
     def test_the_applying_method_never_runs_for_a_layout_gnome_accepts(self):
-        src = open(os.path.join(ROOT, "wxrandr", "mutter.py"), encoding="utf-8").read()
+        src = open(os.path.join(ROOT, "hacks", "display", "mutter.py"), encoding="utf-8").read()
         for name in ("apply_overlap", "overlap_dryrun"):
             body = src[src.index("    def %s(self" % name):]
             body = body[:body.index("\n    def ", 10)]

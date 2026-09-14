@@ -13,7 +13,7 @@ sys.path.insert(0, ROOT)
 
 from warandr import xrandr_parse as xp
 from warandr.model import Layout
-from wxrandr import core
+from hacks.display import core
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.
@@ -330,7 +330,7 @@ class LaptopCapture(unittest.TestCase):
 
 
 class WxrandrRenders(unittest.TestCase):
-    """Text straight from wxrandr.core's byte-parity renderers."""
+    """Text straight from hacks.display.core's byte-parity renderers."""
 
     def test_one_output(self):
         text = wx_render([wx_output("HEADLESS-1", 1280, 720)])

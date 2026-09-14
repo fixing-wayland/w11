@@ -37,7 +37,7 @@ FOOT_TITLE = "WL-Foot"
 
 def _x11_mini_implemented() -> bool:
     try:
-        from wdotool import x11_mini
+        from hacks.window import x11_mini
         return hasattr(x11_mini, "X11Conn")
     except ImportError:
         return False

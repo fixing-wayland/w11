@@ -34,11 +34,11 @@ import time
 
 from w11common import session
 from w11common.errors import CmdError
-from wdotool import backend_detect
-from wdotool.backend import state_steps as _backend_state_steps
-from wdotool.backend import warn as _warn
+from hacks.window import backend_detect
+from hacks.window.backend import state_steps as _backend_state_steps
+from hacks.window.backend import warn as _warn
 from wdotool.cnum import atoi as _atoi
-from wdotool.x11_mini import XUnavailable, hostname
+from hacks.window.x11_mini import XUnavailable, hostname
 
 # _NET_WM_STATE actions (EWMH)
 STATE_REMOVE = 0
@@ -91,7 +91,7 @@ def _x11_connect(display=None, xauthority=None):
     if os.environ.get("WWMCTL_NO_X"):
         return None
     try:
-        from wdotool import x11_mini
+        from hacks.window import x11_mini
         if display is None and xauthority is None:
             return x11_mini.X11Conn()
         return x11_mini.X11Conn(display, xauthority=xauthority)

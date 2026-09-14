@@ -662,7 +662,7 @@ class TheGtkDependency(unittest.TestCase):
         # gi too, and is a build-time tool that is not in the package)
         importers = set()
         for pkg in ("w11common", "wdotool", "wwmctl", "wxprop", "wxrandr",
-                    "warandr", "wmirror"):
+                    "warandr", "wmirror", "hacks"):
             for base, dirs, names in os.walk(os.path.join(ROOT, pkg)):
                 dirs[:] = [d for d in dirs if d != "__pycache__"]
                 for n in names:

@@ -16,7 +16,7 @@ import time
 
 from w11common import session
 from w11common.errors import CmdError
-from wdotool.backend import Window, WindowBackend, Workspace, warn
+from hacks.window.backend import Window, WindowBackend, Workspace, warn
 from wdotool.ctx import SoftCmdError
 
 _MAGIC = b"i3-ipc"
@@ -196,7 +196,7 @@ class SwayBackend(WindowBackend):
             return self._x
         self._x = None
         try:
-            from wdotool import x11_mini
+            from hacks.window import x11_mini
             self._x = x11_mini.X11Conn()
         except Exception:                       # no X plane: pid stays 0
             self._x = None

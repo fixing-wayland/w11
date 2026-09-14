@@ -34,7 +34,7 @@ from w11common import wayland_mini
 from w11common.wayland_mini import Cursor, WlConn
 from support import env as support_env
 from wl_fake import msg, wstr
-from wdotool import backend_sway
+from hacks.window import backend_sway
 
 
 def _tmpsock(prefix):
@@ -216,7 +216,7 @@ class WlrBackendGuards(unittest.TestCase):
         # The constructor raises with its connection half-built, so nothing
         # else will close it: an fd left to the collector prints a
         # ResourceWarning into whatever stderr a later test is capturing.
-        from wdotool import backend_wlr
+        from hacks.window import backend_wlr
         made = []
         real = backend_wlr.WlConn
 
@@ -291,7 +291,7 @@ class WlrBackendGuards(unittest.TestCase):
         argument, so a wlr session really did open TWO connections -- detection's, to choose between the wlr
         and COSMIC toplevel protocols, and the backend's, to read the same registry again.  The compositor's
         own accept count is the only witness that says which."""
-        from wdotool import backend_detect
+        from hacks.window import backend_detect
         srv = BrokenCompositor("ok")
         self.addCleanup(srv.close)
         backend_detect.reset()
@@ -364,7 +364,7 @@ class SwayWireGuards(unittest.TestCase):
     def _backend(self, mode):
         srv = FakeSway(mode)
         self.addCleanup(srv.close)
-        from wdotool.backend_sway import SwayBackend
+        from hacks.window.backend_sway import SwayBackend
         b = SwayBackend(sockpath=srv.path)
         self.addCleanup(b.sock.close)
         return b
@@ -392,7 +392,7 @@ class SwayWireGuards(unittest.TestCase):
         out of but the tool itself."""
         srv = FakeSway("wedged")
         self.addCleanup(srv.close)
-        from wdotool import backend_sway
+        from hacks.window import backend_sway
         with mock.patch.object(backend_sway, "IPC_TIMEOUT", 0.4):
             b = backend_sway.SwayBackend(sockpath=srv.path)
             self.addCleanup(b.sock.close)
@@ -411,7 +411,7 @@ class SwayWireGuards(unittest.TestCase):
         giving that one a deadline would break both."""
         srv = FakeSway("wedged")
         self.addCleanup(srv.close)
-        from wdotool import backend_sway
+        from hacks.window import backend_sway
         b = backend_sway.SwayBackend(sockpath=srv.path)
         self.addCleanup(b.sock.close)
         self.assertEqual(b.sock.gettimeout(), backend_sway.IPC_TIMEOUT)

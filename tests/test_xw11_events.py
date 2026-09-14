@@ -811,7 +811,7 @@ class Desktop(EventsCase):
         self.assertNotIn("_NET_DESKTOP_NAMES", self.props(self.evs(), self.root))
 
     def test_and_one_that_does_publishes_it(self):
-        from wdotool.backend import Workspace
+        from hacks.window.backend import Workspace
 
         self.backend.workspaces = lambda: [Workspace(index=0, name="web"),
                                            Workspace(index=1, name="code")]

@@ -153,7 +153,7 @@ one starts to.
 ## Lifetime
 
 wl-mirror has to outlive the command that starts it, so wmirror follows the
-repo's existing precedent for exactly that, `wxrandr/gamma.py`'s gamma
+repo's existing precedent for exactly that, `hacks/display/gamma.py`'s gamma
 holder: **double-fork + `setsid`**, a `(pid, starttime)` pair in a state
 file (`$XDG_RUNTIME_DIR/wmirror-state.json`, wmirror's own, keyed by the
 compositor socket, using wxrandr's `State` for its locking, its three-way
@@ -275,9 +275,9 @@ is an open feature request; and muffin advertises 23 globals with neither of
 them among them, which puts Cinnamon in the same paragraph. The route there is
 the desktop portal's ScreenCast (AGENTS.md route 4), which asks the user once
 per session and is not wired up here yet, useless from the hotkey a layout
-script exists for, and it would cost a second capture path in `wmirror/core.py`
+script exists for, and it would cost a second capture path in `hacks/mirror/core.py`
 beside `wl-mirror`. This is the same split
-`wxrandr/kwin.py` already records: KWin's `allowInterface` blacklists
+`hacks/display/kwin.py` already records: KWin's `allowInterface` blacklists
 `screencast` for unauthenticated clients while never blacklisting
 `kde_output_*`, which is exactly why the output half needs no permission and
 the capture half does. *(Upstream documentation, not re-measured on the rig.)*

@@ -723,6 +723,7 @@ class TheThreePackagingsAgree(unittest.TestCase):
             project = tomllib.load(fh)["project"]
         mine = {v.split(":")[0].split(".")[0] for v in project["scripts"].values()}
         mine.add("w11common")
+        mine.add("hacks")
         with open(NAMCAP_EXPECTED, encoding="utf-8") as fh:
             text = fh.read()
         m = re.search(r"Referenced python module '\(([^)]*)\)", text)

@@ -34,7 +34,7 @@ Three rules the handlers share:
 
 import struct
 
-from wdotool import backend as backend_mod
+from hacks.window import backend as backend_mod
 from xw11 import policy, wire
 from xw11 import shadow as shadow_mod
 from xw11 import xtest as xtest_mod

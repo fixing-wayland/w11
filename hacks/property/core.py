@@ -35,11 +35,11 @@ import struct
 import sys
 import threading
 
-from wxprop.fmt import FatalError
+from hacks.property.fmt import FatalError
 
 try:  # the X error classes for narrow catches in the -name DFS, the X
     # error text for -id on a dead window, and this machine's name
-    from wdotool.x11_mini import X11Error, X_ERROR_TEXT, XUnavailable, hostname
+    from hacks.window.x11_mini import X11Error, X_ERROR_TEXT, XUnavailable, hostname
 except Exception:  # pragma: no cover - x11_mini is pure stdlib, always imports
     X_ERROR_TEXT = {}
 
@@ -95,7 +95,7 @@ def _x11_connect(display, xauthority=None):
     if os.environ.get("WXPROP_NO_X"):
         return None
     try:
-        from wdotool import x11_mini
+        from hacks.window import x11_mini
         if xauthority:
             return x11_mini.X11Conn(display, xauthority=xauthority)
         return x11_mini.X11Conn(display)
@@ -122,7 +122,7 @@ def _detect_backend():
     `W11_PASSTHROUGH=never` still says "our own code whatever the session" and still detects, so the
     Wayland paths stay reachable from an X11 development box (and the whole test suite)."""
     from w11common import passthrough
-    from wdotool import backend_detect
+    from hacks.window import backend_detect
     if passthrough.session_kind("xprop") == "x11":
         return None
     return backend_detect.detect()
@@ -1103,7 +1103,7 @@ def _events_hook(backend):
     if fn is None:
         return None
     try:
-        from wdotool.backend import WindowBackend
+        from hacks.window.backend import WindowBackend
         if getattr(type(backend), "events", None) is WindowBackend.events:
             return None
     except Exception:

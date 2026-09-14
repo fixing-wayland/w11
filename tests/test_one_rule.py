@@ -38,9 +38,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from wdotool import (backend, backend_cosmic, backend_wayfire, backend_wlr,   # noqa: E402
-                     daemon, window_cmds)
-from wxrandr import gnome_overlap                               # noqa: E402
+from wdotool import daemon, window_cmds  # noqa: E402
+from hacks.window import backend, backend_cosmic, backend_wayfire, backend_wlr  # noqa: E402
+from hacks.display import gnome_overlap  # noqa: E402
 
 #: the file suffixes that carry sentences a human reads -- code, shell, the
 #: extension's JS, the rig's yaml and nix, and every document
@@ -348,7 +348,7 @@ class ARefusalCarriesItsRoute(unittest.TestCase):
         for wrong in ("sandbox", "route 1"):
             self.assertNotIn(wrong, seat, "the seat is not behind cosmic-comp's filter")
         self.assertNotIn("sandbox", backend_wlr.NO_SEAT)
-        with open(os.path.join(ROOT, "wdotool", "backend_cosmic.py"), encoding="utf-8") as f:
+        with open(os.path.join(ROOT, "hacks", "window", "backend_cosmic.py"), encoding="utf-8") as f:
             src = f.read()
         self.assertIn("unsandboxed run of the protocol", src,
                       "the manager refusals keep the sandbox rung -- this is a split, not a ban")
@@ -369,7 +369,7 @@ class ARefusalCarriesItsRoute(unittest.TestCase):
         self.assertIn("no window geometry on wlr", s)
         self.assertIn("on cosmic", s)
         self.assertNotIn("no window geometry to put a click in", s)
-        with open(os.path.join(ROOT, "wdotool", "backend_cosmic.py"), encoding="utf-8") as f:
+        with open(os.path.join(ROOT, "hacks", "window", "backend_cosmic.py"), encoding="utf-8") as f:
             src = f.read()
         self.assertTrue(re.search(r"_CH_EV_GEOMETRY[\s\S]{0,120}?rec\.geometry\s*=", src),
                         "cosmic parses the geometry event; a sentence saying it has none is wrong")

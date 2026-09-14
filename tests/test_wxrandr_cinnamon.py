@@ -49,8 +49,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from w11common.dbus_mini import Bus
 from test_wxrandr_mutter import M, FakeMutter, MutterMockBus
-from wxrandr import cli, gnome_overlap, monitors_xml, mutter
-from wxrandr.core import State
+from wxrandr import cli
+from hacks.display import gnome_overlap, monitors_xml, mutter
+from hacks.display.core import State
 
 os.environ["W11_PASSTHROUGH"] = "never"
 

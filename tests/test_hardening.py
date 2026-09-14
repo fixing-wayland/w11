@@ -23,8 +23,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from w11common.errors import CmdError
 from support import RecorderDev
-from wdotool import backend, daemon, keymap, uinput
-from wdotool.keysyms import NAME_TO_KEYSYM
+from wdotool import daemon
+from hacks.input import keymap, uinput
+from hacks.window import backend
+from hacks.input.keysyms import NAME_TO_KEYSYM
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.
@@ -417,7 +419,7 @@ class TestWarningsNameTheRunningTool(unittest.TestCase):
         back a hard-coded prefix (three of them were spread over kwin, sway
         and gnome, plus the detect message all three tools print)."""
         pkg = os.path.join(os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__))), "wdotool")
+            os.path.abspath(__file__))), "hacks", "window")
         for name in sorted(n for n in os.listdir(pkg)
                            if n.startswith("backend") and n.endswith(".py")):
             with open(os.path.join(pkg, name)) as f:
@@ -456,7 +458,7 @@ class TestKeycodeRegistration(unittest.TestCase):
         # 1..255, then every code the uploaded keymap binds above that block (the euro on
         # evdev 435): the character table answers those on the kernel sink too, and a code
         # that is not registered is an event the kernel drops silently
-        from wdotool import keymap
+        from hacks.input import keymap
         extra = sorted({code for code, _s in keymap.UPLOADED_EXTRA_KEYS.values()} - set(range(1, 256)))
         self.assertTrue(extra, "the uploaded keymap binds nothing above 255 any more")
         self.assertEqual(keybits, list(range(1, 256)) + extra)
@@ -518,7 +520,7 @@ class TestWaylandMalformed(unittest.TestCase):
 
 class TestSwayDisplaySize(unittest.TestCase):
     def size_for(self, outputs):
-        from wdotool.backend_sway import SwayBackend
+        from hacks.window.backend_sway import SwayBackend
 
         b = SwayBackend.__new__(SwayBackend)
         b._msg = lambda *a, **k: outputs

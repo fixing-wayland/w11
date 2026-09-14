@@ -19,9 +19,10 @@ from unittest import mock
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from wxrandr import cli, core
-from wxrandr import kwin, mutter
-from wxrandr.core import (Mode, OutputState, Stanza, State,
+from wxrandr import cli
+from hacks.display import core
+from hacks.display import kwin, mutter
+from hacks.display.core import (Mode, OutputState, Stanza, State,
                           build_targets, resolve_positions)
 
 # The suite never hands a tool over to the real X11 one: see
@@ -1018,7 +1019,7 @@ class StateFile(unittest.TestCase):
     SAVER = (
         "import sys\n"
         "sys.path.insert(0, sys.argv[1])\n"
-        "from wxrandr.core import State\n"
+        "from hacks.display.core import State\n"
         "st = State('k', path=sys.argv[2])\n"
         "st.gamma()['HDMI-1'] = {'pid': 1, 'start': '?'}\n"
         "st.save()\n"
@@ -1101,7 +1102,7 @@ class VersionAndMisc(unittest.TestCase):
                          "xrandr program version       1.5.4")
 
     def test_gamma_ramp_math(self):
-        from wxrandr.gamma import compute_ramp
+        from hacks.display.gamma import compute_ramp
         import struct as st
 
         ramp = compute_ramp(4, 1.0, (1.0, 1.0, 1.0))
@@ -1119,7 +1120,7 @@ class VersionAndMisc(unittest.TestCase):
     def test_negative_brightness_clamps_to_black(self):
         # xrandr accepts a negative --brightness and applies the (black) ramp,
         # exit 0; without the low clamp struct.pack('=H') would raise
-        from wxrandr.gamma import compute_ramp
+        from hacks.display.gamma import compute_ramp
         import struct as st
         ramp = compute_ramp(4, -0.5, (1.0, 1.0, 1.0))
         self.assertEqual(st.unpack("=12H", ramp)[:4], (0, 0, 0, 0))

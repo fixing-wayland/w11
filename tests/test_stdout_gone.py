@@ -258,7 +258,7 @@ _BOOM = """
 import os, sys
 sys.path.insert(0, %r)
 os.environ["W11_PASSTHROUGH"] = "never"
-from wdotool.backend import WindowBackend
+from hacks.window.backend import WindowBackend
 
 
 class Boom(WindowBackend):
@@ -281,7 +281,7 @@ def boom(*a, **k):
 def xboom(*a, **k):
     # BadWindow (code 3) from X_GetProperty (major 20), the error a real
     # xprop meets when the id it was handed has just been destroyed.
-    from wdotool.x11_mini import X11Error
+    from hacks.window.x11_mini import X11Error
     raise X11Error(3, 20, 0, 0x1)
 
 
@@ -294,11 +294,11 @@ sys.exit(%s)
 #: report carries.
 DEBUG_CASES = [
     ("wdotool",
-     "from wdotool import backend_detect, cli\n"
+     "from wdotool import cli; from hacks.window import backend_detect\n"
      "backend_detect.detect = lambda: Boom()",
      'cli.main(["__main__.py", "getactivewindow"])', "wdotool"),
     ("wwmctl",
-     "from wwmctl import core, cli\n"
+     "from wwmctl import cli; from hacks.window import wmctl as core\n"
      "core._detect_backend = lambda: Boom()\n"
      "core._x11_connect = lambda: None",
      'cli.main(["-l"])', "wwmctl"),
@@ -308,7 +308,7 @@ DEBUG_CASES = [
     # seam that does -- core._x11_connect() guards its own body, not a
     # replacement of it.
     ("wxprop",
-     "from wxprop import core, cli\n"
+     "from wxprop import cli; from hacks.property import core\n"
      "core._detect_backend = lambda: None\n"
      "core._x11_connect = boom",
      'cli.main(["-root", "_NET_CLIENT_LIST"])', "wxprop"),
@@ -381,7 +381,7 @@ class DebugAndXProtocolErrors(NoTracebackEver):
     message for out". Nothing else pins that choice, so this does; the
     default path keeps the block byte for byte."""
 
-    PATCH = ("from wxprop import core, cli\n"
+    PATCH = ("from wxprop import cli; from hacks.property import core\n"
              "core._detect_backend = lambda: None\n"
              "core._x11_connect = xboom")
     CALL = 'cli.main(["-root", "_NET_CLIENT_LIST"])'

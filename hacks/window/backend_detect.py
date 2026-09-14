@@ -31,7 +31,7 @@ import os
 
 from w11common import session
 from w11common.errors import CmdError
-from wdotool.backend import program
+from hacks.window.backend import program
 from wdotool.ctx import NoSessionError
 
 KWIN_NAME = "org.kde.KWin"
@@ -75,7 +75,7 @@ _registry_conn = None    # the WlConn that registry was read on, kept for the ch
 
 
 def _sway():
-    from wdotool.backend_sway import SwayBackend
+    from hacks.window.backend_sway import SwayBackend
     return SwayBackend()
 
 
@@ -94,22 +94,22 @@ def _not_built(exc, module, name):
 
 def _hypr():
     try:
-        from wdotool.backend_hypr import HyprBackend
+        from hacks.window.backend_hypr import HyprBackend
     except ModuleNotFoundError as exc:
-        _not_built(exc, "wdotool.backend_hypr", "hypr")
+        _not_built(exc, "hacks.window.backend_hypr", "hypr")
     return HyprBackend()
 
 
 def _wayfire():
     try:
-        from wdotool.backend_wayfire import WayfireBackend
+        from hacks.window.backend_wayfire import WayfireBackend
     except ModuleNotFoundError as exc:
-        _not_built(exc, "wdotool.backend_wayfire", "wayfire")
+        _not_built(exc, "hacks.window.backend_wayfire", "wayfire")
     return WayfireBackend()
 
 
 def _wlr():
-    from wdotool.backend_wlr import WlrBackend
+    from hacks.window.backend_wlr import WlrBackend
     # detection's own connection, whose registry has already been read: plan A 1.0 step 6, and the reason a
     # session opens ONE connection and not two.  A forced `WDOTOOL_BACKEND=wlr` reaches here without having
     # asked for the registry, and session_conn() reads it then -- the same round trip the backend's own
@@ -119,24 +119,24 @@ def _wlr():
 
 def _cosmic():
     try:
-        from wdotool.backend_cosmic import CosmicBackend
+        from hacks.window.backend_cosmic import CosmicBackend
     except ModuleNotFoundError as exc:
-        _not_built(exc, "wdotool.backend_cosmic", "cosmic")
+        _not_built(exc, "hacks.window.backend_cosmic", "cosmic")
     return CosmicBackend(conn=session_conn())
 
 
 def _kwin():
-    from wdotool.backend_kwin import KwinBackend
+    from hacks.window.backend_kwin import KwinBackend
     return KwinBackend(bus=session_bus(), names=session_names())
 
 
 def _gnome():
-    from wdotool.backend_gnome import GnomeBackend
+    from hacks.window.backend_gnome import GnomeBackend
     return GnomeBackend(bus=session_bus(), names=session_names())
 
 
 def _cinnamon():
-    from wdotool.backend_cinnamon import CinnamonBackend
+    from hacks.window.backend_cinnamon import CinnamonBackend
     return CinnamonBackend(bus=session_bus(), names=session_names())
 
 

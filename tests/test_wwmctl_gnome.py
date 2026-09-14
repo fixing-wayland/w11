@@ -26,9 +26,10 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 from w11common import session
 from test_backend_gnome import (CALC, EDITOR, WORK_AREA, XTERM,
                                 XTERM_XID, MockBridge, _Base)
-from wdotool import backend_detect, backend_gnome
-from wdotool.backend_gnome import IFACE, OBJECT_PATH, GnomeBackend
-from wwmctl import cli, core
+from hacks.window import backend_detect, backend_gnome
+from hacks.window.backend_gnome import IFACE, OBJECT_PATH, GnomeBackend
+from wwmctl import cli
+from hacks.window import wmctl as core
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.

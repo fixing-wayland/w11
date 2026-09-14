@@ -54,7 +54,7 @@ sys.path.insert(0, ROOT)
 from w11common import VERSION, passthrough                          # noqa: E402
 
 PACKAGES = ("w11common", "wdotool", "wwmctl", "wxprop", "wxrandr", "warandr",
-            "wmirror", "xw11")
+            "wmirror", "xw11", "hacks")
 TOOLS = ("wdotool", "wwmctl", "wxprop", "wxrandr", "warandr", "wmirror", "xw11")
 
 #: What each zipapp is supposed to contain, out of build-pyz.sh's own `build`
@@ -63,18 +63,18 @@ TOOLS = ("wdotool", "wwmctl", "wxprop", "wxrandr", "warandr", "wmirror", "xw11")
 #: the two tools that import its window backends and its X wire client; the
 #: three display tools carry none of it.
 BUNDLES = {
-    "wdotool": {"w11common", "wdotool"},
-    "wwmctl": {"w11common", "wdotool", "wwmctl"},
-    "wxprop": {"w11common", "wdotool", "wxprop"},
-    "wxrandr": {"w11common", "wxrandr"},
-    "warandr": {"w11common", "wxrandr", "warandr"},
-    "wmirror": {"w11common", "wxrandr", "wmirror"},
+    "wdotool": {"w11common", "wdotool", "hacks"},
+    "wwmctl": {"w11common", "wdotool", "wwmctl", "hacks"},
+    "wxprop": {"w11common", "wdotool", "wxprop", "hacks"},
+    "wxrandr": {"w11common", "wxrandr", "hacks"},
+    "warandr": {"w11common", "wxrandr", "warandr", "hacks"},
+    "wmirror": {"w11common", "wxrandr", "wmirror", "hacks"},
     # the widest, and the only one that has to be: the proxy answers window
     # questions with wdotool's backends, property questions with wxprop's
     # synthesis and RandR with wxrandr's model.  `wwmctl` and `warandr` are
     # NOT in it -- nothing under xw11/ imports either, and a bundle is what
     # its build line says or the line is wrong.
-    "xw11": {"w11common", "wdotool", "wxprop", "wxrandr", "xw11"},
+    "xw11": {"w11common", "wdotool", "wxprop", "wxrandr", "xw11", "hacks"},
 }
 
 

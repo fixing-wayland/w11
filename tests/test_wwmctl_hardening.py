@@ -43,10 +43,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_wwmctl_cli import SPECS, FakeSwayBackend, FakeX11, run
 from test_wwmctl_x11 import FakeXServer
-from wdotool.backend import Window
-from wdotool import x11_mini
-from wwmctl import core
-from wdotool.x11_mini import X11Conn, XUnavailable
+from hacks.window.backend import Window
+from hacks.window import x11_mini
+from hacks.window import wmctl as core
+from hacks.window.x11_mini import X11Conn, XUnavailable
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.

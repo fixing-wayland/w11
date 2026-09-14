@@ -74,7 +74,7 @@ character it skipped and the layout it was looking at, and skips it.
 import os
 
 from w11common.wayland_mini import now_ms as _now_ms, roundtrip
-from wdotool.us_keymap import TEXT as US_KEYMAP
+from hacks.input.us_keymap import TEXT as US_KEYMAP
 
 MANAGER = "zwp_virtual_keyboard_manager_v1"
 # The only version there is (sway 1.11 advertises v1). We bind min(advertised, MAX_VERSION) so a future v2

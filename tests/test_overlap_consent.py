@@ -38,8 +38,9 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 
 from test_gnome_overlap import WARNING, Case, _redirect
 from warandr import randr as wrandr
-from wxrandr import cli, gnome_overlap
-from wxrandr.core import Fatal
+from wxrandr import cli
+from hacks.display import gnome_overlap
+from hacks.display.core import Fatal
 
 os.environ["W11_PASSTHROUGH"] = "never"
 
@@ -714,7 +715,7 @@ class NoAgreementSkipsAnything(ConsentCase):
         """A source-level fence.  Everything that can refuse an apply happens
         before the agreement is even read, and the value it produces reaches
         nothing but the two functions that write to stderr."""
-        src = open(os.path.join(ROOT, "wxrandr", "mutter.py"), encoding="utf-8").read()
+        src = open(os.path.join(ROOT, "hacks", "display", "mutter.py"), encoding="utf-8").read()
         body = src[src.index("    def apply_overlap(self"):]
         body = body[:body.index("\n    def ", 10)]
         read = body.index("load_consent()")
@@ -1027,7 +1028,7 @@ class WarandrSide(unittest.TestCase):
             # args.unsafe_gnome_overlap, which is warandr's flag, not wxrandr's module.
             self.assertNotIn("import wxrandr", src, name)
             self.assertNotIn("from wxrandr", src, name)
-            self.assertNotIn("wxrandr.gnome_overlap", src, name)
+            self.assertNotIn("hacks.display.gnome_overlap", src, name)
             self.assertNotIn("import gnome_overlap", src, name)
 
 

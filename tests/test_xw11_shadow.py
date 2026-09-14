@@ -39,7 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import support                                                      # noqa: E402
 from support import (FakeBackend, FakeUpstream, ProxyRig, _recvn,   # noqa: E402
                      fake_view, fake_window)
-from wdotool import backend_detect, x11_mini                        # noqa: E402
+from hacks.window import backend_detect, x11_mini  # noqa: E402
 from wdotool.ctx import NoSessionError                              # noqa: E402
 from xw11 import policy, wire                                       # noqa: E402
 from xw11 import shadow as shadow_mod                               # noqa: E402

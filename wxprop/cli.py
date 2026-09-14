@@ -33,11 +33,11 @@ import struct
 import sys
 
 from w11common import passthrough, stdio
-from wdotool import backend
+from hacks.window import backend
 from wdotool.cnum import atoi as _atoi
-from wxprop import core
-from wxprop import fmt as fmtmod
-from wxprop.fmt import FatalError
+from hacks.property import core
+from hacks.property import fmt as fmtmod
+from hacks.property.fmt import FatalError
 
 MAXSTR = fmtmod.MAXSTR
 

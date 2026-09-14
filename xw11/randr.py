@@ -166,7 +166,7 @@ class ModeInfo:
         return bool(self.name) and self.name != self.size_name
 
     def refresh_hz(self) -> float:
-        from wxrandr import core
+        from hacks.display import core
         return core.mode_refresh_hz(self.dot_clock / 1e6, self.htotal,
                                     self.vtotal, mode_flag_words(self.flags))
 
@@ -424,7 +424,7 @@ def rotation_words(rotation: int):
     tuples are `wxrandr.core`'s, so the words a stanza carries are the words
     `--rotate` and `--reflect` parse into and `RANDR_VIEW` (core.py:109) reads
     a compositor's transform back out as."""
-    from wxrandr import core
+    from hacks.display import core
     bits = rotation & ROTATE_MASK
     rotate = core.ROTATIONS[bits.bit_length() - 1] if bits else "normal"
     reflect = core.REFLECTIONS[(rotation >> REFLECT_SHIFT) & REFLECT_MASK]
@@ -525,7 +525,7 @@ def stanzas_for(batch: RandrBatch, log=None):
     resolves positions and applies. Nothing here decides a layout -- it decides
     what the layout REQUEST says.
     """
-    from wxrandr import core
+    from hacks.display import core
     res = batch.resources or Resources()
     out = []
     customs = {}
@@ -615,7 +615,7 @@ def screen_config_stanza(batch: RandrBatch):
     the list first and refuses client-side (`Size 1024x768 not found in
     available modes` [recon/env.md 2.4]), and that list is upstream's, passed
     through."""
-    from wxrandr import core
+    from hacks.display import core
     res = batch.resources or Resources()
     size_id, rotation, _rate = batch.screen_config
     if size_id >= len(res.sizes):
@@ -676,7 +676,7 @@ class Applier:
 
         from w11common import session as wsession
         from wxrandr import cli as wcli
-        from wxrandr import core
+        from hacks.display import core
         if self.backend is not None or self.tried:
             return self.backend
         self.tried = True
@@ -717,8 +717,8 @@ class Applier:
 
     @staticmethod
     def _build(name, probes):
-        from wxrandr import core
-        from wxrandr import kwin as kwin_mod
+        from hacks.display import core
+        from hacks.display import kwin as kwin_mod
 
         def reuse(bname):
             p = probes.get(bname)
@@ -729,14 +729,14 @@ class Applier:
         if name == "kwin":
             return kwin_mod.KwinOutputs(conn=reuse("kwin"))
         if name == "mutter":
-            from wxrandr import mutter as mutter_mod
+            from hacks.display import mutter as mutter_mod
             return mutter_mod.MutterOutputs(bus=reuse("mutter"))
         if name == "cinnamon":
-            from wxrandr import mutter as mutter_mod
+            from hacks.display import mutter as mutter_mod
             return mutter_mod.MutterOutputs(bus=reuse("cinnamon"),
                                             flavor=mutter_mod.MUFFIN)
         if name == "hypr":
-            from wxrandr import hypr as hypr_mod
+            from hacks.display import hypr as hypr_mod
             return hypr_mod.HyprOutputs(ipc=reuse("hypr"))
         return core.WlrOutputs(conn=reuse("wlr"))
 
@@ -771,7 +771,7 @@ class Applier:
         --output Virtual-2 --primary` through the proxy read back Virtual-1 on
         all 13 GNOME/KDE flavors of CI run 34628777544
         (`goal2/recon/gaps.md 1b #8`)."""
-        from wxrandr import core
+        from hacks.display import core
         with self.lock:
             backend = self.ensure()
             if backend is None:
@@ -841,7 +841,7 @@ class Applier:
         sway. "Real" here is what "has an id" means on the two backends that
         have ids: a mode the COMPOSITOR listed, rather than one
         `_find_mode_for` minted for a virtual output (core.py:1065)."""
-        from wxrandr import core
+        from hacks.display import core
         by_name = {t.name: t for t in targets}
         for name, info in customs.items():
             t = by_name.get(name)
@@ -976,7 +976,7 @@ class Applier:
         from the same arithmetic and a compositor may round differently -- but a
         layout that does not fit what the client thinks the screen is, is the
         thing the log has to have said when someone comes asking."""
-        from wxrandr import core
+        from hacks.display import core
         want_w, want_h = screen[0], screen[1]
         x0, y0, x1, y1 = core.layout_box(outputs)
         if (x1 - x0, y1 - y0) != (want_w, want_h):
@@ -1187,7 +1187,7 @@ def commit(server, conn, batch, seq, hold=None) -> None:
     answered after the layout changed -- which is what X does, and what makes
     `xrandr` exit only once the screen has moved.
     """
-    from wxrandr import core
+    from hacks.display import core
     batch.commit_seq = seq
     if batch.empty:
         # `--dryrun`'s grab. Nothing, and no line: a log that said "applied

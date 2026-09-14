@@ -49,9 +49,9 @@ import sys
 import time
 import unicodedata
 
-from wdotool import keymap, keystate, xkbmap
-from wdotool.keysyms import NAME_TO_KEYSYM
-from wdotool.uinput import EV_KEY, EV_MSC, EV_SYN
+from hacks.input import keymap, keystate, xkbmap
+from hacks.input.keysyms import NAME_TO_KEYSYM
+from hacks.input.uinput import EV_KEY, EV_MSC, EV_SYN
 
 KEY_ESC = 1
 KEY_A = 30

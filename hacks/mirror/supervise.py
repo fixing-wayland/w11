@@ -25,7 +25,7 @@ from w11common import procs
 # the detach protocol and the pid-reuse guards, imported rather than copied: one implementation of "is that
 # still the process we started?", and one of "start something that outlives us", in the tree.
 from w11common.procs import alive, proc_starttime
-from wxrandr import core as wxcore
+from hacks.display import core as wxcore
 
 from . import core
 

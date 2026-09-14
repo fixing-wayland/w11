@@ -29,9 +29,10 @@ from w11common.wayland_mini import WlConn
 from w11common import passthrough
 from w11common import session
 from w11common import procs
-from wmirror import cli, core
-from wmirror import supervise
-from wxrandr import core as wxcore
+from wmirror import cli
+from hacks.mirror import core
+from hacks.mirror import supervise
+from hacks.display import core as wxcore
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.
@@ -884,7 +885,7 @@ class Separation(Base):
         GUI had to learn a new word for it, it went in the wrong place."""
         offenders = []
         for pkg in ("w11common", "wdotool", "wxrandr", "warandr", "wwmctl",
-                    "wxprop"):
+                    "wxprop", "hacks/input", "hacks/window", "hacks/display", "hacks/property"):
             base = os.path.join(ROOT, pkg)
             for name in sorted(os.listdir(base)):
                 if not name.endswith(".py"):

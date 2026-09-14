@@ -39,8 +39,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import support                                                      # noqa: E402
 from support import FakeBackend, FakeBackendEvents, fake_window     # noqa: E402
-from wdotool import backend_detect                                  # noqa: E402
-from wxprop.core import _events_hook                                # noqa: E402
+from hacks.window import backend_detect  # noqa: E402
+from hacks.property.core import _events_hook                                # noqa: E402
 from xw11 import pump as pump_mod                                   # noqa: E402
 
 

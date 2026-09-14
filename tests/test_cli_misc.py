@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import support
 from w11common.errors import CmdError
 from wdotool import cli
-from wdotool.backend_sway import SwayBackend
+from hacks.window.backend_sway import SwayBackend
 from wdotool.ctx import Context, NoSessionError
 from wdotool.misc_cmds import _atof, _atoi, cmd_getdisplaygeometry
 
@@ -266,7 +266,7 @@ def _run_all():
         # The window backend is asked before the refusal (it answers on i3, where there is a layout and no
         # Wayland socket), so "no compositor reachable" has to mean that here too: a detector that found the
         # developer's own session would otherwise make this the one environment-dependent line in the file.
-        import wdotool.backend_detect as detect_mod
+        import hacks.window.backend_detect as detect_mod
         orig_detect = detect_mod.detect
 
         def no_session():
@@ -366,7 +366,7 @@ class DisplayGeometryOnI3(unittest.TestCase):
 
     def test_with_no_backend_either_it_is_still_the_rc_2_refusal(self):
         """B5's refusal stands: the fallback is a second place to ask, not a licence to guess."""
-        import wdotool.backend_detect as detect_mod
+        import hacks.window.backend_detect as detect_mod
         with mock.patch.object(detect_mod, "detect",
                                mock.Mock(side_effect=NoSessionError("nothing here"))):
             rc, out, err = self.chain(["getdisplaygeometry"])
