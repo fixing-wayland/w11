@@ -64,10 +64,7 @@ optdepends=('python-gobject: the warandr GUI'
             'xdotool: the real tool wdotool hands over to, on X11 and through xw11'
             'wmctrl: the real tool wwmctl hands over to, on X11 and through xw11'
             'xorg-xprop: the real tool wxprop hands over to, on X11 and through xw11'
-            'xorg-xrandr: the real tool wxrandr hands over to, on X11 and through xw11'
-            'gcc: builds the labwc geometry shim for the labwc (w11) session'
-            'wlroots: its headers build the labwc geometry shim'
-            'wayland-protocols: xdg-shell.xml, scanned to build the labwc geometry shim')
+            'xorg-xrandr: the real tool wxrandr hands over to, on X11 and through xw11')
 install="$pkgname.install"
 
 # Upstream's tags are two-component -- v0.4 and v0.3 -- while pyproject.toml
@@ -131,20 +128,6 @@ package() {
   install -Dm755 packaging/common/enable-bridge "$pkgdir/usr/lib/$pkgname/enable-bridge"
   install -Dm644 packaging/common/enable-bridge.desktop \
                  "$pkgdir/etc/xdg/autostart/w11-enable-bridge.desktop"
-
-  # The labwc geometry shim (AGENTS.md route 6, our code loaded into an
-  # UNMODIFIED labwc -- see packaging/labwc-shim/).  Source and build step, not a
-  # compiled .so: it reads the local libwlroots' ABI, so w11.install builds it on
-  # the target.  Same /usr/lib/w11 the enabler uses; the wrapper resolves that
-  # from its own path and the committed .desktop Exec= already names it.
-  install -Dm644 packaging/labwc-shim/w11-labwc-shim.c \
-                 "$pkgdir/usr/lib/$pkgname/labwc-shim/w11-labwc-shim.c"
-  install -Dm755 packaging/labwc-shim/build-shim.sh \
-                 "$pkgdir/usr/lib/$pkgname/labwc-shim/build-shim.sh"
-  install -Dm755 packaging/common/w11-labwc-session \
-                 "$pkgdir/usr/lib/$pkgname/w11-labwc-session"
-  install -Dm644 packaging/common/w11-labwc.desktop \
-                 "$pkgdir/usr/share/wayland-sessions/w11-labwc.desktop"
 
   install -Dm644 warandr.desktop -t "$pkgdir/usr/share/applications/"
   install -Dm644 README.md CHANGELOG.md packaging/arch/README.Arch \

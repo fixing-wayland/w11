@@ -40,30 +40,34 @@ how much we would rather do it:
    screencopy, the portals, sysfs, logind).
 5. An X11 protocol proxy of our own in front of Xwayland (`xw11`) — our code, our
    package, the stock Xwayland underneath it untouched.
-6. Our own code loaded into the running compositor from the outside: an
-   `LD_PRELOAD` set by a session entry we ship, or a module the compositor loads by
-   its own config — always in w11's package, the compositor's own binary unchanged.
+6. The compositor's own source would have to change — and that is the one rung we
+   do not climb. Per the hard rule below: no fork, no patch, no rebuilt package,
+   and no code of ours injected into the running compositor either. A gap that
+   needs it is upstream's, filed there and documented as a **not yet**.
 
 When none of the six is in hand yet, the feature is documented as **not yet**,
 with the lowest-numbered route that would do it and what that route costs, in the
 "what differs" table of the tool's doc. It is a gap in our work, filed as one.
 It is never a policy.
 
-**We never fork, patch or rebuild an upstream package. This is a hard rule, no
-exceptions.** Not a patch to its source that we build and ship, not a forked or
-rebuilt `.deb`/rpm/PKGBUILD, not a binary of our own laid over the one the
-distribution installed. The distribution's compositor, its libraries (wlroots
-included) and its tools stay exactly as the distribution ships them, and `apt
-upgrade` is never our enemy. Everything w11 adds ships in **w11's own** packages and
-reaches the compositor from the outside — a plugin it loads by its own config, an
-`LD_PRELOAD` set by a session entry we install, a client it already speaks to, a
-file it already reads. "Patch the compositor" (route 6) never means forking its
-package: it is *our* code loaded into an *unmodified* compositor at runtime. When a
-gap can only be closed by changing the compositor's own source, we do not fork it to
-do so — either our code reaches the same end from outside, or the gap stays a **not
-yet** whose cost names that source change as one to land upstream, never a private
-fork we ship. "Ship a patched labwc" is a wrong answer, alongside the four above;
-"ship a w11 module labwc loads" is the right one.
+**We never touch an upstream program — not its package, and not its process. This
+is a hard rule, no exceptions.** Not a patch to its source that we build and ship,
+not a forked or rebuilt `.deb`/rpm/PKGBUILD, not a binary of our own laid over the
+one the distribution installed — and not a reach into the running program either:
+no `LD_PRELOAD` that injects our code into the compositor, no hooking of its
+internal library calls, none of the tricks that leave the package on disk untouched
+while bending the program's behaviour from the inside. Leaving the bytes on disk
+unchanged is not the test; not interfering with the program is. The distribution's
+compositor, its libraries (wlroots included) and its tools stay exactly as the
+distribution ships them, on disk and in memory, and `apt upgrade` is never our
+enemy. Everything w11 adds ships in **w11's own** packages and meets the compositor
+only through a door the compositor itself opens — a plugin or script it is built to
+load (the GNOME Shell bridge, a KWin script), a protocol or bus it already speaks, a
+client it already talks to, a file it already reads, a session launcher it already
+runs. Where a compositor opens no such door for a thing, that thing is a **not yet**
+and its route is upstream (route 1), never a hack of ours. "Ship a patched labwc" is
+a wrong answer; so is "`LD_PRELOAD` a shim into labwc"; the right answer, when labwc
+offers no opening, is to say so and name the change it would take upstream.
 
 **Where the two disagree, X wins.** Byte parity with the original is the oracle
 (`scripts/parity-oracle.sh`, the vm rig, the fixtures under `tests/`). If a

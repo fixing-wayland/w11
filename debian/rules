@@ -36,19 +36,3 @@ execute_after_dh_install:
 	    debian/w11/usr/lib/w11/enable-bridge
 	install -D -m 644 packaging/common/enable-bridge.desktop \
 	    debian/w11/usr/lib/w11/enable-bridge.desktop
-# The labwc geometry shim (AGENTS.md route 6, our code loaded into an UNMODIFIED
-# labwc -- see packaging/labwc-shim/README).  The package stays Architecture:
-# all and pure stdlib: we ship the C source and its build step, not a compiled
-# .so, because the shim reads libwlroots-0.19's struct ABI and a .so built here
-# would be the wrong ABI for another release's wlroots.  postinst compiles it on
-# the target (best-effort); the session wrapper falls back to a per-user build.
-# The wrapper and the .desktop session entry live in packaging/common/ for the
-# same reason enable-bridge does: the rpm and the PKGBUILD install the same bytes.
-	install -D -m 644 packaging/labwc-shim/w11-labwc-shim.c \
-	    debian/w11/usr/lib/w11/labwc-shim/w11-labwc-shim.c
-	install -D -m 755 packaging/labwc-shim/build-shim.sh \
-	    debian/w11/usr/lib/w11/labwc-shim/build-shim.sh
-	install -D -m 755 packaging/common/w11-labwc-session \
-	    debian/w11/usr/lib/w11/w11-labwc-session
-	install -D -m 644 packaging/common/w11-labwc.desktop \
-	    debian/w11/usr/share/wayland-sessions/w11-labwc.desktop

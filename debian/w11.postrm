@@ -17,12 +17,6 @@ remove)
     rm -f "${DPKG_ROOT:-}/var/lib/w11/installed" 2>/dev/null || true
     rmdir "${DPKG_ROOT:-}/var/lib/w11" 2>/dev/null || true
 
-    # The labwc geometry shim postinst compiled is not a dpkg-tracked file (it
-    # is built on the target, not shipped), so remove it by hand.  Per-user
-    # cache builds under ~/.cache/w11 are the user's to clear.
-    rm -f "${DPKG_ROOT:-}/usr/lib/w11/w11-labwc-shim.so" 2>/dev/null || true
-    rmdir "${DPKG_ROOT:-}/usr/lib/w11" 2>/dev/null || true
-
     if [ -z "${DPKG_ROOT:-}" ] && [ -e /dev/uinput ]; then
         if command -v udevadm >/dev/null 2>&1; then
             udevadm control --reload-rules >/dev/null 2>&1 || true

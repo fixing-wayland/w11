@@ -31,7 +31,6 @@ Four things this backend does on top of the bare protocol, each for a measured d
 Window ids are 1000000 + arrival order and are only stable within one wdotool process; unlike COSMIC's
 `identifier` and Hyprland's `address` there is no handle to mint from [backend.mint_id]."""
 
-import os
 import struct
 import time
 
@@ -42,16 +41,6 @@ from hacks.window import ext_workspace, x11_mini, xid_match
 from hacks.window.backend import View, Window, WindowBackend, poll_diff_events, warn
 
 BASE_ID = 1000000
-
-#: Where w11's labwc geometry shim writes each view's rectangle for this backend to read. AGENTS.md route
-#: 6 (our own code loaded into an UNMODIFIED labwc from the outside -- an LD_PRELOAD set by the w11-labwc
-#: session entry, the distro's labwc and libwlroots untouched): zwlr_foreign_toplevel_management_v1 carries
-#: no rectangle, so packaging/labwc-shim/w11-labwc-shim.c -- interposing libwlroots' exported
-#: wlr_scene_xdg_surface_create and wlr_scene_output_build_state -- emits `pid\tx\ty\tw\th\tapp_id\ttitle`
-#: per view into $XDG_RUNTIME_DIR/<this> whenever the scene changes (map, move/resize, unmap, title/app_id),
-#: and `_labwc_geometry` folds it onto the native toplevels the wire gives no geometry for. Absent when the
-#: shim is not loaded (a plain labwc session, or any other compositor), where every native row keeps the floor.
-GEOMETRY_FILE = "w11-labwc-geometry"
 
 #: How long a mutating request waits for the compositor to say it happened. Half a second: the state event
 #: arrives inside the same roundtrip on every compositor that honours the request at all (sway, labwc,
@@ -584,13 +573,9 @@ class WlrBackend(XPlaneViews, WindowBackend):
         `xdotool getwindowgeometry 0x40000c`, same session, same second). The X plane is the one route in
         reach and it reaches XWayland windows only, so that is exactly how far this goes: a row joined to an
         X client answers the X server, a native toplevel keeps the floor and sets `geometry_is_floor`.
-        A rectangle for the native half is rung 6 -- our own code loaded into an unmodified labwc from the
-        outside: the LD_PRELOAD shim (packaging/labwc-shim/) that reads each view's scene rectangle and
-        writes it to the runtime file `_labwc_geometry` reads, one .so covering the four labwc goldens
-        (labwc, Budgie, Xfce-on-Wayland, LXQt-on-Wayland) -- and rung 3 on river, a
-        `river_window_manager_v1` WM client that reads `river_window_v1.dimensions` for the size and the
-        position it set with `river_node_v1.set_position`. Upstreaming that into a foreign-toplevel protocol
-        that carries a rect (which wlroots would have to write and ship) is what turns it into rung 1 later.
+        Getting a rectangle for the native half is NOT YET, and the route is rung 1 -- a foreign-toplevel
+        protocol that carries one -- at the cost of the protocol being written and shipped by wlroots first;
+        the fallback rung is 6, a patched compositor, one event per window.
 
         Folding it here and not only in `views()` is what puts it where the xdotool clones read it: the two
         readers of a rectangle are `getwindowgeometry` (through `find()`) and `hit_test`, which is
@@ -604,18 +589,15 @@ class WlrBackend(XPlaneViews, WindowBackend):
         the resolute-labwc golden, 2026-09-12 [M goal2/requests-batch-12.md 4]. X answers it, so we owe it,
         and it is the same assignment in the same loop. It turns `getwindowpid` and `windowkill` into
         working commands for XWayland windows on labwc, river, Budgie, Xfce-on-Wayland and LXQt-on-Wayland
-        (`WindowBackend.kill` sends SIGKILL to `find(wid).pid`). A native toplevel takes the pid from the
-        same file the rectangle comes from -- the shim reads it from the surface's wl_client -- so on the
-        labwc family `getwindowpid`/`windowkill` reach a native window too; without the shim (a plain labwc
-        session, or river, whose rung is 3) a native row keeps pid 0 and keeps xdotool's own refusal, which
-        is the byte the original prints for an X window with no `_NET_WM_PID`. Same reachable rung as the
-        rectangle -- 6 (the LD_PRELOAD shim) and 3 on river -- the same per-toplevel field, closed the same
-        way, and rung 1 later if a foreign-toplevel protocol carries the pid.
+        (`WindowBackend.kill` sends SIGKILL to `find(wid).pid`). A native toplevel keeps pid 0 and keeps
+        xdotool's own refusal, which is the byte the original prints for an X window with no `_NET_WM_PID`:
+        NOT YET, rung 1, a foreign-toplevel protocol that carries the pid -- the same missing protocol field
+        as the rectangle, at the same cost of wlroots writing and shipping it.
 
         Two XWayland windows the join cannot tell apart -- two xterms under the default title, which is a
         common shape on this floor -- both keep the floor, because `match_xids` hands out no id on a tie
         and an unknown rectangle beats a wrong one. The tie-break route 5 lacks is a rectangle on the
-        Wayland side, which is the same native-geometry gap above, from the other end."""
+        Wayland side, which is the rung-1 gap above, from the other end."""
         self._pump()
         wins = []
         for i, oid in enumerate(self.order):
@@ -635,86 +617,17 @@ class WlrBackend(XPlaneViews, WindowBackend):
         join = self._x_join(wins)
         # The tie count is `views()`'s to print (see `_x_join`): every window command runs this listing.
         xids, by_xid = join[:2] if join is not None else ({}, {})
-        geo_file = self._labwc_geometry()
         for w in wins:
             c = by_xid.get(xids.get(str(w.id), 0))
-            if c is not None:
-                w.pid, (w.x, w.y, w.w, w.h) = int(c["pid"]), c["geo"]
+            if c is None:
+                # A native toplevel, or an X plane that is not there (sway and Wayfire spawn Xwayland on
+                # demand and `_x11` will not be the one to start it). Latched and never cleared, the way
+                # backend_cosmic's `_rect` latches it: one window without a rectangle is a listing that
+                # reported one it was not told.
+                self.geometry_is_floor = True
                 continue
-            # No X client for this row: a native toplevel, or an X plane that is not there (sway and
-            # Wayfire spawn Xwayland on demand and `_x11` will not be the one to start it). AGENTS.md
-            # route 6: w11's LD_PRELOAD shim in an unmodified labwc writes each view's rectangle to a
-            # runtime file, joined here by (app_id, title) -- the same pair the X-plane join uses, a tie
-            # keeping the floor. When the shim is loaded the native toplevel answers its true rectangle;
-            # when it is not (a plain labwc session, or river, whose rung is 3) the row keeps the floor and
-            # latches `geometry_is_floor`, the way backend_cosmic's `_rect` latches it.
-            fr = geo_file.get((w.class_, w.title))
-            if fr is not None:
-                fpid, w.x, w.y, w.w, w.h = fr
-                if fpid > 0:
-                    w.pid = fpid
-                continue
-            self.geometry_is_floor = True
+            w.pid, (w.x, w.y, w.w, w.h) = int(c["pid"]), c["geo"]
         return wins
-
-    def _session_runtime_dir(self) -> str:
-        """The runtime directory the compositor's geometry file lives in -- the SESSION's, not this
-        process's.
-
-        `self.uid` is set only when this backend opened its own connection; detection hands the connection
-        in and leaves it None, and then a root `wwmctl` (attaching to the seated user's session, the whole
-        point of running these tools as root) would read root's own `/run/user/0` and never the user's file.
-        So when the uid is unknown, ask `find_wayland_socket()` -- the same scan that found the socket this
-        backend is talking to -- for the directory that holds it, exactly as the own-connection path already
-        does. In-session (uid is us) this is just `$XDG_RUNTIME_DIR`."""
-        if self.uid is not None:
-            return session.runtime_dir(uid=self.uid)
-        hit = session.find_wayland_socket()
-        if hit:
-            return hit[1]
-        return session.runtime_dir()
-
-    def _labwc_geometry(self):
-        """The per-view rectangles w11's labwc geometry shim writes to `$XDG_RUNTIME_DIR/w11-labwc-geometry`,
-        keyed by `(app_id, title)` with any key two windows share dropped, or `{}` when there is no such file.
-
-        AGENTS.md route 6 -- our own code loaded into an UNMODIFIED labwc from the outside, an LD_PRELOAD set
-        by the w11-labwc session entry (packaging/labwc-shim/), the distro's labwc and libwlroots untouched.
-        `zwlr_foreign_toplevel_management_v1` and `ext_foreign_toplevel_list_v1` carry no rectangle, so a
-        NATIVE toplevel's geometry never reaches this backend over the wire and the X plane (route 5) reaches
-        XWayland windows only. The shim closes the native half by interposing libwlroots'
-        `wlr_scene_xdg_surface_create` (which ties a scene node to each xdg_surface) and reading the node's
-        on-screen box with `wlr_scene_node_coords` plus `xdg_surface->geometry` -- the same rectangle
-        `getwindowgeometry` prints for an XWayland view -- one line `pid\tx\ty\tw\th\tapp_id\ttitle` per
-        toplevel view, rewritten each frame the scene changes. The join is `(app_id, title)`, the same pair
-        `match_xids` pairs the X plane on, and a key two windows share is dropped so a tie keeps the floor
-        rather than guess -- exactly the X-plane rule from the other end. A missing file (a plain labwc
-        session without the shim, sway/Wayfire before their Xwayland, or river, whose rung is 3 not 6)
-        yields `{}` and every native row keeps the floor."""
-        try:
-            path = os.path.join(self._session_runtime_dir(), GEOMETRY_FILE)
-            with open(path, encoding="utf-8", errors="replace") as fh:
-                lines = fh.read().splitlines()
-        except (OSError, CmdError):
-            return {}
-        seen: dict = {}
-        dup: set = set()
-        for ln in lines:
-            parts = ln.split("\t", 6)
-            if len(parts) != 7:
-                continue
-            try:
-                pid, x, y, w, h = (int(parts[i]) for i in range(5))
-            except ValueError:
-                continue
-            key = (parts[5], parts[6])
-            if key in seen:
-                dup.add(key)
-            else:
-                seen[key] = (pid, x, y, w, h)
-        for key in dup:
-            seen.pop(key, None)
-        return seen
 
     def activate(self, wid: int):
         t = self._by_wid(wid)

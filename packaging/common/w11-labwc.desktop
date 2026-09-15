@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Version=1.0
-Name=labwc (w11)
-Comment=labwc with w11's native-toplevel geometry shim preloaded (unmodified compositor)
-Exec=/usr/lib/w11/w11-labwc-session labwc
-DesktopNames=labwc
-Keywords=tiling;wayland;compositor;

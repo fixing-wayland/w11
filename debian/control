@@ -21,12 +21,7 @@ Recommends: xdotool,
             wmctrl,
             x11-utils,
             x11-xserver-utils
-Suggests: wl-mirror,
-          gcc,
-          pkgconf,
-          libwlroots-0.19-dev,
-          libwayland-dev,
-          wayland-protocols
+Suggests: wl-mirror
 Description: X11 power tools as drop-in clones for Wayland
  Seven commands that behave like the X11 tools they clone -- same commands,
  same flags, same output bytes -- on a Wayland session:
@@ -58,11 +53,3 @@ Description: X11 power tools as drop-in clones for Wayland
  Shell extension is carried for wxrandr --unsafe-gnome-overlap and is enabled
  for nobody: nothing in this package turns it on, and it does nothing until
  somebody enables it by hand.  See README.Debian.
- .
- For the labwc family (labwc and the labwc-backed Budgie, Xfce-on-Wayland and
- LXQt-on-Wayland sessions), a "labwc (w11)" Wayland session is installed that
- preloads w11's geometry shim into the UNMODIFIED compositor, so a native
- toplevel's on-screen rectangle reaches the window commands (it otherwise reads
- as the whole output).  labwc itself is untouched; the shim is w11's own code,
- compiled on the machine against its libwlroots-0.19 (postinst, or per-user at
- first login) -- the Suggests carry the build tools.  See packaging/labwc-shim/.
