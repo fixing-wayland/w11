@@ -1739,20 +1739,27 @@ do is `zwlr_foreign_toplevel_management_v1`'s shape and is stated as such:
 * Native-window geometry was `0,0` plus the output rectangle — no foreign-toplevel protocol
   carries a rectangle — and is now the compositor's on-screen rectangle wherever the compositor
   emits one. On the **labwc family** (labwc, Budgie, Xfce-on-Wayland, LXQt-on-Wayland, all of
-  which run labwc) this is **route 6, landed and shipped**: the `labwc_0.9.3-1w11.1` .deb
-  (`src/foreign-toplevel/foreign.c`) writes each mapped view's `view->current` box to
-  `$XDG_RUNTIME_DIR/w11-labwc-geometry` on map, move/resize, unmap and title/app_id change (the
-  join key, so a window that renames itself keeps its rect) and `WlrBackend._labwc_geometry` folds
-  it onto the native rows by (app_id, title), the pair `match_xids` pairs the X plane on. Measured
-  on the resolute-labwc golden 2026-09-14: a native `foot` labwc placed at `612,306 696x494` read
-  `0,0 1920x1080` out of `wdotool getwindowgeometry` with stock labwc 0.9.3 and `612,306 696x494`
-  with the .deb installed (`getwindowpid` went from no pid to the client's `2546` on the same
-  join). On **river** the lowest reachable rung is **3** — a `river_window_manager_v1` WM client
-  that reads `river_window_v1.dimensions` for the size and the position it set with
-  `river_node_v1.set_position`, route 6 the fallback — not landed this pass. An unpatched
-  compositor writes no file and every native row stays the honest floor with `geometry_is_floor`
-  set. Upstreaming the labwc emit into a foreign-toplevel protocol that carries a rect (which
-  wlroots would have to write and ship) is what turns the labwc row into route 1 later.
+  which run labwc) this is **route 6, landed** — our own code loaded into an UNMODIFIED labwc from
+  the outside, not a fork: the `w11-labwc` session entry preloads `w11-labwc-shim.so`
+  (`packaging/labwc-shim/w11-labwc-shim.c`) into the stock compositor with `LD_PRELOAD`, and labwc
+  and libwlroots stay bit-for-bit what the distro ships. The shim interposes libwlroots'
+  `wlr_scene_xdg_surface_create` (which ties a scene node to each xdg_surface — the correlation
+  labwc keeps in its own `struct view`) and `wlr_scene_output_build_state` (per composited frame),
+  and writes each toplevel view's on-screen box — read with `wlr_scene_node_coords` and
+  `xdg_surface->geometry`, plus the client pid — to `$XDG_RUNTIME_DIR/w11-labwc-geometry`, rewritten
+  whenever the scene changes (map, move/resize, unmap, title/app_id, so a window that renames itself
+  keeps its rect); `WlrBackend._labwc_geometry` folds it onto the native rows by (app_id, title),
+  the pair `match_xids` pairs the X plane on. Measured on the resolute-labwc golden 2026-09-15 (a
+  1280x800 head): a native `foot` labwc placed at `292,166 696x494` read `0,0 1280x800` out of
+  `wdotool getwindowgeometry` with stock labwc 0.9.3 and `292,166 696x494` with the shim preloaded
+  (`getwindowpid` went from no pid to the client's `6354` on the same join; a QMP screendump
+  confirmed the rectangle). On **river** the lowest reachable rung is **3** — a
+  `river_window_manager_v1` WM client that reads `river_window_v1.dimensions` for the size and the
+  position it set with `river_node_v1.set_position` — not landed this pass. A compositor without the
+  shim (a plain labwc session, or sway/Wayfire forced onto this backend) writes no file and every
+  native row stays the honest floor with `geometry_is_floor` set. Upstreaming the shim's emit into a
+  foreign-toplevel protocol that carries a rect (which wlroots would have to write and ship) is what
+  turns the labwc row into route 1 later.
 * Desktops work where the compositor publishes `ext_workspace_manager_v1` (labwc, Budgie
   10.10, Xfce 4.20 on Wayland) and the refusal stands where it does not (sway 1.11,
   Wayfire 0.10), route 1 where the compositor grows the protocol, else route 2, the

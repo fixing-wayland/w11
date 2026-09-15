@@ -94,6 +94,7 @@ PATH_MAP = {
     "usr/share/applications": "%{_datadir}/applications",
     "usr/share/gnome-shell/extensions": "%{_datadir}/gnome-shell/extensions",
     "usr/lib/w11": "%{_libexecdir}/%{name}",
+    "usr/share/wayland-sessions": "%{_datadir}/wayland-sessions",
     "etc/xdg/autostart": "%{_sysconfdir}/xdg/autostart",
 }
 
@@ -462,11 +463,16 @@ class TheDependencies(unittest.TestCase):
         Fedora ships one binary per package, where Debian has x11-utils and
         x11-xserver-utils, so this names four packages and not two (measured
         from Fedora's own metadata: /usr/bin/xprop -> xprop, /usr/bin/xrandr ->
-        xrandr).  wl-mirror is the one weak dependency that stays a Suggests --
-        nothing hands over to it, it is one tool's helper."""
+        xrandr).  wl-mirror is a Suggests -- nothing hands over to it, it is one
+        tool's helper -- and so are the five that build the labwc geometry shim
+        (gcc, pkgconf-pkg-config, wlroots-devel, wayland-devel,
+        wayland-protocols-devel): only a labwc-family session compiles it, and it
+        degrades to a no-op without them (debian/control carries the same five)."""
         self.assertEqual(tag_values("Recommends")[2:],
                          ["xdotool", "wmctrl", "xprop", "xrandr"])
-        self.assertEqual(tag_values("Suggests"), ["wl-mirror"])
+        self.assertEqual(tag_values("Suggests"),
+                         ["wl-mirror", "gcc", "pkgconf-pkg-config",
+                          "wlroots-devel", "wayland-devel", "wayland-protocols-devel"])
 
     def test_it_does_not_require_acl(self):
         """Fedora's cloud image has no getfacl and no setfacl (measured), so

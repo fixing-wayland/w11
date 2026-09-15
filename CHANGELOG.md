@@ -222,26 +222,38 @@ and the bytes are named wherever a number is.
   1920x1080 on the same QEMU `virtio-vga` line where resolute-hypr's 0.53.3 (aquamarine 0.9.x)
   fails the atomic KMS plane test; that one row is **route 6**, an aquamarine Ubuntu 26.04 does
   not ship, and `wxrandr` itself needs no change.
-- **Native toplevel geometry on the labwc floor, filled at route 6 with a patched
-  compositor.** An XWayland window on labwc, Budgie, Xfce-on-Wayland and LXQt-on-Wayland
-  already answered its real rectangle over the X plane, but a native (non-XWayland)
-  toplevel answered `0,0 out_w x out_h`, because `zwlr_foreign_toplevel_management_v1`
-  and `ext_foreign_toplevel_list_v1` carry a title and an app id and no rectangle, and no
-  X server had heard of the window. All five wlr-floor goldens were probed and none
-  exposes an IPC that carries a per-toplevel rect (labwc has no query socket or bus;
-  river's `river_window_manager_v1` and status protocols carry tags and focus, not
-  rects), so the lowest reachable rung is 6 for the labwc family and 3 on river. w11 now
-  ships the labwc patch (`packaging/labwc/0001-w11-native-toplevel-geometry.patch`): the
-  patched `labwc_0.9.3-1w11.1` writes each view's `view->current` box — pid, x, y, w, h,
-  app_id, title — to `$XDG_RUNTIME_DIR/w11-labwc-geometry` on map, move/resize, unmap and
-  title/app_id change, and `WlrBackend._labwc_geometry` folds it onto the native rows by
-  (app_id, title). Measured on the resolute-labwc golden 2026-09-14: a native `foot` labwc
-  placed at `612,306 696x494` read `0,0 1920x1080` with stock labwc and `612,306 696x494`
-  with the .deb installed, and `getwindowpid` went from no pid to the client's. One package
-  covers the four labwc goldens (same labwc 0.9.3 and libwlroots-0.19, no wlroots rebuild).
-  An unpatched compositor writes no file and its native rows keep the honest floor. river
-  stays a route-3 row (a `river_window_manager_v1` WM client), not landed this pass.
-- **5587 tests**, up from 4146, the new ones being the four new window and display
+- **Native toplevel geometry on the labwc floor, filled at route 6 without touching
+  the compositor's package.** An XWayland window on labwc, Budgie, Xfce-on-Wayland and
+  LXQt-on-Wayland already answered its real rectangle over the X plane, but a native
+  (non-XWayland) toplevel answered `0,0 out_w x out_h`, because
+  `zwlr_foreign_toplevel_management_v1` and `ext_foreign_toplevel_list_v1` carry a title
+  and an app id and no rectangle, and no X server had heard of the window. All five
+  wlr-floor goldens were probed and none exposes an IPC that carries a per-toplevel rect
+  (labwc has no query socket or bus; river's `river_window_manager_v1` and status
+  protocols carry tags and focus, not rects), so the lowest reachable rung is 6 for the
+  labwc family and 3 on river. Route 6 here is w11's own code loaded into the *unmodified*
+  compositor, never a fork of its package (see AGENTS.md's hard rule): w11 ships an
+  `LD_PRELOAD` shim (`packaging/labwc-shim/w11-labwc-shim.c`) and a `w11-labwc` session
+  entry that preloads it into the stock labwc. labwc links libwlroots dynamically, so the
+  shim interposes two of wlroots' own exported symbols — `wlr_scene_xdg_surface_create`,
+  which ties a scene node to an xdg_surface (the correlation labwc keeps private), and
+  `wlr_scene_output_build_state`, once per frame — and writes each toplevel's absolute
+  rectangle, size, pid, app_id and title to `$XDG_RUNTIME_DIR/w11-labwc-geometry`, which
+  `WlrBackend._labwc_geometry` folds onto the native rows by (app_id, title). The `.so` is
+  compiled on the target against its own libwlroots (the only ABI it can read), by the
+  package at install time or by the session wrapper at first login; the wrapper execs the
+  compositor even when the shim is unavailable, so the session always comes up. Measured
+  on the resolute-labwc golden 2026-09-15: a native `foot` labwc placed at `292,166 696x494`
+  read `0,0 1280x800` out of `wdotool getwindowgeometry` in the stock session and
+  `292,166 696x494` in the `w11-labwc` session, `getwindowpid` from none to the client's,
+  cross-checked against a QMP screendump; a rename after map keeps the rect, a close drops
+  the row, two identical windows keep the floor. The same shim covers the Budgie,
+  Xfce-on-Wayland and LXQt-on-Wayland sessions (the same labwc and libwlroots), measured on
+  plain labwc this pass. A session without the shim writes no file and its native rows keep
+  the honest floor. river stays a route-3 row (a `river_window_manager_v1` WM client), not
+  landed this pass. (An earlier cut forked labwc and shipped a rebuilt `.deb`; the hard rule
+  now forbids that, and this shim replaces it.)
+- **5593 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and

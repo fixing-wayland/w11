@@ -195,8 +195,12 @@ class EachPackagingNamesItsOwn(unittest.TestCase):
         is how a user asks for the clones instead.  xprop and xrandr arrive as
         x11-utils and x11-xserver-utils, which is why the table has a debian cell
         for both although neither is a package name.  wl-mirror stays a Suggests:
-        it is one tool's helper and nothing hands over to it."""
-        self.assertEqual(sorted(control_field("Suggests")), ["wl-mirror"])
+        it is one tool's helper and nothing hands over to it.  The five that
+        build the labwc geometry shim are Suggests too (only a labwc-family
+        session compiles it; it degrades to a no-op without them)."""
+        self.assertEqual(sorted(control_field("Suggests")),
+                         sorted(["wl-mirror", "gcc", "pkgconf", "libwlroots-0.19-dev",
+                                 "libwayland-dev", "wayland-protocols"]))
         self.assertEqual(sorted(control_field("Recommends")),
                          sorted(TABLE[w]["debian"] for w in
                                 ("xdotool", "wmctrl", "xprop", "xrandr")))
@@ -215,8 +219,12 @@ class EachPackagingNamesItsOwn(unittest.TestCase):
     def test_the_spec_suggests_wl_mirror_and_recommends_the_four(self):
         """The same move the .deb made, in Fedora's names: dnf honours weak
         dependencies by default, so `dnf install w11` on a Wayland box arrives
-        with the originals the clones hand over to."""
-        self.assertEqual(spec_tags("Suggests"), [TABLE["wl-mirror"]["fedora"]])
+        with the originals the clones hand over to.  wl-mirror and the five that
+        build the labwc geometry shim are the Suggests (the shim is compiled only
+        for a labwc-family session and degrades to a no-op without them)."""
+        self.assertEqual(spec_tags("Suggests"),
+                         [TABLE["wl-mirror"]["fedora"], "gcc", "pkgconf-pkg-config",
+                          "wlroots-devel", "wayland-devel", "wayland-protocols-devel"])
         self.assertEqual(spec_tags("Recommends"),
                          TABLE["gtk3-python"]["fedora"].split()
                          + [TABLE[w]["fedora"] for w in
@@ -224,7 +232,9 @@ class EachPackagingNamesItsOwn(unittest.TestCase):
 
     def test_the_pkgbuild_optdepends_are_archs(self):
         """gnome-shell is the sixth: it is not in the table because there is
-        one name for it everywhere and no install hint prints it."""
+        one name for it everywhere and no install hint prints it.  gcc, wlroots
+        and wayland-protocols are the labwc geometry shim's build tools (Arch has
+        no Recommends, so a build-time-only optional is an optdepend here)."""
         got = arch_optdepends()
         want = [TABLE[w]["arch"] for w in
                 ("xdotool", "wmctrl", "xprop", "xrandr", "wl-mirror")]
@@ -232,7 +242,8 @@ class EachPackagingNamesItsOwn(unittest.TestCase):
         for name in want:
             with self.subTest(name):
                 self.assertIn(name, got)
-        self.assertEqual(sorted(set(got) - set(want)), ["gnome-shell"])
+        self.assertEqual(sorted(set(got) - set(want)),
+                         ["gcc", "gnome-shell", "wayland-protocols", "wlroots"])
 
     @unittest.skipUnless(os.path.exists(MODULE), "nix/module.nix is batch 4's")
     def test_the_nixos_module_names_the_same_five(self):

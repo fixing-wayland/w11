@@ -28,6 +28,21 @@ configure)
         udevadm settle --timeout=5 >/dev/null 2>&1 || true
     fi
 
+    # Compile the labwc geometry shim on the target, against the libwlroots-0.19
+    # it actually runs (the only ABI the shim can correctly read; a .so built in
+    # the Architecture: all package would be the wrong one).  Best-effort: if the
+    # build tools or wlroots dev headers are absent this is a no-op, and the
+    # w11-labwc-session wrapper falls back to building it into the user's cache at
+    # first login.  Skipped in a chroot/container root image (no target to match).
+    if [ -z "${DPKG_ROOT:-}" ] && [ -x /usr/lib/w11/labwc-shim/build-shim.sh ]; then
+        sh /usr/lib/w11/labwc-shim/build-shim.sh \
+            /usr/lib/w11/labwc-shim/w11-labwc-shim.c \
+            /usr/lib/w11/w11-labwc-shim.so >/dev/null 2>&1 \
+            || echo "w11: labwc geometry shim not built (install gcc, pkgconf," \
+                    "libwlroots-0.19-dev, libwayland-dev, wayland-protocols to" \
+                    "enable it; the w11-labwc session builds it per-user otherwise)"
+    fi
+
     # The banner is for someone who has just acquired the tools: on the first
     # install, and again after a remove and re-install (the extension and the
     # rule went away with the package, so the relogin is due again).  A plain

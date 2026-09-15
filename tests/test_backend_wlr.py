@@ -951,17 +951,18 @@ class XPlanePid(FakeXPlane, WlrTest):
 
 
 class RouteSixNativeGeometry(FakeXPlane, WlrTest):
-    """AGENTS.md route 6: the native-toplevel rectangle the wire does not carry, read from the file a
-    patched labwc writes.
+    """AGENTS.md route 6: the native-toplevel rectangle the wire does not carry, read from the file w11's
+    labwc geometry shim writes.
 
     `zwlr_foreign_toplevel_management_v1` and `ext_foreign_toplevel_list_v1` carry no rectangle, and the X
     plane (route 5) reaches XWayland windows only, so before this a NATIVE toplevel answered `0,0 out_w x
-    out_h`. Measured on the resolute-labwc golden 2026-09-14: a native `foot` whose true frame the
-    screendump diff put at 612,306 696x494 read `0,0 1920x1080` out of `wdotool getwindowgeometry`. The
-    shipped `labwc_0.9.3-1w11.1` .deb emits each view's `view->current` box to
-    `$XDG_RUNTIME_DIR/w11-labwc-geometry`, one `pid\tx\ty\tw\th\tapp_id\ttitle` line per foreign-toplevel
-    view; `_labwc_geometry` joins it onto the native rows by `(app_id, title)`. The fixture is that file:
-    the foot at its measured rectangle, joined to the `footwin`/`foot` toplevel.
+    out_h`. Measured on the resolute-labwc golden 2026-09-15: a native `foot` whose true frame the
+    screendump diff put at 292,166 696x494 read `0,0 1280x800` out of `wdotool getwindowgeometry` with stock
+    labwc, and its real rectangle with the shim loaded. The shim -- our code in an unmodified labwc, loaded
+    by an LD_PRELOAD the w11-labwc session entry sets (packaging/labwc-shim/) -- emits each view's on-screen
+    scene box to `$XDG_RUNTIME_DIR/w11-labwc-geometry`, one `pid\tx\ty\tw\th\tapp_id\ttitle` line per
+    toplevel view; `_labwc_geometry` joins it onto the native rows by `(app_id, title)`. The fixture is that
+    file: a foot at 612,306 696x494, joined to the `footwin`/`foot` toplevel.
 
     Every assertion here failed before the fold existed (the native row was the floor)."""
 
@@ -974,7 +975,7 @@ class RouteSixNativeGeometry(FakeXPlane, WlrTest):
     FOOT = (2051, 612, 306, 696, 494)
 
     def write_geometry(self, comp, rows):
-        """Write the route-6 file the way a patched labwc would, into the session's runtime dir."""
+        """Write the route-6 file the way the LD_PRELOAD shim would, into the session's runtime dir."""
         path = os.path.join(comp.dir, "w11-labwc-geometry")
         with open(path, "w", encoding="utf-8") as fh:
             for pid, x, y, w, h, app_id, title in rows:
@@ -1019,7 +1020,7 @@ class RouteSixNativeGeometry(FakeXPlane, WlrTest):
         self.assertEqual([w.pid for w in b.list()], [2045, 2051])
 
     def test_the_x_plane_wins_over_the_file_for_an_xwayland_row(self):
-        """A patched labwc writes a line for its XWayland views too, but the X server is the oracle for
+        """The shim can write a line for XWayland views too, but the X server is the oracle for
         those: the join runs first and the file fold only touches rows it left on the floor, so the xterm
         keeps 718,395 484x316 even when the file names a different box for the same class and title."""
         self.x_server()
@@ -1190,6 +1191,77 @@ class Capabilities(WlrTest):
         comp, b = self.backend(manager_version=9)
         self.assertEqual(b.mgr_ver, 3)
         self.assertIn((ToplevelCompositor.MANAGER, 3), comp.binds)
+
+
+class TheLabwcShimContract(unittest.TestCase):
+    """The writer side of the route-6 file, held against the reader that folds it.
+
+    The shim is C loaded into an UNMODIFIED labwc (AGENTS.md route 6: our own code,
+    an LD_PRELOAD the w11-labwc session entry sets, the distro's labwc and libwlroots
+    untouched -- there is no fork, no rebuilt .deb).  It cannot be exercised in this
+    stdlib suite (no wlroots, no compositor here); what can be pinned without a build
+    is that its source keeps the file-format contract `_labwc_geometry` reads, names
+    the libwlroots symbols the correlation depends on, and that packaging ships a
+    session entry preloading it rather than a patched compositor.  The end-to-end
+    measurement is packaging/labwc-shim/README's, on the resolute-labwc golden."""
+
+    SHIM = os.path.join(ROOT, "packaging", "labwc-shim", "w11-labwc-shim.c")
+    BUILD = os.path.join(ROOT, "packaging", "labwc-shim", "build-shim.sh")
+    WRAPPER = os.path.join(ROOT, "packaging", "common", "w11-labwc-session")
+    DESKTOP = os.path.join(ROOT, "packaging", "common", "w11-labwc.desktop")
+
+    def src(self):
+        with open(self.SHIM, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_the_shim_source_and_its_build_step_are_shipped(self):
+        for p in (self.SHIM, self.BUILD, self.WRAPPER, self.DESKTOP):
+            self.assertTrue(os.path.exists(p), p)
+
+    def test_the_fork_is_gone(self):
+        """The banned route: no forked/patched/rebuilt labwc anywhere in packaging."""
+        self.assertFalse(os.path.exists(os.path.join(ROOT, "packaging", "labwc")),
+                         "packaging/labwc/ (the fork) must be deleted")
+
+    def test_the_emit_format_is_the_one_the_reader_folds(self):
+        """The line the shim prints is exactly `pid\tx\ty\tw\th\tapp_id\ttitle` --
+        the seven tab-separated fields `_labwc_geometry` splits on -- and the file
+        name is `backend_wlr.GEOMETRY_FILE`."""
+        s = self.src()
+        self.assertIn(r'"%d\t%d\t%d\t%d\t%d\t%s\t%s\n"', s)
+        self.assertIn('"' + backend_wlr.GEOMETRY_FILE + '"', s)
+
+    def test_the_shim_interposes_the_symbols_the_correlation_needs(self):
+        """The mechanism: interpose libwlroots' `wlr_scene_xdg_surface_create` (ties
+        a scene node to an xdg_surface) and `wlr_scene_output_build_state` (the
+        per-frame write trigger), and read the rectangle with `wlr_scene_node_coords`.
+        A source that stopped calling any of these could not correlate identity with
+        geometry and would silently write nothing useful."""
+        s = self.src()
+        for sym in ("wlr_scene_xdg_surface_create", "wlr_scene_output_build_state",
+                    "wlr_scene_node_coords"):
+            self.assertIn(sym, s, sym)
+        # RTLD_NEXT is how an interposer reaches the real libwlroots symbol.
+        self.assertIn("RTLD_NEXT", s)
+
+    def test_the_writer_is_atomic(self):
+        """temp + rename, the same guarantee the reader relies on to never read a
+        half-written line."""
+        s = self.src()
+        self.assertIn("rename(", s)
+
+    def test_the_session_entry_preloads_the_shim_into_an_unmodified_labwc(self):
+        """Route 6 done from outside: the wayland-session .desktop runs the wrapper,
+        which sets LD_PRELOAD to the shim .so and exec's the stock labwc -- it never
+        names a patched compositor or a w11 labwc package."""
+        with open(self.DESKTOP, encoding="utf-8") as fh:
+            desktop = fh.read()
+        self.assertIn("w11-labwc-session labwc", desktop)
+        with open(self.WRAPPER, encoding="utf-8") as fh:
+            wrapper = fh.read()
+        self.assertIn("LD_PRELOAD", wrapper)
+        self.assertIn("w11-labwc-shim.so", wrapper)
+        self.assertIn('exec "$@"', wrapper)
 
 
 if __name__ == "__main__":

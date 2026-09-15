@@ -61,6 +61,15 @@ BuildRequires:  systemd-rpm-macros
 Recommends:     python3-gobject
 Recommends:     gtk3
 Suggests:       wl-mirror
+# The labwc geometry shim is compiled on the target (it reads the local
+# libwlroots' ABI); these are what %post needs to build it, weak because only a
+# labwc-family session uses it.  Fedora's wlroots pkg-config module may name a
+# different version, which build-shim.sh reports and degrades from cleanly.
+Suggests:       gcc
+Suggests:       pkgconf-pkg-config
+Suggests:       wlroots-devel
+Suggests:       wayland-devel
+Suggests:       wayland-protocols-devel
 # What the handover execve()s -- on an X11 session directly, and on a Wayland
 # one through xw11's display, which is why these four are Recommends and not
 # Suggests: with them installed the tools the user already knows are what runs,
@@ -191,6 +200,25 @@ install -pm 0644 gnome/%{overlap_uuid}/extension.js \
 install -pm 0644 gnome/%{overlap_uuid}/typelib/*.typelib \
     %{buildroot}%{_datadir}/gnome-shell/extensions/%{overlap_uuid}/typelib/
 
+# The labwc geometry shim (AGENTS.md route 6, our code loaded into an UNMODIFIED
+# labwc -- see packaging/labwc-shim/README).  We ship the C source and its build
+# step, not a compiled .so: the shim reads libwlroots' struct ABI, so it is built
+# on the target (%post), and a noarch package cannot carry an arch-specific object
+# anyway.  Same %{_libexecdir}/%{name} the enabler uses; the wrapper resolves that
+# from its own path, and the .desktop Exec= is rewritten to it, exactly as the
+# enabler's is.
+install -Dpm 0644 packaging/labwc-shim/w11-labwc-shim.c \
+    %{buildroot}%{_libexecdir}/%{name}/labwc-shim/w11-labwc-shim.c
+install -Dpm 0755 packaging/labwc-shim/build-shim.sh \
+    %{buildroot}%{_libexecdir}/%{name}/labwc-shim/build-shim.sh
+install -Dpm 0755 packaging/common/w11-labwc-session \
+    %{buildroot}%{_libexecdir}/%{name}/w11-labwc-session
+install -d %{buildroot}%{_datadir}/wayland-sessions
+sed 's|^Exec=.*|Exec=%{_libexecdir}/%{name}/w11-labwc-session labwc|' \
+    packaging/common/w11-labwc.desktop \
+    > %{buildroot}%{_datadir}/wayland-sessions/w11-labwc.desktop
+chmod 0644 %{buildroot}%{_datadir}/wayland-sessions/w11-labwc.desktop
+
 # The installation stamp %post writes and the enabler reads.  The file itself
 # is %ghost: it is state, not payload, and an erase takes it.
 install -d %{buildroot}%{_sharedstatedir}/%{name}
@@ -227,6 +255,15 @@ fi
 if [ ! -e %{_sharedstatedir}/%{name}/installed ]; then
     mkdir -p %{_sharedstatedir}/%{name} && : > %{_sharedstatedir}/%{name}/installed
 fi
+# Build the labwc geometry shim against the libwlroots this machine runs (the
+# only ABI it can correctly read).  Best-effort: absent tools or a differently
+# versioned wlroots make this a no-op, and the w11-labwc-session wrapper falls
+# back to a per-user build at first login.  The .so is %ghost.
+if [ -x %{_libexecdir}/%{name}/labwc-shim/build-shim.sh ]; then
+    sh %{_libexecdir}/%{name}/labwc-shim/build-shim.sh \
+        %{_libexecdir}/%{name}/labwc-shim/w11-labwc-shim.c \
+        %{_libexecdir}/%{name}/w11-labwc-shim.so >/dev/null 2>&1 || :
+fi
 exit 0
 
 %postun
@@ -243,6 +280,9 @@ exit 0
 if [ "$1" = 0 ]; then
     rm -f %{_sharedstatedir}/%{name}/installed 2>/dev/null || :
     rmdir %{_sharedstatedir}/%{name} 2>/dev/null || :
+    # The shim %post compiled is a %ghost (built on the target, not shipped), so
+    # remove it by hand on the last erase.
+    rm -f %{_libexecdir}/%{name}/w11-labwc-shim.so 2>/dev/null || :
     if [ -e /dev/uinput ] && command -v udevadm >/dev/null 2>&1; then
         udevadm control --reload-rules >/dev/null 2>&1 || :
         rm -f /run/udev/static_node-tags/uaccess/uinput 2>/dev/null || :
@@ -289,6 +329,15 @@ exit 0
 %{_udevrulesdir}/60-w11-uinput.rules
 %{_modulesloaddir}/w11-uinput.conf
 %{_datadir}/applications/warandr.desktop
+# The labwc geometry shim: its source and build step, the session wrapper, and
+# the "labwc (w11)" Wayland session entry.  The main package owns %{_libexecdir}/
+# %{name} (the -bridge subpackage below now names only its own file in it).  The
+# .so %post compiles on the target is a %ghost -- built, not shipped.
+%dir %{_libexecdir}/%{name}
+%{_libexecdir}/%{name}/labwc-shim/
+%{_libexecdir}/%{name}/w11-labwc-session
+%ghost %attr(0755,root,root) %{_libexecdir}/%{name}/w11-labwc-shim.so
+%{_datadir}/wayland-sessions/w11-labwc.desktop
 %dir %{_sharedstatedir}/%{name}
 # %%attr, because a %%ghost with no mode is 000 and rpmlint says
 # zero-perms-ghost about it; the file %post writes is 0644.
@@ -296,7 +345,9 @@ exit 0
 
 %files -n gnome-shell-extension-%{name}-bridge
 %{_datadir}/gnome-shell/extensions/%{bridge_uuid}/
-%{_libexecdir}/%{name}/
+# Just the enabler, not the whole %{_libexecdir}/%{name} dir: the main package
+# now owns that dir and puts the labwc shim there too.
+%{_libexecdir}/%{name}/enable-bridge
 %{_sysconfdir}/xdg/autostart/w11-enable-bridge.desktop
 
 %files -n gnome-shell-extension-%{name}-overlap

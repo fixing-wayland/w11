@@ -38,13 +38,32 @@ how much we would rather do it:
    extension, a persistent KWin script).
 4. The kernel and the parts around the compositor (`/dev/uinput`, evdev,
    screencopy, the portals, sysfs, logind).
-5. Patching Xwayland, or an X11 protocol proxy in front of it.
-6. Patching the compositor itself, shipped as a package.
+5. An X11 protocol proxy of our own in front of Xwayland (`xw11`) — our code, our
+   package, the stock Xwayland underneath it untouched.
+6. Our own code loaded into the running compositor from the outside: an
+   `LD_PRELOAD` set by a session entry we ship, or a module the compositor loads by
+   its own config — always in w11's package, the compositor's own binary unchanged.
 
 When none of the six is in hand yet, the feature is documented as **not yet**,
 with the lowest-numbered route that would do it and what that route costs, in the
 "what differs" table of the tool's doc. It is a gap in our work, filed as one.
 It is never a policy.
+
+**We never fork, patch or rebuild an upstream package. This is a hard rule, no
+exceptions.** Not a patch to its source that we build and ship, not a forked or
+rebuilt `.deb`/rpm/PKGBUILD, not a binary of our own laid over the one the
+distribution installed. The distribution's compositor, its libraries (wlroots
+included) and its tools stay exactly as the distribution ships them, and `apt
+upgrade` is never our enemy. Everything w11 adds ships in **w11's own** packages and
+reaches the compositor from the outside — a plugin it loads by its own config, an
+`LD_PRELOAD` set by a session entry we install, a client it already speaks to, a
+file it already reads. "Patch the compositor" (route 6) never means forking its
+package: it is *our* code loaded into an *unmodified* compositor at runtime. When a
+gap can only be closed by changing the compositor's own source, we do not fork it to
+do so — either our code reaches the same end from outside, or the gap stays a **not
+yet** whose cost names that source change as one to land upstream, never a private
+fork we ship. "Ship a patched labwc" is a wrong answer, alongside the four above;
+"ship a w11 module labwc loads" is the right one.
 
 **Where the two disagree, X wins.** Byte parity with the original is the oracle
 (`scripts/parity-oracle.sh`, the vm rig, the fixtures under `tests/`). If a

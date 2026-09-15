@@ -25,8 +25,20 @@ _apply_udev() {
     udevadm settle --timeout=5 >/dev/null 2>&1 || true
 }
 
+# Build the labwc geometry shim against the libwlroots this machine runs (the
+# only ABI it can correctly read).  Best-effort: absent tools or a differently
+# versioned wlroots make it a no-op, and the w11-labwc-session wrapper falls back
+# to a per-user build.  The .so is not tracked by pacman (built, not shipped).
+_build_shim() {
+    [ -x /usr/lib/w11/labwc-shim/build-shim.sh ] || return 0
+    sh /usr/lib/w11/labwc-shim/build-shim.sh \
+        /usr/lib/w11/labwc-shim/w11-labwc-shim.c \
+        /usr/lib/w11/w11-labwc-shim.so >/dev/null 2>&1 || true
+}
+
 post_install() {
     _apply_udev
+    _build_shim
     # The stamp is the record that this installation happened; the per-user
     # enabler compares its own against it, and post_remove drops it.
     mkdir -p /var/lib/w11 && : > "$_stamp"
@@ -53,11 +65,14 @@ post_upgrade() {
     # The udev half only: the stamp stays, so nobody's dconf choice is
     # disturbed and no user is set up a second time.
     _apply_udev
+    _build_shim
 }
 
 post_remove() {
     rm -f "$_stamp" 2>/dev/null || true
     rmdir /var/lib/w11 2>/dev/null || true
+    # The shim _build_shim compiled is not pacman-tracked; remove it by hand.
+    rm -f /usr/lib/w11/w11-labwc-shim.so 2>/dev/null || true
     [ -e /dev/uinput ] || return 0
     if command -v udevadm >/dev/null 2>&1; then
         udevadm control --reload-rules >/dev/null 2>&1 || true
