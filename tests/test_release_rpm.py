@@ -269,9 +269,15 @@ class WhatDnfWillDo(RpmCase):
         """The four originals moved from Suggests to Recommends with the proxy
         (design section 8.5): on a Wayland session the wrapper execs them
         through xw11, so a default install gets the real tools; wl-mirror stays
-        a suggestion."""
+        a suggestion, and so do the five that build the labwc geometry shim on
+        the target (gcc, pkgconf-pkg-config, wlroots-devel, wayland-devel,
+        wayland-protocols-devel) -- only a labwc-family session compiles it, and
+        it degrades to a no-op without them.  This matches the Suggests the spec
+        declares (tests/test_rpm_spec.py) and debian/control's own five."""
         suggests = sorted(self.q(self.main[0], "--suggests").split())
-        self.assertEqual(suggests, ["wl-mirror"])
+        self.assertEqual(suggests,
+                         sorted(["wl-mirror", "gcc", "pkgconf-pkg-config",
+                                 "wlroots-devel", "wayland-devel", "wayland-protocols-devel"]))
 
     def test_the_bridge_supplements_both_halves_and_the_overlap_supplements_nothing(self):
         """The whole reason the extensions are subpackages: dnf installs the
