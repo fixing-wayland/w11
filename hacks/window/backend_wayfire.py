@@ -624,8 +624,8 @@ class WayfireBackend(WindowBackend):
 
     #: Wayfire's event names in the (id, change) vocabulary `WindowBackend.events()` documents -- the words
     #: sway's backend uses, and the ones select_window() reads. wxprop -spy reads them through its *bridge*
-    #: tables rather than its sway ones, because `wxprop/core.py:_is_sway()` gates on the backend name and
-    #: this backend is not called sway; that fits what is emitted, since `move` here is a geometry change
+    #: tables rather than its sway ones, because `hacks/property/core.py:_is_sway()` gates on the backend name
+    #: and this backend is not called sway; that fits what is emitted, since `move` here is a geometry change
     #: only (the bridge table maps it to no atom) and `minimized`/`workspace` are the bridge's own words.
     #: The first four names were recorded live [M recon2/wayfire.md §1.2] and the rest are in the plugin's
     #: own string table (`strings libipc-rules.so`); `view-geometry-changed` and `view-unmapped` were

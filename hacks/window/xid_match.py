@@ -7,8 +7,8 @@ runs in ten moved the wrong window before the position key went in); the rules t
 evidence does: pid and WM_CLASS are filters, title and geometry are the score, a pair must agree on something,
 and a tie nobody can break keeps xid 0.
 
-This file is a move out of `wdotool/backend_kwin.py` and nothing else -- `backend_kwin` imports the two names
-back under their old spellings, so its 25 tests read the same functions they always did.
+This file is a move out of `hacks/window/backend_kwin.py` and nothing else -- `backend_kwin` imports the two
+names back under their old spellings, so its 25 tests read the same functions they always did.
 
 Callers hand it two lists of plain dicts, which is what keeps it free of any one backend's window class:
 

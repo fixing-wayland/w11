@@ -77,7 +77,7 @@ print(rows[0].get("title") or "" if rows else "")' "$1" 2>/dev/null || true
 }
 
 # `fullscreen` for the one client of class $1: 0 none, 1 maximize (both axes), 2 fullscreen
-# [wdotool/backend_hypr.py FS_*].  win_geom and `wxprop -id ... _NET_WM_STATE` are BOTH synthesized
+# [hacks/window/backend_hypr.py FS_*].  win_geom and `wxprop -id ... _NET_WM_STATE` are BOTH synthesized
 # from this same j/clients row through our own backend, so the maximize pair below would otherwise
 # only ever agree with itself; recon2/hyprland 7 item 3 asked for hyprctl's own field as the
 # second opinion, and this is it.
@@ -275,8 +275,8 @@ hypr_xwayland() {
     guest "setsid nohup $xcmd >/dev/null 2>&1 </dev/null & sleep 3; true" >/dev/null || true
     local list xid row oracle
     # The ORACLE is the real xprop's root list, not ours.  Ours is deliberately a superset: the merged root
-    # lists native windows too, by the minted id the tools print for them (wxprop/core.py:680), and the
-    # editor this phase already opened is one of those -- so `head -1` of OUR list is whatever arrived
+    # lists native windows too, by the minted id the tools print for them (hacks/property/core.py:680), and
+    # the editor this phase already opened is one of those -- so `head -1` of OUR list is whatever arrived
     # first, and on the 2026-09-09 run that was the editor's minted 0x48bea19f, not the X client's
     # 0x00400020.  The check failed on its own oracle while the backend was right: `wwmctl -lpx` and the
     # original `wmctrl -lpx` both said 0x00400020 in the same run.
@@ -287,8 +287,8 @@ hypr_xwayland() {
     xid=$(printf '%s\n' "$oracle" | grep -o '0x[0-9a-f]*' | tail -1)
     if [ -n "$xid" ]; then
         # and our merged list carries what the X root carries: a minted id is biased into 0x4000_0000 and
-        # up (wdotool/backend.py ID_BASE) so it can never be read as an X id, but the X ids themselves have
-        # to be there
+        # up (hacks/window/backend.py ID_BASE) so it can never be read as an X id, but the X ids themselves
+        # have to be there
         want "and our merged root list carries the X root's own id $xid" "$xid" "$list"
     else
         note "(the real xprop printed no id: no X client on the root, so there is nothing to join)"
@@ -337,7 +337,7 @@ hypr_ids_are_stable() {
         same "the survivor keeps its id when the first-arrived window closes" "$second" \
              "$(guest "wdotool search --class $EDITOR_CLASS" | grep -E '^[0-9]+$' | head -1 || true)"
     fi
-    # Asked of this run by wdotool/backend_hypr.py's raise_(): windowraise focuses a floating
+    # Asked of this run by hacks/window/backend_hypr.py's raise_(): windowraise focuses a floating
     # window because no report has ever run the dispatcher that would really raise one.  What is
     # recorded is the REPLY -- whether the dispatcher exists at all -- and nothing about movement:
     # j/clients publishes no stacking order (backend_hypr.NO_STACKING), so no check in this file
@@ -468,7 +468,7 @@ layout_phase() {
 # a scale [goal2/recon/flavors.md 3b], and this flavor's own session on 2026-09-11 took every one
 # of them until, later in the same session, it stopped.  The answer was NOT a patched Hyprland
 # either: rules in a `source =`d config file plus `hyprctl reload` applied mode, position, scale,
-# transform and disable on both states, so `wxrandr/hypr.py` keeps the live keyword as its fast
+# transform and disable on both states, so `hacks/display/hypr.py` keeps the live keyword as its fast
 # path and falls back to that file when its own re-read catches the keyword doing nothing
 # (AGENTS.md route 2).  Both applies below are plain checks on both versions now, and both were
 # measured green on arch-hypr through the fast path AND through the fallback (2026-09-11: `xrandr:
@@ -508,7 +508,7 @@ phase_display() {
     # So run last, this check was asking a session that cannot time out to time out: it saw an empty
     # stderr and went red about a compositor doing nothing wrong (67 pass / 1 fail, 2026-09-09).  Run
     # first, the premise holds and the rest of the phase still applies fine.  What is asserted is
-    # wxrandr/core.py's Hyprland clause (U08) and not the rc: the generic "timed out" is true and
+    # hacks/display/core.py's Hyprland clause (U08) and not the rc: the generic "timed out" is true and
     # useless on this compositor, and the clause says which backend does work.  TWO applies, because on
     # a single head the first wlr apply of a session was measured to WORK (rc 0 in 0.25 s) and it is
     # the second that times out; with a second output present even the first hangs, so the second is

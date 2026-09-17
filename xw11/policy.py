@@ -340,7 +340,7 @@ WANTED_EXTENSIONS = ("BIG-REQUESTS", "XTEST", "RANDR", "XKEYBOARD", "XINERAMA",
 #:
 #: The first 45 are `wxprop.core._EXTENDED_ATOMS`, exactly and in its order --
 #: the set the native property synthesis already builds and the read side is a
-#: port of (`NativeViewTarget._props()`, wxprop/core.py:529-597); the list is
+#: port of (`NativeViewTarget._props()`, hacks/property/core.py:529-597); the list is
 #: repeated here rather than imported so that `import xw11` does not pull
 #: wxprop.core's 10 ms in (measured on this box, 2026-09-10) for a proxy that
 #: has not opened a connection yet, and

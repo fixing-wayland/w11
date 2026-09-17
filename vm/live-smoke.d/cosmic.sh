@@ -12,7 +12,7 @@
 #
 # COSMIC is the one desktop in this tree where a window backend had to be written from
 # nothing.  cosmic-comp publishes NO zwlr_foreign_toplevel_manager_v1 at all, so before
-# wdotool/backend_cosmic.py every window command -- all of wwmctl, wxprop's native plane,
+# hacks/window/backend_cosmic.py every window command -- all of wwmctl, wxprop's native plane,
 # every `wdotool window*` -- answered, on a live session:
 #
 #   $ wwmctl -l
@@ -34,7 +34,7 @@
 #     the POINTER needs /dev/uinput, and without it said so and stopped -- with, as root, it
 #     moved.  The package installs the udev rule, so the smoke's own pointer commands go
 #     through uinput as the seated user, and what is asserted about the protocol half is the
-#     refusal wdotool/vptr.py prints [recon2/arch 3.5].
+#     refusal hacks/input/vptr.py prints [recon2/arch 3.5].
 #   * no zwlr_screencopy_manager_v1.  `wmirror --check` passed on
 #     ext_image_copy_capture_manager_v1 ALONE, which is why the check below names that one and
 #     not the pair labwc has.
@@ -169,7 +169,7 @@ line) [$(ev "$out")]"
     fi
     pass "wdotool search --class $EDITOR_CLASS -> $WIN"
     # Ids are `ID_BASE | 30 bits of blake2b` over the 32-character `identifier`, so a minted id
-    # is at or ABOVE 0x40000000 (wdotool/backend.py:48-71) -- the whole point of the base being
+    # is at or ABOVE 0x40000000 (hacks/window/backend.py:48-71) -- the whole point of the base being
     # that Xwayland hands its own clients ids of the shape (client << 21) | serial, far below
     # 2^30, so the two ranges cannot overlap in the listing views() joins them in.  And NOT
     # 1000000 + arrival order, which is the wlr floor's and which renames the survivor when
@@ -367,7 +367,7 @@ cosmic_xwayland() {
 # The layout.  COSMIC is the only desktop in this tree whose live group arrives on the WIRE:
 # zcosmic_keyboard_layout_v1's `group` event carries the active index and the XML says it is sent
 # even when the client has no focused window, which is exactly what wl_keyboard.modifiers will
-# not do -- so no bus, no portal and no reader below [recon2/cosmic 4, wdotool/xkbmap.py
+# not do -- so no bus, no portal and no reader below [recon2/cosmic 4, hacks/input/xkbmap.py
 # _cosmic_group].  It is read inside _fetch_wayland and not by desktop_group(), so the source
 # line says `wayland` here where a Hyprland session says `wayland + hyprland devices`.
 #

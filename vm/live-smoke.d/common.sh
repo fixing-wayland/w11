@@ -178,7 +178,7 @@ opos() { oracle_outputs | awk -v n="$1" '$1 == n { print $2 }' | head -1; }
 # Not the first two lines.  The instances on this host carry three heads
 # (Virtual-1/2/3 at 0, 1920 and 3840 in tests/fixtures/live/noble-gnome-46.0-
 # capture.txt), and taking the middle one strands the third: `--output
-# Virtual-2 --off` leaves a hole at 1920..3840, and wxrandr/mutter.py's
+# Virtual-2 --off` leaves a hole at 1920..3840, and hacks/display/mutter.py's
 # keep_adjacent pulls nothing towards an output that went --off, so Mutter
 # answers "Logical monitors not adjacent" and every check below would be
 # failing on the script's own geometry instead of on the tool.  The rightmost

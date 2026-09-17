@@ -5,7 +5,7 @@
     "layout has been measured, and the only place a version-specific fact lives.",
     "",
     "Adding a GNOME release is one record here, one record in GENERATIONS in",
-    "wxrandr/gnome_overlap.py (a test proves the two are identical, field for",
+    "hacks/display/gnome_overlap.py (a test proves the two are identical, field for",
     "field), and `python3 gnome/overlap-typelib/gen-gir.py`, which writes the .gir,",
     "the .typelib and metadata.json's shell-version out of this file.  Then the",
     "three-head measurement, which is the actual work.  The whole procedure is",

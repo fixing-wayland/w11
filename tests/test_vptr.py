@@ -537,7 +537,7 @@ class RelativeMotion(VptrTest):
         at what the protocol and sway's IPC do not carry; it was expectedFailure here from 2026-09-09 until
         the string was moved the same day.
 
-        Both routes are worked out in wdotool/vptr.py's header and the sentence carries the short form of
+        Both routes are worked out in hacks/input/vptr.py's header and the sentence carries the short form of
         each: a wlr-layer-shell overlay whose `wl_pointer.motion` IS the cursor (route 1, at the cost of a
         surface that eats the events it reads) or evdev off /dev/input (route 4, at the cost of read access
         and an anchor to count from)."""

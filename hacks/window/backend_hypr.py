@@ -1,4 +1,4 @@
-"""Hyprland window backend over the compositor's own IPC (`wdotool/hypr_ipc.py`).
+"""Hyprland window backend over the compositor's own IPC (`hacks/window/hypr_ipc.py`).
 
 Detection used to land Hyprland on the generic wlroots floor, which is honest for reading and wrong about
 three things that were measured on a live 0.53.3 [M recon2/hyprland.md §3]:
@@ -296,7 +296,7 @@ class HyprBackend(WindowBackend):
 
     def raise_(self, wid: int):
         """Focus, for a floating window; sway's warning for a tiled one -- the shape the sway backend has
-        (wdotool/backend_sway.py:391) and the one the plan asks for here.
+        (hacks/window/backend_sway.py:391) and the one the plan asks for here.
 
         Focusing is as close to a raise as this gets on a floating window, and it is what was measured.
         `alterzorder top,address:...` answers ok [M requests-batch-5.md, "Read by batch 20", item 8] and
@@ -351,6 +351,17 @@ class HyprBackend(WindowBackend):
         now = int(row.get("fullscreen") or FS_NONE)
         on = action == 1 or (action == 2 and now != want_value)
         target = want_value if on else FS_NONE
+        if not on and now != want_value:
+            # A `remove` of a state that is not the one standing changes nothing under EWMH: removing
+            # _NET_WM_STATE_FULLSCREEN from a merely maximized window leaves the maximize alone in
+            # wmctrl/xdotool, and the mirror case leaves a fullscreen window fullscreen. Hyprland's one
+            # tri-state `fullscreen` field (FS_NONE/FS_MAXIMIZED/FS_FULLSCREEN, lines 39-41) makes the two
+            # states share a slot, so without this the `target = FS_NONE` below would clear whichever one
+            # *is* standing -- and the `focuswindow` dispatch under it would move focus for what the caller
+            # asked to be a no-op. Add and toggle never reach here (`on` is True for both); the `now ==
+            # target` return just below still covers the remove of the standing state and the already-none
+            # case.
+            return
         if now == target:
             return
         self.ipc.dispatch("focuswindow %s" % self._addr(row))
@@ -366,8 +377,8 @@ class HyprBackend(WindowBackend):
 
         Not the set `_visible_workspaces()` builds. On the recorded two-head session workspace 1 is on
         Virtual-1 and workspace 2 on HEADLESS-2, so two workspaces are *on screen* and exactly one is
-        *current* -- and `Workspace.active` is the current one, because wwmctl/core.py takes the first active
-        row as the current desktop and prints `*` on every active row (sway's backend fills it from the
+        *current* -- and `Workspace.active` is the current one, because hacks/window/wmctl.py takes the first
+        active row as the current desktop and prints `*` on every active row (sway's backend fills it from the
         node's `focused` for the same reason)."""
         cur = self.ipc.json("activeworkspace")
         return int((cur or {}).get("id") or 0) if isinstance(cur, dict) else 0
@@ -417,10 +428,10 @@ class HyprBackend(WindowBackend):
         `x`/`y` are already logical. `width`/`height` are the MODE's pixels, so a rotated head has them the
         wrong way round: `--rotate left` left the mode at 1920x1080 and put `transform: 3` in
         `hyprctl monitors`, and the layout box is 1080x1920 [M recon2/hyprland.md §4]. The wl_output enum's
-        odd values (1, 3, 5, 7) are the quarter turns -- the same `% 2` test wdotool/layoutbox.py:85 and the
-        daemon's output tracker make, and what core.transform_swaps() says on the wxrandr side. Then divide by
-        `scale` and truncate, as wlroots does: the recorded second head is a 1920x1080 HEADLESS at scale 2.0,
-        which is 960x540 of layout [M recon2/hyprland.md fixtures].
+        odd values (1, 3, 5, 7) are the quarter turns -- the same `% 2` test hacks/input/layoutbox.py:85 and
+        the daemon's output tracker make, and what core.transform_swaps() says on the wxrandr side. Then
+        divide by `scale` and truncate, as wlroots does: the recorded second head is a 1920x1080 HEADLESS at
+        scale 2.0, which is 960x540 of layout [M recon2/hyprland.md fixtures].
 
         One helper for both readers, because `wdotool getdisplaygeometry` and `wwmctl -d`'s work area have to
         agree with each other and with `wxrandr --query` over the same rows."""
@@ -568,7 +579,7 @@ class HyprBackend(WindowBackend):
 
         Empty for every row when Xwayland is not running, when the X plane cannot be read, or when the matcher
         could not tell two windows apart -- an unknown id beats a wrong one, and that rule lives in
-        wdotool/xid_match.py."""
+        hacks/window/xid_match.py."""
         want = [r for r in rows if r.get("xwayland")]
         if not want:
             return {}

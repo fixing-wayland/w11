@@ -9,14 +9,14 @@
 # Mutter rather than reimplementing it:
 #
 #   * displays.  muffin's DisplayConfig carries Mutter's signatures BYTE FOR BYTE (`GetCurrentState` and
-#     `ApplyMonitorsConfig` against wxrandr/mutter.py's own APPLY_SIG, introspected on a live 6.4.13), so
-#     wxrandr/mutter.py's MUFFIN flavour is Mutter's backend with three constants swapped -- measured
+#     `ApplyMonitorsConfig` against hacks/display/mutter.py's own APPLY_SIG, introspected on a live 6.4.13),
+#     so hacks/display/mutter.py's MUFFIN flavour is Mutter's backend with three constants swapped -- measured
 #     against nested muffin, including a real mode change applied and read back.  The saved file is
 #     `~/.config/cinnamon-monitors.xml`, not monitors.xml, and Cinnamon has the same *Keep these display
 #     settings?* dialog, so --persistent has GNOME's 20-second shape [recon2/cinnamon 2.2, 4];
 #   * windows.  `org.Cinnamon.Eval` is an ungated `JSON.stringify(eval(code))` on the session bus (there
 #     is no unsafe-mode gate anywhere in Cinnamon's JS tree), ~9 ms per round trip including a gdbus
-#     spawn, so wdotool/backend_cinnamon.py needs no extension installed at all -- it is KWin's
+#     spawn, so hacks/window/backend_cinnamon.py needs no extension installed at all -- it is KWin's
 #     loadScript story, not GNOME's bridge story [recon2/cinnamon 2.2, 4].
 #
 # BUILT AND RUN ONCE, 2026-09-09 (53.1 min, 1783 packages, two 1920x1080 heads), and what that first run

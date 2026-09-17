@@ -47,6 +47,7 @@ knows a backup was wanted and is not there.
 
 import os
 import pwd
+import stat
 import xml.etree.ElementTree as ET
 
 from hacks.display.core import round_half_away, warn
@@ -54,7 +55,7 @@ from hacks.display.core import round_half_away, warn
 #: what Mutter reads, and the copy we keep beside it.  Muffin reads
 #: `cinnamon-monitors.xml` in the same directory (the string in
 #: libmuffin.so.0.0.0 [M recon2/cinnamon.md §2.2]), which reaches every function
-#: here as the `name` argument -- wxrandr/mutter.py's Flavor carries it.
+#: here as the `name` argument -- hacks/display/mutter.py's Flavor carries it.
 NAME = "monitors.xml"
 BACKUP_SUFFIX = ".wxrandr-backup"
 #: a saved configuration file is a few KB; anything huge is not one, and we do not slurp it
@@ -76,13 +77,31 @@ def home_of(uid) -> str | None:
         return None
 
 
-def _owner(uid_path) -> tuple[int, int] | None:
-    """`(uid, gid)` that own `uid_path`, or None.  A function of its own so that the
-    chown branch below is reachable from a test that is not root.
+def _fowner(fd) -> tuple[int, int] | None:
+    """`(uid, gid)` that own an open descriptor, or None.  Both halves, not the uid
+    alone: root's primary group is root's, so a copy given only the right uid lands as
+    `them:root` in somebody else's `~/.config` -- readable, but not the ownership of the
+    file it was copied from, which is the whole point.
 
-    Both halves, not the uid alone: root's primary group is root's, so a copy given only
-    the right uid lands as `them:root` in somebody else's `~/.config` -- readable, but
-    not the ownership of the file it was copied from, which is the whole point."""
+    A function of its own so that the branches keyed on somebody else's uid -- the
+    directory check in `snapshot()` and the chown in `keep_backup()` -- are reachable
+    from a test that is not root: a runner that cannot chown a file cannot make one
+    really belong to another account either, so it says so by patching this
+    (tests/test_wxrandr_mutter.py's `session_of`, tests/test_monitors_xml.py)."""
+    try:
+        st = os.fstat(fd)
+    except OSError:
+        return None
+    return st.st_uid, st.st_gid
+
+
+def _owner(uid_path) -> tuple[int, int] | None:
+    """`(uid, gid)` that own `uid_path` **by name**, or None -- which is deliberately
+    not what the copy is given to any more.  `os.stat` follows symlinks and answers
+    about whatever the name resolves to at the moment it is asked, and the name lives in
+    the directory of the account we are copying for; `snapshot()` reads the owner off
+    the descriptor it opened and carries it to `keep_backup()` instead (`_fowner` above).
+    Kept as the by-name answer the test that pins the difference compares against."""
     try:
         st = os.stat(uid_path)
     except OSError:
@@ -262,18 +281,110 @@ def problems(configs, layout_mode=None):
 
 # -- reading it, and keeping a copy ------------------------------------------
 
+class Snapshot:
+    """What `snapshot()` read, who it came from, and the directory it was read out of.
+
+    It was a `(path, bytes)` pair once and it is still that pair to anything that
+    unpacks it -- `describe()` does, and tests/test_wxrandr_cinnamon.py:418 hands
+    `describe()` a plain two-tuple of its own, which keeps working.  What a pair could
+    not carry is the other half of reading through descriptors: `owner` is the
+    `(uid, gid)` off the file's own `fstat`, so that `keep_backup()`'s chown goes to
+    whoever the bytes actually came from rather than to whatever the name means by the
+    time it is stat'ed a second time, and `dfd` is the open descriptor of the directory
+    the file was read out of, so that every name `keep_backup()` touches afterwards is
+    resolved relative to *that* directory instead of walking `~/.config` again.
+
+    Holding a descriptor makes a snapshot a thing that is consumed once: `keep_backup()`
+    closes it when it is done, and a caller that drops a snapshot without keeping a
+    backup closes it itself.  `close()` is a no-op the second time, so both can happen
+    (hacks/display/mutter.py's `apply` closes it on the path where the apply raises and
+    `keep_backup()` is never reached)."""
+
+    __slots__ = ("path", "data", "owner", "dfd")
+
+    def __init__(self, path, data, owner, dfd):
+        self.path, self.data, self.owner, self.dfd = path, data, owner, dfd
+
+    def __getitem__(self, i):
+        return (self.path, self.data)[i]    # the pair this used to be, unpacking included
+
+    def close(self):
+        if self.dfd >= 0:
+            fd, self.dfd = self.dfd, -1
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
 def snapshot(path=None, env=None, uid=None, name=NAME):
-    """`(path, bytes)` of the saved configuration, or None when there is none to keep
-    (a fresh GNOME install has no file at all).  Reads; never writes.  `uid`: whose
-    file, `name`: which file, see `default_path()`."""
+    """A `Snapshot` of the saved configuration -- `(path, bytes)` to anything that
+    unpacks it -- or None when there is none to keep (a fresh GNOME install has no file
+    at all) and when there is one we will not read (everything below).  Reads; never
+    writes.  `uid`: whose file, `name`: which file, see
+    `default_path()`.
+
+    The directory is opened first and every name after it is relative to that
+    descriptor, because whose file it is decides what the *whole* path may resolve to:
+    with a `uid` that is not ours the path is inside *their* home (`default_path()`
+    above) while the process doing the reading is root's, over ssh or under sudo, and
+    every component from `.config` down is a name that account can replace.  `O_NOFOLLOW`
+    on the file alone guards the last component only -- a symlink at `~/.config` itself,
+    pointing at any directory root can traverse, still sent the read and the copy
+    somewhere else entirely.  So: open the directory (following a link there is fine --
+    `~/.config -> ~/dotfiles/config` is a real setup), `fstat` it, and refuse unless it
+    belongs to the account whose file this is; then open the basename with `dir_fd=`,
+    which cannot be re-pointed underneath us because the directory is a descriptor and
+    no longer a path to be walked.
+
+    The file itself is still judged as `hacks/display/core.py`'s `_read_state` and
+    `xw11/display.py`'s `_open_regular` judge theirs: `O_NOFOLLOW` refuses a link at the
+    name (ELOOP) -- root reading `/etc/shadow` and `keep_backup()` handing the bytes
+    straight back in a copy chowned to whoever planted it -- the `S_ISREG` check refuses
+    a directory or a device node, and `O_NONBLOCK` is there so that a FIFO left at the
+    name cannot park root inside `open()` for as long as its author likes.  The size is
+    bounded twice, because `fstat` only says how big the file was when it was asked and
+    the owner may go on appending: once off the descriptor, and once on what actually
+    arrived -- `read(MAX_BYTES + 1)`, refused if that is what came back."""
     p = path or default_path(env, uid, name)
+    # whose directory it has to be: theirs when the path was built out of their passwd
+    # entry (or handed to us with their uid beside it), ours when `default_path()` fell
+    # back to the environment -- which, for a session whose account no longer exists, is
+    # the caller's own home and not that of the uid we were given.
+    want = os.geteuid()
+    if uid is not None and uid != want and (path or home_of(uid)):
+        want = uid
     try:
-        if os.path.getsize(p) > MAX_BYTES:
-            return None
-        with open(p, "rb") as f:
-            return (p, f.read())
+        dfd = os.open(os.path.dirname(p) or ".", os.O_RDONLY | os.O_DIRECTORY)
     except OSError:
         return None
+    fd = None
+    try:
+        # O_DIRECTORY has already refused everything that is not a directory; whose
+        # directory it is is what is left to check, and it is checked on the descriptor.
+        downer = _fowner(dfd)
+        if not stat.S_ISDIR(os.fstat(dfd).st_mode) or downer is None or downer[0] != want:
+            return None
+        fd = os.open(os.path.basename(p), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                     dir_fd=dfd)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_BYTES:
+            return None
+        owner = _fowner(fd)
+        with os.fdopen(fd, "rb") as f:      # the descriptor is the file's, closed by the with
+            fd = None
+            data = f.read(MAX_BYTES + 1)
+        if len(data) > MAX_BYTES:
+            return None                     # it grew after the fstat: the same refusal
+        kept, dfd = Snapshot(p, data, owner, dfd), None     # the snapshot holds it now
+        return kept
+    except OSError:
+        return None
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if dfd is not None:
+            os.close(dfd)
 
 
 def describe(snap, layout_mode=None, desktop="GNOME", compositor="Mutter"):
@@ -310,28 +421,72 @@ def keep_backup(snap):
     would otherwise leave a root-owned file in their `~/.config`, which they cannot
     replace and which their own next `--persistent` cannot overwrite either.  A chown we
     are not allowed to make means the copy would be exactly that, so it is removed
-    instead and one line says so."""
+    instead and one line says so.
+
+    Nothing here is done by path.  Every name is a basename resolved against the
+    directory descriptor `snapshot()` opened and is still holding (`Snapshot.dfd`), so
+    the directory this writes into is the one the bytes were read out of and cannot have
+    become another one in between -- a symlink swapped in at `~/.config` after the read
+    moves nothing, because there is no `~/.config` left to walk.
+
+    The temp is created through a descriptor for the reason the chown exists at all: the
+    directory is the session user's and the process is root's, and the temp's name --
+    `<path>.wxrandr-backup.tmp` -- is fixed, so they can put a symlink at it before we
+    ever get there.  A plain `open(tmp, "wb")` would truncate and fill whatever that link
+    named -- `/etc/cron.d/w11` -- and the chown would then hand that file to them, which
+    is root.  So: `O_NOFOLLOW` to refuse the link, `O_EXCL` so that a name already taken
+    is a refusal and not a write, and a stale temp of ours unlinked and re-created rather
+    than opened, exactly as `core.State.save` does in hacks/display/core.py (`unlink`
+    removes the link, never its target).  0o666 under the umask is the mode
+    `open(tmp, "wb")` produced, so the copy is left no more readable than it has always
+    been.  The chown goes to the descriptor -- `os.fchown` rather than
+    `os.chown(tmp, ...)` -- and to the owner `snapshot()` read off the file's own
+    `fstat`, never to a second `os.stat` of the name: between the read and here the name
+    can have become a symlink to anybody's file, and that file's uid is not who the copy
+    belongs to.  `os.replace(tmp, backup, src_dir_fd=..., dst_dir_fd=...)` needs no such
+    care beyond the descriptors: rename acts on the name, so a symlink sitting at
+    `<path>.wxrandr-backup` is replaced by our file and is never written through.
+
+    The snapshot is consumed: its directory descriptor is closed on the way out, whether
+    a copy was kept or not."""
     if not snap:
         return None
-    p, data = snap
-    owner = _owner(p)
+    p, data, owner, dfd = snap.path, snap.data, snap.owner, snap.dfd
+    if dfd < 0:
+        return None                 # a snapshot somebody already consumed; nothing to write into
     backup = p + BACKUP_SUFFIX
-    tmp = backup + ".tmp"
+    name = os.path.basename(backup)
+    tmp = name + ".tmp"
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW
+    note = None
     try:
-        with open(tmp, "wb") as f:
-            f.write(data)
-        if owner is not None and owner[0] != os.geteuid():
-            try:
-                os.chown(tmp, owner[0], owner[1])
-            except OSError as e:
-                os.unlink(tmp)
-                warn(NO_BACKUP_NOTE % (p, owner[0], e))
-                return None
-        os.replace(tmp, backup)
+        try:
+            fd = os.open(tmp, flags, 0o666, dir_fd=dfd)
+        except FileExistsError:
+            os.unlink(tmp, dir_fd=dfd)      # removes a symlink, not its target
+            fd = os.open(tmp, flags, 0o666, dir_fd=dfd)
+        try:
+            view = memoryview(data)
+            while view:
+                view = view[os.write(fd, view):]
+            if owner is not None and owner[0] != os.geteuid():
+                try:
+                    os.fchown(fd, owner[0], owner[1])
+                except OSError as e:
+                    note = NO_BACKUP_NOTE % (p, owner[0], e)
+        finally:
+            os.close(fd)            # closed before the rename, and before the unlink below
+        if note is not None:
+            os.unlink(tmp, dir_fd=dfd)
+            warn(note)
+            return None
+        os.replace(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd)
         return backup
     except OSError:
         try:
-            os.unlink(tmp)
+            os.unlink(tmp, dir_fd=dfd)
         except OSError:
             pass
         return None
+    finally:
+        snap.close()

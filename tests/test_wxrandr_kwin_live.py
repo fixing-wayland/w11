@@ -430,7 +430,7 @@ class KwinLiveTest(unittest.TestCase):
         """Plasma 6.7 is the one release where there is no other way to see the
         outputs: `kde_output_device_v2` stopped being a plain wl_registry global
         and the devices arrive as new_ids on `kde_output_device_registry_v2`
-        (version 23, `removed` opcode 36 -- wxrandr/kwin.py's REGISTRY table).
+        (version 23, `removed` opcode 36 -- hacks/display/kwin.py's REGISTRY table).
         So on 6.7, and only there, `--print-backend --verbose` has to name the
         registry, and `--query` has to see the outputs through it.
 

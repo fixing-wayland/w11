@@ -643,7 +643,7 @@ class WhatARefusalPrints(Case):
     def test_it_names_where_the_answer_goes_and_what_to_run(self):
         err = self.refusal()
         self.assertIn("gnome/w11-overlap@w11/generations.json", err)
-        self.assertIn("wxrandr/gnome_overlap.py  (GENERATIONS)", err)
+        self.assertIn("hacks/display/gnome_overlap.py  (GENERATIONS)", err)
         self.assertIn("gen-gir.py --from-header", err)
         self.assertIn("meta-monitor-config-manager.h", err)
         self.assertIn('docs/Technical.md section 6, "Adding a GNOME generation"',
@@ -749,7 +749,7 @@ class TheTable(unittest.TestCase):
         py = list(gnome_overlap.GENERATIONS)
         self.assertEqual([g["shell_major"] for g in js],
                          [g["shell_major"] for g in py],
-                         "generations.json and wxrandr/gnome_overlap.py list "
+                         "generations.json and hacks/display/gnome_overlap.py list "
                          "different GNOME releases")
         for a, b in zip(js, py):
             self.assertEqual(a, b, "the GNOME %s records differ" % a["shell_major"])

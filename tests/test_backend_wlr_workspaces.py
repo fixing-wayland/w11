@@ -151,7 +151,7 @@ class TheHandleAccessors(WorkspaceTest):
     """`handles()` and `active_handles()`, added 2026-09-09 for COSMIC (requests-batch-8.md item 1).
 
     The public `backend.Workspace` carries no protocol object -- it is what `wwmctl -d` prints -- and
-    `wdotool/backend_cosmic.py` needs the `ext_workspace_handle_v1` object ids: `workspace_enter` names a
+    `hacks/window/backend_cosmic.py` needs the `ext_workspace_handle_v1` object ids: `workspace_enter` names a
     workspace by oid and `move_to_ext_workspace` takes one.  Before this it reached through to `_live()`.
 
     The claim under test is that the two accessors run the SAME ordering rule `workspace_list()` runs, which

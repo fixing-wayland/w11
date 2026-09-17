@@ -84,7 +84,7 @@ SET_CONFIG_FAILED = 3
 
 #: How far a real mode may sit from a client-made one's modeline and still be
 #: the mode it means: `resolve_real_mode`'s own tolerance
-#: (`wxrandr/core.py:1128`, `match_mode(..., tolerance=1.0)`).
+#: (`match_mode(..., tolerance=1.0)` in hacks/display/core.py).
 CUSTOM_MODE_TOLERANCE_HZ = 1.0
 
 #: `Rotation` (randr.xml): the four rotations are bits 0-3 and the two
@@ -99,7 +99,7 @@ REFLECT_MASK = 0x03
 
 #: `ModeFlag` (randr.xml). Only the two that change the refresh arithmetic are
 #: named: `mode_refresh_hz` doubles vtotal for DoubleScan and halves it for
-#: Interlace (wxrandr/core.py:170, xrandr.c:554).
+#: Interlace (hacks/display/core.py:170, xrandr.c:554).
 MODE_INTERLACE = 0x10
 MODE_DOUBLESCAN = 0x20
 
@@ -811,7 +811,7 @@ class Applier:
     @staticmethod
     def _settle_customs(targets, customs) -> None:
         """`resolve_real_mode`'s rule for the modes a client minted itself
-        (wxrandr/core.py:1103), applied where a `Stanza` can carry it.
+        (hacks/display/core.py), applied where a `Stanza` can carry it.
 
         A compositor is handed a mode object or a `WxH` and never a modeline, so
         a `--newmode` mode is applicable exactly when a REAL mode of the same
@@ -871,7 +871,7 @@ class Applier:
         Neither backend takes a primary as an argument: both read `State.primary`
         while they build the layout they are about to send. Mutter's `plan` puts
         the flag on the logical monitor holding that connector
-        (`wxrandr/mutter.py:623`) and `apply` skips a temporary layout only when
+        (`hacks/display/mutter.py:623`) and `apply` skips a temporary layout only when
         `_canon(plan) == current_config` (`mutter.py:1017`) -- a comparison that
         includes the primary flag, so a `--primary` that changes nothing else
         still sends `ApplyMonitorsConfig`. KWin's `plan` turns `state.primary !=

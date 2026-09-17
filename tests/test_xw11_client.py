@@ -43,6 +43,10 @@ os.environ["W11_PASSTHROUGH"] = "never"
 
 FIXTURES = os.path.join(ROOT, "tests", "fixtures", "xw11")
 
+#: half the 16-bit sequence space, `client._SEQ_WINDOW`: how long an
+#: unanswered sequence is remembered before the number can come round.
+_SEQ_WINDOW = client_mod._SEQ_WINDOW
+
 SETUP_L = struct.pack("<BxHHHHxx", 0x6C, 11, 0, 0, 0)
 SETUP_B = struct.pack("<BxHHHHxx", 0x42, 11, 0, 0, 0)
 
@@ -198,6 +202,160 @@ class BadLengthNoBigreq(unittest.TestCase):
         conn.feed_client(req + b"\x2b\x00\x01\x00")
         self.assertFalse(conn.closing)
         self.assertEqual(conn.state, client_mod.ESTABLISHED)
+
+
+class BadLengthBigreq(unittest.TestCase):
+    """The three big forms a server refuses, cut off Xvfb 2:21.1.22-1ubuntu1 on
+    2026-09-16 with scripts/xw11-probe-bigreq.py.
+
+    Each probe ran on its own connection: setup, `QueryExtension`, the
+    extension's `Enable` -- whose reply advertised 4194303 words -- and the
+    malformed request as seq 3, with four `NoOperation`s and a `GetInputFocus`
+    behind it so the answer says how many bytes the server ate. Xwayland was NOT
+    measured; the fixture comments say so.
+    """
+
+    def armed(self):
+        """A connection with the bit set and two requests behind it, so the
+        probe is seq 3 here as it was on the wire."""
+        conn = established()
+        conn.bigreq = True
+        conn.feed_client(b"\x2b\x00\x01\x00")            # seq 1
+        conn.feed_client(b"\x2b\x00\x01\x00")            # seq 2
+        conn.out_up.clear()
+        conn.out_down.clear()
+        return conn
+
+    def test_a_short_big_form_eats_four_bytes_like_the_server(self):
+        """A big form claiming ONE word. The server answered one BadLength for
+        seq 3 and then never answered the GetInputFocus five words behind it, so
+        it ate the 4-byte header and re-framed from the length word -- and so
+        does this. The 24 bytes left over are that re-framing: `01000000` read
+        as a zero-length CreateWindow and `7f000100` as its 32-bit big length,
+        a frame that never completes, exactly as upstream is now waiting."""
+        req, answer = packets("badlength-bigreq-short.hex")
+        self.assertEqual(req, struct.pack("<BBHI", 20, 0, 0, 1))
+        conn = self.armed()
+        conn.feed_client(req + wire.NOOP * 4 + b"\x2b\x00\x01\x00")
+        self.assertEqual(bytes(conn.out_down), answer)
+        self.assertEqual(struct.unpack_from("<H", conn.out_down, 2)[0], 3)
+        self.assertEqual(conn.out_down[10], 20)             # the request's own major
+        self.assertEqual(conn.seq, 3)
+        self.assertEqual(bytes(conn.out_up), wire.NOOP)     # the substitute, alone
+        self.assertEqual(len(conn.in_down), 24)
+        self.assertFalse(conn.closing)
+
+    def test_a_big_form_over_the_ceiling_is_one_bad_length_and_nothing_is_hoarded(self):
+        """4194304 words, one over the ceiling the Enable reply named. The
+        server's answer is the short form's answer byte for byte; what the proxy
+        owes on top of it is the refusal to buffer toward a length no server
+        would have honoured (1.25 MiB of filler used to sit in `in_down`
+        with nothing forwarded and the sequence still at zero)."""
+        req, answer = packets("badlength-bigreq-over.hex")
+        self.assertEqual(req, struct.pack("<BBHI", 20, 0, 0,
+                                          wire.BIGREQ_DEFAULT_CEILING + 1))
+        short_req, short_answer = packets("badlength-bigreq-short.hex")
+        self.assertEqual(answer, short_answer)
+        self.assertNotEqual(req, short_req)
+        conn = self.armed()
+        conn.feed_client(req + wire.NOOP * 4 + b"\x2b\x00\x01\x00")
+        self.assertEqual(bytes(conn.out_down), answer, "more than the one BadLength")
+        self.assertEqual(conn.seq, 3)
+        for _ in range(20):
+            conn.feed_client(b"A" * 65536)                  # 1.25 MiB of filler
+        # Two bounds, and they are about two different things. The first is the
+        # re-framing: the 24 bytes the refusal leaves over -- the length word
+        # and the tail, spelled out in badlength-bigreq-short.hex -- are read as
+        # a fresh request, so the filler behind them frames and is handed on
+        # rather than accumulating, and `in_down` never holds more than the feed
+        # it is in the middle of plus those 24 (65304 bytes at the peak, 40908
+        # when the loop ends; measured here 2026-09-17). The second is the
+        # refusal to buffer toward a length past the ceiling, and it is the one
+        # the pre-fix splitter failed: with the ceiling raised to 0x0FFFFFFF all
+        # 1310748 bytes sit in `in_down` with `seq` stuck at 2 and not a byte
+        # forwarded. The old first bound here was 4 * wire.BIGREQ_DEFAULT_CEILING
+        # -- 16777212 bytes against 1.25 MiB of input, a number no behaviour
+        # reachable from this test could reach.
+        self.assertLess(len(conn.in_down), 65536 + 24, "the stream never re-framed")
+        self.assertLess(len(conn.in_down), 1310728, "the filler is being hoarded")
+
+    def test_a_zero_word_big_form_closes_the_connection(self):
+        """Zero words: the server sent NOTHING and hung up. So nothing is
+        written down here either -- no BadLength, no NoOperation upstream -- and
+        the connection goes out the door `Server._drained` opens for the MSB
+        refusal."""
+        (req,) = packets("badlength-bigreq-zero.hex")
+        self.assertEqual(req, struct.pack("<BBHI", 20, 0, 0, 0))
+        conn = self.armed()
+        conn.feed_client(req + wire.NOOP * 4 + b"\x2b\x00\x01\x00")
+        self.assertEqual(bytes(conn.out_down), b"")
+        self.assertEqual(bytes(conn.out_up), b"")
+        self.assertTrue(conn.closing)
+        self.assertEqual(conn.state, client_mod.CLOSED)
+
+    def test_the_ceiling_is_learned_from_the_enable_reply(self):
+        """The number is the server's to name, and the `BigReqEnable` reply the
+        proxy forwards is the only place it is said. A server naming 100 words
+        holds that connection to 100 words."""
+        conn = established()
+        name = b"BIG-REQUESTS"
+        conn.feed_client(struct.pack("<BBHH2x", 98, 0, 2 + len(name) // 4, len(name)) + name)
+        conn.feed_server(wire.reply(conn.seq, 0, struct.pack("<BBBB20x", 1, 199, 0, 0)))
+        conn.feed_client(bytes([199, 0, 1, 0]))             # Enable, on major 199
+        self.assertTrue(conn.bigreq)
+        self.assertEqual(conn.big_ceiling, wire.BIGREQ_DEFAULT_CEILING)
+        conn.feed_server(wire.reply(conn.seq, 0, struct.pack("<I20x", 100)))
+        self.assertEqual(conn.big_ceiling, 100)
+        conn.out_down.clear()
+        conn.feed_client(struct.pack("<BBHI", 20, 0, 0, 101))
+        self.assertEqual(len(conn.out_down), 32)
+        self.assertEqual(conn.out_down[1], wire.ERR_LENGTH)
+        # Four bytes eaten, as on every other path here: the length word is left
+        # to be re-framed, which is what the server does with it.
+        self.assertEqual(len(conn.in_down), 4)
+
+    def enabled_but_unanswered(self):
+        """A connection that has asked for BIG-REQUESTS and is still waiting:
+        the bit is set by the request, the ceiling waits on the reply."""
+        conn = established()
+        name = b"BIG-REQUESTS"
+        conn.feed_client(struct.pack("<BBHH2x", 98, 0, 2 + len(name) // 4, len(name)) + name)
+        conn.feed_server(wire.reply(conn.seq, 0, struct.pack("<BBBB20x", 1, 199, 0, 0)))
+        conn.feed_client(bytes([199, 0, 1, 0]))             # Enable, on major 199
+        self.assertTrue(conn.bigreq)
+        self.assertEqual(conn.big_ceiling, wire.BIGREQ_DEFAULT_CEILING)
+        return conn, conn.seq
+
+    def test_an_error_for_the_enable_leaves_the_ceiling_and_drops_the_marker(self):
+        """A reply is not the only answer an Enable can draw. When the server
+        sends an error for it instead, the ceiling stays the default -- and the
+        sequence stops being watched, because sequences are 16 bits: a marker
+        left standing would be matched by whatever reply came round to that
+        number later, and that reply's word at offset 8 would be read as a
+        maximum request length no server ever named."""
+        conn, enable = self.enabled_but_unanswered()
+        conn.out_down.clear()
+        conn.feed_server(wire.error(wire.ERR_REQUEST, enable, 0, 199, 0))
+        self.assertEqual(conn.big_ceiling, wire.BIGREQ_DEFAULT_CEILING)
+        self.assertIsNone(conn._bigreq_pending)
+        self.assertEqual(len(conn.out_down), 32, "the error is forwarded, whole")
+        # The number comes round again; the reply behind it belongs to somebody
+        # else, and 100 is not this connection's ceiling.
+        conn.feed_client(wire.NOOP)
+        conn.feed_server(wire.reply(enable, 0, struct.pack("<I20x", 100)))
+        self.assertEqual(conn.big_ceiling, wire.BIGREQ_DEFAULT_CEILING)
+
+    def test_an_enable_nobody_answers_ages_out_with_the_other_books(self):
+        """The other drift: no reply and no error, so nothing lands on that
+        sequence at all. `_forget_stale` ages the marker out on the same
+        half-wrap window that protects the editors and `_qext_pending`, well
+        before the number can be reused."""
+        conn, enable = self.enabled_but_unanswered()
+        self.assertEqual(conn._bigreq_pending, enable)
+        conn.feed_client(wire.NOOP * (_SEQ_WINDOW + 1))
+        self.assertIsNone(conn._bigreq_pending)
+        conn.feed_server(wire.reply(enable, 0, struct.pack("<I20x", 100)))
+        self.assertEqual(conn.big_ceiling, wire.BIGREQ_DEFAULT_CEILING)
 
 
 class BigReqBit(unittest.TestCase):

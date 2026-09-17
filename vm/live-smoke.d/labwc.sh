@@ -28,12 +28,14 @@
 # while that xterm's real X id was 0x40000c and the X server's own WM_CLASS for it was
 # "xterm", "XTerm".  A same-compositor control settled that this is the backend and not
 # labwc: on ONE headless sway 1.11, the same foot window read `0x00000005 0 85920` through
-# the sway backend and `0x000f4240 -1 0` under WDOTOOL_BACKEND=wlr [recon2/labwc 3].  Three
-# of those columns are what this file measures the fix of; the fourth (geometry for native
-# windows) has no request in the protocol and is NOT YET -- the lowest route that would give
-# it is AGENTS.md route 5, ConfigureWindow over the X plane for XWayland windows only, which
-# would leave a listing where half the windows can be moved, so it needs a decision before it
-# needs code [recon2/labwc 6c].
+# the sway backend and `0x000f4240 -1 0` under WDOTOOL_BACKEND=wlr [recon2/labwc 3].
+# Three of those columns are what this file measures the fix of; the fourth (geometry for
+# native windows) has no request in the protocol and is NOT YET at route 1/6 (see
+# phase_windows); the XWayland half is DONE at AGENTS.md route 5, ConfigureWindow over the X
+# plane.  The send itself is pinned against the fake X server in
+# tests/test_backend_wlr_xplane.py; labwc_xwayland below pins the other end of the same
+# route-5 join live -- the xterm's rectangle and its _NET_WM_PID, read off the X server and
+# compared against the original xdotool [recon2/labwc 6c].
 #
 # The one capability labwc has that sway 1.11 has not: ext_workspace_manager_v1 v1 (and
 # zcosmic_workspace_manager_v1 v1), where `wayland-info | grep -cE "ext_workspace|zcosmic_workspace"`

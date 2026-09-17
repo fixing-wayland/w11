@@ -2500,7 +2500,7 @@ def _capture_stderr():
 
 
 class TheMatcherMoved(unittest.TestCase):
-    """U32: `wdotool/xid_match.py` is `backend_kwin`'s matcher, moved and not rewritten.
+    """U32: `hacks/window/xid_match.py` is `backend_kwin`'s matcher, moved and not rewritten.
 
     Every wlroots-family backend has the same pairing to do -- a compositor toplevel list with no X ids on one
     side, `_NET_CLIENT_LIST` on the other -- and none of them is KWin: labwc, Budgie, Xfce-on-Wayland, Wayfire

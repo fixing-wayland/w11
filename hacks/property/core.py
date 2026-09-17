@@ -738,9 +738,15 @@ class MergedRootTarget:
         return self.xt.fetch(name)
 
     def list_names(self):
+        # Only what the synthesis actually produces is advertised: NativeTarget.list_names (line 515) returns
+        # list(self._props().keys()) for exactly that reason, and an override the compositor never publishes
+        # (_NET_DESKTOP_NAMES on a wlr backend with no ext_workspace_manager_v1, _NET_CLIENT_LIST_STACKING
+        # on an empty listing) would make the bare -root dump print ":  not found." for a name it had just
+        # listed -- something real xprop's XListProperties-driven dump cannot do.
         names = self.xt.list_names()
+        props = self.native._props()
         for n in _ROOT_OVERRIDES:
-            if n not in names and n not in self._written:
+            if n not in names and n not in self._written and n in props:
                 names.append(n)
         return names
 
@@ -1189,7 +1195,11 @@ def spy_merged_root(formatter, target: MergedRootTarget, specs):
 
     def pump():
         try:
-            for item in hook(None, workspaces=True):
+            try:
+                stream = hook(None, workspaces=True)
+            except TypeError:  # a hook without the workspaces flag (wlr, cosmic, cinnamon), as
+                stream = hook(None)  # _native_events (line 1137) already does for the two native -spy paths
+            for item in stream:
                 q.put(item)
                 if stop.is_set():
                     return

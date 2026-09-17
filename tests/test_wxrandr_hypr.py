@@ -151,6 +151,15 @@ class Base(unittest.TestCase):
 
     DOUBLE = _ApplyingHypr
 
+    def setUp(self):
+        # The session is ours unless a test below says otherwise.  `session_uid()` scans /run/user/* and
+        # logind, so on a host seated by a DIFFERENT account -- a builder, a shared machine, the rig's own
+        # session under a service user -- `HyprOutputs` would read a foreign uid at construction and both
+        # file routes would refuse, which is a state four classes here do not mean to be testing.
+        uidp = mock.patch.object(core.session, "session_uid", return_value=os.geteuid())
+        uidp.start()
+        self.addCleanup(uidp.stop)
+
     def hypr(self, **kw):
         srv = self.DOUBLE(**kw)
         self.addCleanup(srv.close)
@@ -566,6 +575,7 @@ class RouteTwo(Base):
     """
 
     def setUp(self):
+        super().setUp()
         self.root = tempfile.mkdtemp(prefix="wxr-hypr-cfg-")
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         self.conf = os.path.join(self.root, "hypr")
@@ -834,7 +844,7 @@ class TheTwoClients(Base):
     alone, and `tests/test_build_scripts.py:TheZipapps.test_no_display_tool_carries_the_input_stack` pins
     that, so a `from wdotool...` in this package would work from the .deb and quietly not from the second
     install route -- and on Hyprland "quietly" means falling back to a wlr path that cannot apply
-    [M recon2/hyprland.md §4]. `wdotool/layoutbox.py` carries a copy of Mutter's logical-size rule for the
+    [M recon2/hyprland.md §4]. `hacks/input/layoutbox.py` carries a copy of Mutter's logical-size rule for the
     same reason, pinned the same way (tests/test_scale_spaces.py).
 
     So: same bytes on the wire, same sentence for every failure, differing only in the exception type each
@@ -934,6 +944,115 @@ class TheTwoClients(Base):
         self.assertEqual(str(b.exception),
                          "hypr backend: no Hyprland IPC socket found ($HYPRLAND_INSTANCE_SIGNATURE unset "
                          "and no hypr/*/.socket.sock in any runtime dir)")
+
+
+class SomebodyElsesSession(Base):
+    """`sudo wxrandr` against the SEATED user's Hyprland: neither file route writes into the caller's home.
+
+    `w11common/session.py` finds the Hyprland socket across uids, so the live `keyword monitor` crosses the
+    boundary and lands; `$HOME` does not cross it, so `hypr_config_dir()` is the caller's own and the file
+    Hyprland actually sources is one this process cannot name from the environment.  The two routes differ in
+    what that costs: on the fast path the layout is already on the screen and only `--persistent`'s file half
+    is lost, so the run says so and succeeds; on the route-2 path the file IS the apply, so it refuses before
+    writing anything at all.
+
+    Writing into their `~/.config` as root is the deferred half -- a plain write there is written through a
+    symlink planted in it, the hazard `monitors_xml.keep_backup` closes for the one such write we do make.
+
+    Whose session it is is read off the owner of `.socket.sock` -- the socket `HyprIPC` connected to, which
+    is the one `find_hypr_socket()` chose and whose owner it already checked against the runtime dir it
+    found it in -- and not off `session_uid()`, a separate scan that can stop in a different uid's runtime
+    directory altogether.  `TheOwnerOfTheSocket` below is that distinction on its own.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # A unit test's socket is in the test's own temp directory and therefore owned by the test, and
+        # nothing short of root can chown it elsewhere, so what these cases move is the stat -- the single
+        # site of it, `core._socket_owner`, which `HyprOutputs.__init__` reaches through
+        # `core.foreign_session_uid(self.ipc.sockpath)`.  Base's `session_uid` patch stays, saying
+        # `os.geteuid()`: each case below is then also the assertion that the socket outranks it.
+        ownp = mock.patch.object(core, "_socket_owner", return_value=os.geteuid() + 1)
+        ownp.start()
+        self.addCleanup(ownp.stop)
+        self.root = tempfile.mkdtemp(prefix="wxr-hypr-other-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.conf = os.path.join(self.root, "hypr")
+        os.makedirs(self.conf)
+        self.hyprconf = os.path.join(self.conf, "hyprland.conf")
+        self.rules = os.path.join(self.conf, "w11-monitors.conf")
+        with open(self.hyprconf, "w", encoding="utf-8") as fh:
+            fh.write("monitor = , preferred, auto, 1\nmonitor = Virtual-1,preferred,0x0,1\n")
+
+    def test_persistent_on_the_fast_path_skips_the_file(self):
+        """The keyword landed, so the layout is on the screen and the flag's file half is the only thing
+        missing: rc 0, nothing written under the caller's `~/.config/hypr`, and a line naming the file the
+        seated user's home would have needed."""
+        self.plant(self.hypr(conf_dir=self.conf))
+        code, _out, err = self.run_cli("--persistent", "--output", "Virtual-1", "--mode", "1280x1024",
+                                       XDG_CONFIG_HOME=self.root)
+        self.assertEqual(code, 0, err)
+        self.assertFalse(os.path.exists(self.rules), "nothing is written into the caller's own home")
+        self.assertIn("belongs to uid %d and this command runs as uid %d" % (os.geteuid() + 1, os.geteuid()),
+                      err)
+        self.assertIn("/.config/hypr/w11-monitors.conf", err)
+        self.assertIn("run `wxrandr --persistent` as that user", err)
+
+    def test_the_reload_route_refuses_before_writing(self):
+        """The deaf compositor: the keyword answered `ok` and changed nothing, so the apply would go to the
+        file -- which here is the wrong home.  The refusal comes before `read_rules`, so no rules file, no
+        `source =` appended to a hyprland.conf that session never reads, and no reload sent; what the old
+        code did instead was all three of those and then failed on the re-read anyway.  The one live try is
+        still made, because it is the only half that can work."""
+        srv = self.plant(self.hypr(deaf=True, conf_dir=self.conf))
+        code, _out, err = self.run_cli("--output", "Virtual-1", "--mode", "1280x1024",
+                                       XDG_CONFIG_HOME=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("uid %d" % (os.geteuid() + 1), err)
+        self.assertIn("does not do as root", err)
+        self.assertFalse(os.path.exists(self.rules))
+        self.assertEqual(srv.reloads, 0)
+        self.assertEqual(srv.keywords, ["Virtual-1,1280x1024@60.02,0x0,1"])
+        with open(self.hyprconf, encoding="utf-8") as fh:
+            self.assertNotIn("source =", fh.read(), "the caller's hyprland.conf is left alone too")
+
+    def test_the_socket_it_connected_to_is_the_one_asked_about(self):
+        """`HyprOutputs` reads the uid once, at construction, from its own `ipc.sockpath` -- the planted
+        `.socket.sock`, which is the file `find_hypr_socket()` returned -- and not from a second scan."""
+        seen = []
+        srv = self.plant(self.hypr(conf_dir=self.conf))
+        with mock.patch.object(core, "_socket_owner", side_effect=lambda p: seen.append(p)):
+            out = hypr.HyprOutputs(ipc=HyprIPC(srv.path))
+        self.assertEqual(seen, [srv.path])
+        self.assertIsNone(out.foreign_uid, "the fallback is Base's session_uid(), which is our own uid")
+
+
+class TheOwnerOfTheSocket(Base):
+    """`core.foreign_session_uid` from the Hyprland side, against real files and a real `os.stat`.
+
+    The direction that needs a uid this process cannot create -- somebody ELSE's socket -- is patched in
+    `SomebodyElsesSession` above; what is left here is the half the kernel can answer, and it is the half
+    that changed: a socket this process owns means the session is ours however the `/run/user` scan votes."""
+
+    def test_a_socket_this_process_owns_is_not_a_foreign_session(self):
+        srv = self.plant(self.hypr())
+        planted = os.path.join(self.tmp, "hypr", "sig0", ".socket.sock")
+        self.assertEqual(core._socket_owner(planted), os.geteuid(),
+                         "os.stat follows the symlink to the double's own socket")
+        with mock.patch.object(core.session, "session_uid", return_value=os.geteuid() + 1):
+            self.assertIsNone(core.foreign_session_uid(planted))
+            self.assertIsNone(hypr.HyprOutputs(ipc=HyprIPC(srv.path)).foreign_uid,
+                              "and the backend agrees: its file routes stay open")
+
+    def test_a_socket_that_is_gone_falls_back_to_the_scan(self):
+        """Unlinked between connect and here: a seated-session guess is better than none, and the direction
+        it errs in costs a note, never a write into somebody else's home."""
+        tmp = tempfile.mkdtemp(prefix="wxr-hypr-gone-")
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        gone = os.path.join(tmp, ".socket.sock")
+        self.assertIsNone(core._socket_owner(gone))
+        with mock.patch.object(core.session, "session_uid", return_value=os.geteuid() + 1):
+            self.assertEqual(core.foreign_session_uid(gone), os.geteuid() + 1)
 
 
 if __name__ == "__main__":

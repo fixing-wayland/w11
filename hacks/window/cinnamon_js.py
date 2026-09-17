@@ -7,8 +7,8 @@ where the same method exists and is off. So the window plane needs no extension 
 `loadScript` story, not GNOME's bridge story. Measured on a live Cinnamon 6.4.13, ~9 ms per call including a
 `gdbus` process spawn, which over dbus_mini is less [M recon2/cinnamon.md §2.2].
 
-Shaped like wdotool/kwin_js.py -- the compositor-version knowledge lives here, in the scripts, and not in the
-Python. What is here rather than in muffin's own API:
+Shaped like hacks/window/kwin_js.py -- the compositor-version knowledge lives here, in the scripts, and not in
+the Python. What is here rather than in muffin's own API:
 
 * `global.display.list_windows(0)`, not `list_all_windows`: muffin has `meta_display_list_windows(display,
   flags)` and no `meta_display_list_all_windows` at all (checked in `meta/display.h` and in `Meta-0.typelib`)

@@ -18,8 +18,8 @@ Three packages, not one
 -----------------------
 
   w11
-        the six commands, the udev rule, the modules-load line and the
-        warandr menu entry.
+        the six tools -- seven commands, counting xw11 -- the udev rule, the
+        modules-load line and the warandr menu entry.
   gnome-shell-extension-w11-bridge
         the bridge extension, the per-user enabler and its autostart entry.
         `Supplements: (w11 and gnome-shell)`, so dnf installs it by

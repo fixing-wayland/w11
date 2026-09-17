@@ -836,12 +836,12 @@ class ShadedIsAStateAgain(CliTestBase):
 
     muffin kept shading after mutter dropped it and KWin 6 removed it -- its
     `Meta.Window` still answers `shade()`, `unshade()` and `is_shaded()`, and
-    `wdotool/cinnamon_js.py:57` has been reading the flag into every window row
+    `hacks/window/cinnamon_js.py:57` has been reading the flag into every window row
     for as long as that backend has existed.  Nothing consumed it: on
     resolute-cinnamon-wayland, 2026-09-09, `wwmctl -r :ACTIVE: -b add,shaded`
     really shaded the window (the shell's own `is_shaded()` said `true`) and
     `wxprop -id 1 _NET_WM_STATE` printed `_NET_WM_STATE_FOCUSED` and nothing
-    else, because `wxprop/core.py` had no `shaded` arm and its atom table had
+    else, because `hacks/property/core.py` had no `shaded` arm and its atom table had
     no name to print [vm/live-smoke.d/cinnamon-wayland.sh:307-312,
     goal2/recon/gaps.md 1b #11].  Real xprop on a Cinnamon X11 session prints
     the atom -- muffin's `meta_window_x11_set_net_wm_state`
@@ -937,7 +937,7 @@ class ShadedIsAStateAgain(CliTestBase):
         """The route end to end, from the key the shell actually sends to the
         atoms wxprop prints, because nothing else in the tree reads it.
         `shaded:w.is_shaded()` has been in the LIST program since that backend
-        was written (`wdotool/cinnamon_js.py:57`) and `CinnamonBackend._view`
+        was written (`hacks/window/cinnamon_js.py:57`) and `CinnamonBackend._view`
         dropped it on the floor.  `_view` is a classmethod over a plain row, so
         this is the real parser and the real `_node_from_view`, no D-Bus and no
         paraphrase of either."""

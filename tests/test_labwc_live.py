@@ -531,7 +531,7 @@ class LabwcTypingTest(unittest.TestCase):
         `hello labwc` its `h` in 2 runs of 6 (measured 2026-09-08). It is the compositor's keymap swap and
         not the text: labwc hands the focused client the keymap we upload the first time a virtual keyboard
         appears, and a key racing that change goes nowhere, while the next client swaps nothing because the
-        keymap is already ours. That race is wdotool/vkbd.py's to fix and it is filed as an open problem;
+        keymap is already ours. That race is hacks/input/vkbd.py's to fix and it is filed as an open problem;
         what this test is for is the bytes, and it measures them once the swap has happened."""
         def stroke():
             rc, _out, err = tool(self.rig, "wdotool", "key", "Return")

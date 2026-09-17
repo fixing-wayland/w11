@@ -171,6 +171,14 @@ class Layout:
             o.x, o.y = po.x, po.y
             cm, cr = po.current
             if po.active:
+                # ``ParsedOutput.current`` (xrandr_parse.py:98) reports a mode only when some rate carries the
+                # literal ``*``, and ``Rate.current`` is set nowhere else — so an active output whose table
+                # has no star arrives here as ``(None, None)``.  Real xrandr always stars the running mode and
+                # xrandr_parse.py:296/305 read it; the starless shape is a hand-written or truncated listing,
+                # or a verbose one whose current rate the parser never saw.  This is the one place that gap is
+                # filled, and the rule is ``preferred_mode()`` (model.py:94-98): the first mode carrying
+                # ``+``, else ``modes[0]``.  The parser derives nothing of its own; it used to carry a comment
+                # promising "the first mode is it", a rule it never applied and which disagrees with this one.
                 if cm is None and modes:
                     cm = o.preferred_mode()
                 if cm is not None:

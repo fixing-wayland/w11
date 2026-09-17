@@ -665,7 +665,7 @@ class NativeExists(ProxyLive):
         proxy publishes `_NET_DESKTOP_VIEWPORT` as one `0,0` pair per desktop
         (xw11/shadow.py:root_props), which is what an X WM with viewports
         publishes and what `wwmctl -d` prints from its own rule
-        (wwmctl/core.py:803) -- the two routes agree on this column to the
+        (hacks/window/wmctl.py:803) -- the two routes agree on this column to the
         byte [M 2026-09-11, this box, headless sway with two workspaces: both
         print `VP: 0,0` on both rows; before the property existed real wmctrl
         printed `VP: N/A` on both rows here]. `WA:` is still `N/A`: nobody
@@ -1590,7 +1590,7 @@ class RandrWrites(ProxyLive):
     def test_rotate_left_turns_sway_to_270_and_normal_turns_it_back(self):
         """recon/tools.md 11 row 61: exit 1 without the proxy, and the grab
         leaked with it. `left` is RandR rotation 2, which `RANDR_VIEW` reads as
-        sway's `270` (wxrandr/core.py:109)."""
+        sway's `270` (hacks/display/core.py:109)."""
         direct = self.xrandr("--output", "HEADLESS-1", "--rotate", "left",
                              through=False)
         self.assertEqual(direct.returncode, 1, "the premise of row 61 is gone")

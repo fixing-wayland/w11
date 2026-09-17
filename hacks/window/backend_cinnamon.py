@@ -11,7 +11,7 @@ Why Eval and not a protocol or an extension: muffin advertises 23 Wayland global
 foreign-toplevel or output-management protocol, of either family [M cinnamon.md §2.1], and Cinnamon has no
 window-listing D-Bus method (`org.Cinnamon` has `GetMonitors`, `Screenshot*`, `ShowOSD` and no windows)
 [M cinnamon.md §2.2]. What it does have is `org.Cinnamon.Eval`, ungated -- so this is KWin's `loadScript`
-shape: one JS program per operation, in wdotool/cinnamon_js.py, and nothing installed for the user.
+shape: one JS program per operation, in hacks/window/cinnamon_js.py, and nothing installed for the user.
 
 That interface is also the honest thing to say out loud: `org.Cinnamon.Eval` grants arbitrary code execution
 inside the shell to every client of the session bus, with no consent step, and it is there whether or not

@@ -461,14 +461,69 @@ wait_ssh() {
     done
     return 1
 }
+start_rc=0
 if [ "$REUSE" = 1 ]; then
     step "vmctl start $NAME (reuse: the overlay and whatever is installed in it)"
-    "$VM" start "$NAME" --cpus "$CPUS" --mem "$MEM" --timeout "$BOOT_TIMEOUT" >/dev/null || true
+    start_err=$("$VM" start "$NAME" --cpus "$CPUS" --mem "$MEM" --timeout "$BOOT_TIMEOUT" 2>&1 >/dev/null) \
+        || start_rc=$?
 else
     step "vmctl start $NAME --flavor $FLAVOR --heads $HEADS --fresh"
-    "$VM" start "$NAME" --flavor "$FLAVOR" --heads "$HEADS" --cpus "$CPUS" --mem "$MEM" --fresh \
-        --timeout "$BOOT_TIMEOUT" >/dev/null || true
+    start_err=$("$VM" start "$NAME" --flavor "$FLAVOR" --heads "$HEADS" --cpus "$CPUS" --mem "$MEM" --fresh \
+        --timeout "$BOOT_TIMEOUT" 2>&1 >/dev/null) || start_rc=$?
 fi
+# The one nonzero start that is NOT the slow boot above -- and only in the --fresh arm.
+# vmctl refuses outright when the instance is already up -- `instance 'NAME' is already
+# running (pid ..., ssh port ...)`, vm/vmctl:855 -- and it refuses BEFORE it re-creates the
+# overlay, so with that status discarded a `--fresh --pkg` run sailed on, found ssh answering
+# the EARLIER run's guest, and reported a fresh-install result for a disk that was neither
+# fresh nor freshly installed.  That instance is not this run's to stop: name it, say what
+# stops it, and leave it alone -- which is also what makes the trap below safe to arm this
+# early.
+# Whatever vmctl said goes into the log either way, as it did when its stderr went straight
+# there through the tee at line 302 -- and a SUCCESSFUL start is most of that traffic, since
+# log() (vm/vmctl:185) writes everything cmd_start reports: `QEMU pid N, flavor F, ssh port P`
+# (vm/vmctl:921), `heads: 0=..., 1=...` (vm/vmctl:938) and `ssh up after Ns` (vm/vmctl:944),
+# the three lines the vm/README.md:31-33 example shows a start printing, plus `new overlay
+# disk on <golden>` (vm/vmctl:875) under --fresh.  Capturing the status meant capturing those
+# too, so they are printed on every start and not only a failed one; the tolerated timeout is
+# worth reading when a phase later looks odd, and the pid/port/head layout is worth reading
+# always.  The -z guard is for the fake vmctl of the replay rig, whose start says nothing on
+# stderr when it succeeds: a bare printf would put a blank line in every replay log.
+[ -z "$start_err" ] || printf '%s\n' "$start_err"
+# Under --reuse that same refusal is the ordinary case and not a stale disk at all.  --reuse
+# is defined at line 16-19 as reusing the existing instance and whatever is installed in it,
+# --keep (line 47) exists to leave exactly that instance running for the next run, and both
+# vm/live-smoke.d/capture-from-run:18-19 and tests/fixtures/live/README.md:115-116 give
+# `--reuse --keep` as the iteration and recording command.  cmd_start (vm/vmctl:853-855)
+# raises on a live pid before it looks at any flag, so a --reuse start of a kept instance
+# ALWAYS lands here; refusing it would have put a `vmctl stop` and a full reboot between
+# every pair of iterations, which is the one thing --keep exists to avoid.  So: say which
+# instance is being reused, treat the start as the success it is, and go on to wait_ssh the
+# way the discarded status did.  The trap below still stops it at the end unless --keep.
+if [ "$start_rc" != 0 ] && printf '%s\n' "$start_err" | grep -q 'is already running'; then
+    if [ "$REUSE" = 1 ]; then
+        note "(--reuse: $NAME was already up, which is what --reuse asks for -- going on to its ssh)"
+        start_rc=0
+    else
+        echo "$NAME is already running from an earlier run:" \
+             "vm/vmctl stop $NAME first (ONE VM at a time on this host)"
+        exit 2
+    fi
+fi
+
+# Armed here, before the first way out of the boot, and not after the session banner where
+# it used to be: QEMU is daemonized (vm/vmctl:586) and vmctl's cmd_start kills the pid only
+# for a wait_consoles/apply_heads failure, never for its final wait_ssh -- so both `exit 2`s
+# below left a running instance with no owner, and the next run measured it by accident.
+cleanup() {
+    if [ "$KEEP" = 1 ]; then
+        echo "(--keep: $NAME left running -- vm/vmctl stop $NAME when you are done; ONE VM at a time on this host)"
+    else
+        "$VM" stop "$NAME" >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup EXIT
+
 wait_ssh || { echo "cannot reach $NAME over ssh"; exit 2; }
 step "vmctl session $NAME (autologin; GDM's fires once per boot)"
 wait_session || { echo "no graphical session"; exit 2; }
@@ -487,15 +542,6 @@ install_oracle
 # `sway version 1.11` on the same golden, which reproduces that name exactly.
 desktop_version_note
 shot 00-session
-
-cleanup() {
-    if [ "$KEEP" = 1 ]; then
-        echo "(--keep: $NAME left running -- vm/vmctl stop $NAME when you are done; ONE VM at a time on this host)"
-    else
-        "$VM" stop "$NAME" >/dev/null 2>&1 || true
-    fi
-}
-trap cleanup EXIT
 
 for p in $run_phases; do
     if ! declare -F "phase_$p" >/dev/null; then

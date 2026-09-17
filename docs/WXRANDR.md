@@ -381,7 +381,7 @@ what it is given without validating it.
 Say that plainly: **this is not an API.** It is one program editing another
 program's memory, using knowledge of a structure layout that nobody promised
 would stay put, in a process whose death takes the desktop with it. It is true
-of the three builds it has been measured on and of nothing else.
+of the four builds it has been measured on and of nothing else.
 
 ```console
 $ wxrandr --unsafe-gnome-overlap --output Virtual-2 --pos 960x0
@@ -806,10 +806,10 @@ received yet:
 bounded read agreed with Mutter's public view field for field. Independently, at
 source level, `src/backends/meta-monitor-config-manager.h` is byte-identical
 between the mutter 46.0 and 46.2 tarballs, and
-`gnome/overlap-typelib/gen-gir.py --from-header` lays the mutter 46 and mutter 50
-headers out and arrives at exactly those two of the three shipped descriptions
-(`tests/fixtures/mutter/` carries those two headers; GNOME 51's was derived the
-same way on the machine it was measured on).
+`gnome/overlap-typelib/gen-gir.py --from-header` lays the mutter 46, 49 and 50
+headers out and arrives at exactly those three of the four shipped descriptions
+(`tests/fixtures/mutter/` carries those three headers; GNOME 51's was derived
+the same way on the machine it was measured on).
 
 **It cannot break by a generation change inside a release.** One
 `libmutter-N-0` soname per Ubuntu release, for the life of the release — bionic
@@ -847,15 +847,15 @@ Not softened, because a reader has to be able to decide against this:
   layout: the browser, the editor, the unsaved buffer, the terminal you typed
   this in. On Wayland the compositor is the session, and there is no restarting
   it in place.
-* **The allowlist is a claim about three builds this project measured**, stock
-  Ubuntu 24.04, 26.04 and 26.10. A distribution that backports a Mutter change without
-  moving the shell's major version can make the version gate say yes to a
-  library it has never seen. What stands behind it then is the structure size,
-  the sentinel and the public-view comparison, in that order. **This is the live
-  one, and it is not hypothetical**: the version gate said yes to seven
-  different libmutter builds during the update testing above, because that is
-  what it is for, and every one of them happened to have the same private
-  layout. The mechanism that would beat it exists today — mutter
+* **The allowlist is a claim about four builds this project measured**, stock
+  Ubuntu 24.04, 26.04 and 26.10, and Fedora 43. A distribution that backports a
+  Mutter change without moving the shell's major version can make the version
+  gate say yes to a library it has never seen. What stands behind it then is
+  the structure size, the sentinel and the public-view comparison, in that
+  order. **This is the live one, and it is not hypothetical**: the version gate
+  said yes to seven different libmutter builds during the update testing above,
+  because that is what it is for, and every one of them happened to have the
+  same private layout. The mechanism that would beat it exists today — mutter
   50.1-0ubuntu2.3, in `resolute-proposed`, adds a field to a private struct
   (`_MetaMonitorManagerPrivate`, in an Ubuntu patch for auto-rotate on phones)
   under an unchanged 50.1 shell version. It happens not to be
@@ -959,10 +959,10 @@ xrandr: dryrun: nothing was written
 ```
 
 `sh gnome/install-overlap.sh --check` runs the same probe from the installer,
-and is the honest way to ask whether your GNOME is one of the three this has been
+and is the honest way to ask whether your GNOME is one of the four this has been
 measured on.
 
-On anything else it refuses without reading anything private — 47, 48, 49, 52,
+On anything else it refuses without reading anything private — 47, 48, 52,
 a shell that will not name its version — and the refusal is written for whoever
 is going to add that release:
 
@@ -975,12 +975,13 @@ xrandr: --unsafe-gnome-overlap: GNOME Shell 52.0 is not a build this has been me
                         Meta typelib 51
                         MetaMonitorsConfig 80 bytes, from this build's GType registry
   What is shipped:      GNOME 46 -> libmutter-14.so.0, W11Overlap14, Meta typelib 14, MetaMonitorsConfig 72 bytes
+                        GNOME 49 -> libmutter-17.so.0, W11Overlap17, Meta typelib 17, MetaMonitorsConfig 80 bytes
                         GNOME 50 -> libmutter-18.so.0, W11Overlap18, Meta typelib 18, MetaMonitorsConfig 80 bytes
                         GNOME 51 -> libmutter-51.so.0, W11Overlap51, Meta typelib 51, MetaMonitorsConfig 80 bytes
   To add this build:    one record in each of these two, keyed by the GNOME major, and
                         nothing else anywhere:
                             gnome/w11-overlap@w11/generations.json
-                            wxrandr/gnome_overlap.py  (GENERATIONS)
+                            hacks/display/gnome_overlap.py  (GENERATIONS)
                         then
                             python3 gnome/overlap-typelib/gen-gir.py --from-header \
                                 <mutter source>/src/backends/meta-monitor-config-manager.h
@@ -1065,7 +1066,7 @@ plain validated `wxrandr` line that does not depend on the dangerous half. No
 reconfiguration beyond positions. No enabling by the package: the `.deb` carries
 the files since 0.4, and switching it on stays a `gnome-extensions enable` and a
 re-login that a person types, with its own installer and its own enable step from a
-clone. No support for GNOME 47 to 49, nor for 52 and whatever follows it — only a
+clone. No support for GNOME 47, 48 or 52 and whatever follows it — only a
 way for somebody who knows their own machine to overrule that refusal, per
 invocation, having read what it may cost, with nothing remembered afterwards.
 
@@ -1619,9 +1620,9 @@ X11, on three heads with one of them rotated:
 |---|---|---|---|
 | **GNOME** (Mutter) | comes back in full: Mutter lays the *remaining* monitors out in a row while the set is short, and puts the layout back when the original set returns | lost, unless a `--persistent` apply was confirmed | `~/.config/monitors.xml`, written by GNOME Settings or a confirmed `--persistent` and by nothing else; a fresh install has none; one bad entry discards the file whole (above) |
 | **KDE Plasma** (KWin) | comes back in full | **kept** | `~/.config/kwinoutputconfig.json`, written by every apply KWin takes |
-| **sway** (wlroots) | comes back in full, every output | lost, unless `--persistent` was used | nothing on disk from an IPC apply; only the sway config sway reads makes a layout stick, so `--persistent` writes `~/.config/sway/w11-outputs.conf` and makes that config `include` it (route 2). Measured on `swaytest`, 2026-09-14: after a full reboot Virtual-2 came up 1280x1024@60.020 at 1920,0 from the file |
+| **sway** (wlroots) | comes back in full, every output | lost, unless `--persistent` was used | nothing on disk from an IPC apply; only the sway config sway reads makes a layout stick, so `--persistent` writes `~/.config/sway/w11-outputs.conf` and makes that config `include` it (route 2). Measured on `swaytest`, 2026-09-14: after a full reboot Virtual-2 came up 1280x1024@60.020 at 1920,0 from the file. Run as root against somebody else's session (ssh, sudo), the layout still lands live and the file half is skipped with a note naming the seated user's path: root does not write inside another account's home (a planted symlink there is written through), so **not yet** — the route is writing that half as the seated user (a privilege drop to their uid for the write), at the cost of a root-shell measurement on the rig; until then run the command as that user. |
 | **Xfce** (X11) | **lost**: the head comes back at the end of a plain row, unrotated, and `primary` is cleared | lost, `primary` with it | nothing; `displays.xml` is byte-identical after an apply |
-| **Hyprland** | not measured on the rig yet | lost | `hyprland.conf` and the files it `source`s. `--persistent` writes `~/.config/hypr/w11-monitors.conf` and adds a `source =` line for it (route 2); writing the file is itself a reload, so the whole config is re-read (runtime `hyprctl keyword`s set since login reset). Measured on arch-hypr, 0.56.2, 2026-09-11 |
+| **Hyprland** | not measured on the rig yet | lost | `hyprland.conf` and the files it `source`s. `--persistent` writes `~/.config/hypr/w11-monitors.conf` and adds a `source =` line for it (route 2); writing the file is itself a reload, so the whole config is re-read (runtime `hyprctl keyword`s set since login reset). Measured on arch-hypr, 0.56.2, 2026-09-11. Run as root against somebody else's session (ssh, sudo), the layout still lands live and the file half is skipped with a note naming the seated user's path: root does not write inside another account's home (a planted symlink there is written through), so **not yet** — the route is writing that half as the seated user (a privilege drop to their uid for the write), at the cost of a root-shell measurement on the rig; until then run the command as that user. On Hyprland the reload route, which IS a write into that home, refuses with the same reason. |
 | **Cinnamon** (Muffin) | not measured on the rig yet | lost, unless a `--persistent` apply was confirmed | `~/.config/cinnamon-monitors.xml` — Mutter's rule under Cinnamon's file name, behind Cinnamon's own *Keep these display settings?* dialog. Measured written on `resolute-cinnamon-wayland`, 2026-09-09, where it was absent before the apply |
 | **labwc**, and Budgie / Xfce / LXQt on it | one head in every configuration comes back where labwc chose, which is what `WlrOutputs.apply`'s second send is for | lost | nothing on disk |
 
@@ -1686,6 +1687,21 @@ accepted. What each group does here:
   `--dpi`, `--fb`, `--dryrun` (resolve and print what would change, mutate nothing),
   and `--newmode` / `--addmode` / `--delmode` / `--rmmode`, whose modelines are kept in
   the state file and turned into WxH@refresh for the backend.
+- **The RandR 1.0 screen options**: `-s`/`--size` and `-o`/`--orientation` (and `-x`,
+  `-y`, a global `-r`) name no output, so they take the pre-1.2 path (`_do_1_0` in
+  `wxrandr/cli.py`), which acts on the *first* output the compositor lists. `--size`
+  takes either an index into that output's size list — its modes in server order, one
+  entry per WxH, `core.q1_sizes` — or a `WxH` looked up in the same list. An index past
+  the end prints `Size index %d is too large, there are only %d sizes`;
+  a `WxH` that is not there prints `Size %dx%d not found in available modes`; both exit
+  1. A negative index is refused while parsing:
+  `--size argument must be nonnegative`. With no `--size` at all the entry matching the
+  current mode is used (index 0 when the current mode is not in the list), and what
+  survives goes to that one output as a mode, with `-o`'s rotation and the `-x`/`-y`
+  reflections in the same apply. Under `--verbose` xrandr's own
+  `Setting size to %d, rotation to %s` pair is printed first. `--orientation` is
+  xrandr's own spelling of `--rotate` and is taken as an alias for it — the table under
+  *xrandr options that mean nothing here* has that row.
 - **`--primary` has no Wayland equivalent**, so it is kept in a small state file keyed
   by the compositor socket and shown consistently in every listing. What each backend
   does with it on a *disabled* output differs, and *Known limitations* below says how.
@@ -1828,7 +1844,7 @@ Measured, understood, and left as they are. Each says why.
   no-op: `normal → y → (x, rotated 180) → ...`. `--reflect x` and
   `--reflect normal` are unaffected. Spell **both** `--rotate` and `--reflect` in
   the same command and the result is exact whatever the current state (which is
-  what the saved layout lines and the `--restore` path already do).
+  what the saved layout lines and the printed undo command already do).
 - **sway's two-phase apply can be interrupted.** The sway backend applies modes,
   scales and transforms in one IPC batch, re-reads the logical sizes the
   compositor really produced, and pins the positions in a second batch — the
@@ -1846,9 +1862,9 @@ Measured, understood, and left as they are. Each says why.
   output, so no behaviour here is "the" right one, and wxrandr warns about none of
   them.
 - **The warn-and-ignore options do not validate their argument.** `--panning`,
-  `--setmonitor`, `--transform`, `--set` and a `--scale-from 0x0` warn that they
-  do nothing on Wayland and succeed, without looking at what they were given —
-  so four argv forms that real xrandr rejects are accepted here. This is
+  `--setmonitor`, `--transform` and `--set` warn that they do nothing on Wayland
+  and succeed, without looking at what they were given — so four argv forms that
+  real xrandr rejects are accepted here. This is
   deliberate: refusing an argument to an option that has no effect would fail
   scripts that the tool otherwise runs unchanged, which is the whole point of the
   warn-and-ignore set.

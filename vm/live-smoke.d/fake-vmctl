@@ -30,9 +30,10 @@ Transcript format (guest-capture.sh writes it, an override file uses it too):
 
 Lookup is by normalised command: redirections, pipes, `|| true` tails and long
 digit runs (window ids differ per run) come off first, then an exact match, then
-the longest matching prefix.  An unknown command answers empty with status 0 --
-the recorded guest simply has nothing to say about it -- unless FAKE_VMCTL_STRICT
-is set, which makes it say so on stderr and exit 127.
+the longest recorded command the asked one EXTENDS -- and never the other way
+round, so a command shorter than every recording stays unknown.  An unknown command
+answers empty with status 0 -- the recorded guest simply has nothing to say about it
+-- unless FAKE_VMCTL_STRICT is set, which makes it say so on stderr and exit 127.
 
 A command recorded MORE THAN ONCE answers with each recording in turn and then
 sticks on the last: `wdotool getwindowgeometry` is asked three times in one
@@ -133,11 +134,17 @@ def answer(cmd):
             return take(key, table)
     # the longest recorded command this one starts with: `wdotool search --class
     # TextEditor` answers for the same call with a `| head -1` the regexes above
-    # did not know about.
+    # did not know about.  That one direction only.  The reverse -- a SHORTER command
+    # taking the longest recording that begins with it -- answered a bare `wwmctl` out
+    # of `wwmctl -l -G`'s window list with status 0, where the guest answers wmctrl's
+    # usage and status 1, and it never reached the strict branch below: the command was
+    # missing from $FAKE_VMCTL_MISSES, so selftest-offline.sh's drift inventory and
+    # scripts/rig-recordings.sh's acceptance both read "nothing missing" for a recording
+    # that no longer answers what its step file asks.
     best = None
     for table in (OVERRIDES, RECORDED):
         for k in table:
-            if (key.startswith(k) or k.startswith(key)) and (best is None or len(k) > len(best[0])):
+            if key.startswith(k) and (best is None or len(k) > len(best[0])):
                 best = (k, table)
     if best:
         return take(best[0], best[1])
@@ -156,6 +163,30 @@ def main(argv):
         return 2
     sub, rest = argv[0], argv[1:]
     if sub in ("start", "stop", "destroy"):
+        if sub == "stop":
+            # The driver's cleanup() runs `"$VM" stop "$NAME" >/dev/null 2>&1 || true`
+            # (live-smoke.sh), so whether a run stopped the instance it started is not in
+            # its output at all.  Leave the evidence in the per-run state directory, which
+            # every caller already makes fresh, and a test can look there.
+            with open(os.path.join(STATE, "stopped-%s" % (rest[0] if rest else "?")),
+                      "w", encoding="utf-8") as fh:
+                fh.write("stopped\n")
+        if sub == "start" and os.environ.get("FAKE_VMCTL_START_RC"):
+            # vmctl's own refusal, in its own words (vm/vmctl:855), for the one case the
+            # driver has to tell apart from a slow boot: an instance an EARLIER run left
+            # running.  The status is the caller's to choose so the tolerated kind of
+            # nonzero start can be exercised too.
+            sys.stderr.write("fake-vmctl: instance %r is already running (pid 1, ssh port 2222)\n"
+                             % (rest[0] if rest else "?"))
+            return int(os.environ["FAKE_VMCTL_START_RC"])
+        if sub == "start" and os.environ.get("FAKE_VMCTL_START_STDERR"):
+            # The real vmctl talks on stderr while a start SUCCEEDS as well: log()
+            # (vm/vmctl:185) is where `QEMU pid N, ..., ssh port P` (vm/vmctl:921),
+            # `heads: 0=...` (vm/vmctl:938) and `ssh up after Ns` (vm/vmctl:944) go, and
+            # the driver captures that stream now that it wants the start's status.  This
+            # fake stays silent there unless a caller asks for a line, so that every
+            # existing replay log comes out byte-for-byte as it did before.
+            sys.stderr.write(os.environ["FAKE_VMCTL_START_STDERR"] + "\n")
         print("fake-vmctl: %s (no VM was touched)" % sub)
         return 0
     if sub == "status":

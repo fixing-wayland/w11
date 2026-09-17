@@ -146,7 +146,7 @@ INSTALL_HINT = (
 #: in the refusal itself because somebody meeting this for the first time is
 #: looking at a terminal, not at a document, and the document is one line down.
 TABLE_FILES = ("gnome/w11-overlap@w11/generations.json",
-               "wxrandr/gnome_overlap.py  (GENERATIONS)")
+               "hacks/display/gnome_overlap.py  (GENERATIONS)")
 TABLE_DOC = 'docs/Technical.md section 6, "Adding a GNOME generation"'
 
 
@@ -740,7 +740,7 @@ def applied_text(reply, quiet=False):
 #
 # * it silences the paragraph, and nothing else.  Every check in the list still
 #   runs on every call, inside gnome-shell, whether or not anything is recorded
-#   here: the applying path in wxrandr/mutter.py asks this module only what to
+#   here: the applying path in hacks/display/mutter.py asks this module only what to
 #   *print*, and the reply's `ok` is what decides whether anything is written.
 #   There is no code path in which a recorded yes reaches a check.
 # * it never turns the feature on.  `--unsafe-gnome-overlap` is still the only
@@ -852,7 +852,7 @@ def save_consent(f, how, env=None):
 
     A forced run can never reach here -- `--gnome-overlap-allow` and
     `--unsafe-gnome-overlap-unmeasured` are refused together at parse time, and
-    the applying path in wxrandr/mutter.py does not read or write the
+    the applying path in hacks/display/mutter.py does not read or write the
     agreement at all when it is forcing -- and this refuses anyway, from the reply rather than from the
     caller's word for it.  A yes that was only ever given on a build nobody
     measured is not a yes anybody can be held to."""

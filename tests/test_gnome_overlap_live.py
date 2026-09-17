@@ -99,15 +99,21 @@ def shell_owns_its_name():
     if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
         return False
     try:
-        from w11common.dbus_mini import Bus
+        from w11common.dbus_mini import Bus, DBusError
         bus = Bus()
     except Exception:
         return False
     try:
-        return bool(bus.call("org.freedesktop.DBus", "/org/freedesktop/DBus",
-                             "org.freedesktop.DBus", "NameHasOwner", "s",
-                             (gnome_overlap.SHELL_NAME,)).args()[0])
-    except Exception:
+        # `Bus.name_has_owner` (w11common/dbus_mini.py:1197) and not a
+        # hand-rolled `call(...)`: the spelling here used to call `.args()` on
+        # the tuple `call()` already returns, and the AttributeError went into a
+        # bare `except Exception` -- so on the rig, with a real gnome-shell
+        # owning the name, this answered False and all seven writing cells
+        # skipped, blaming the session bus.  The catch is narrow now for the
+        # same reason: a coding error in here must never again present itself
+        # as a verdict about the session.
+        return bus.name_has_owner(gnome_overlap.SHELL_NAME)
+    except (DBusError, OSError):
         return False
     finally:
         try:

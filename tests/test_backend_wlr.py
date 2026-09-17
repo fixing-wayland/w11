@@ -587,8 +587,8 @@ def net_wm_state(view) -> list:
 
     The real path and not a paraphrase of it: `_node_from_view` is what wxprop builds out of a views()
     backend's row, and `NativeViewTarget` is the target `resolve_id` hands a window with no X id
-    [wxprop/core.py:850]. Two of the flags this backend fills in are only readable here -- `visible` becomes
-    `_NET_WM_STATE_HIDDEN` inside `_props`, and nothing else in the tree reads it."""
+    [hacks/property/core.py:850]. Two of the flags this backend fills in are only readable here -- `visible`
+    becomes `_NET_WM_STATE_HIDDEN` inside `_props`, and nothing else in the tree reads it."""
     node = wxcore._node_from_view(view)
     target = wxcore.NativeViewTarget(None, wxcore.NativeAtoms(), node, view.window)
     _type, _size, wire = target.fetch(b"_NET_WM_STATE")
@@ -987,7 +987,7 @@ class ViewFlags(FakeXPlane, WlrTest):
     def test_wxprop_prints_the_hidden_and_fullscreen_states(self):
         """The contract that made this a bug: `_node_from_view` reads `minimized`/`hidden` for `visible` and
         `fullscreen` for `fullscreen_mode`, and `_NET_WM_STATE_HIDDEN` comes off that node
-        [wxprop/core.py:171-176, 545]."""
+        [hacks/property/core.py:171-176, 545]."""
         views = self.views()
         self.assertIn("_NET_WM_STATE_HIDDEN", net_wm_state(views["xtermwin"]))
         self.assertEqual(net_wm_state(views["footwin"]), ["_NET_WM_STATE_FULLSCREEN"])

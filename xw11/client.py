@@ -127,6 +127,14 @@ class ClientConn:
         self.seq = 0
         #: this connection's BIG-REQUESTS bit -- per connection, never global
         self.bigreq = False
+        #: this connection's maximum request length in words. The default is
+        #: what both servers here advertise; the real one is read off THIS
+        #: connection's own `BigReqEnable` reply on the way down, because the
+        #: number is the server's to name. `Setup.max_words` is the *pre*
+        #: BIG-REQUESTS 16-bit maximum and is a different field entirely.
+        self.big_ceiling = wire.BIGREQ_DEFAULT_CEILING
+        #: the sequence of an `Enable` whose reply has not come back yet
+        self._bigreq_pending = None
         #: bytes of a reply/GenericEvent still to pass through untouched
         self.raw_remaining = 0
         #: bytes of a SUBSTITUTED reply still to drop on the floor
@@ -215,11 +223,14 @@ class ClientConn:
         return True
 
     def _one_request(self) -> bool:
-        got = wire.split_request(self.in_down, self.bigreq)
+        got = wire.split_request(self.in_down, self.bigreq, self.big_ceiling)
         if got is None:
             return False
         if got == wire.BAD_LENGTH:
             self._bad_length()
+            return True
+        if got == wire.BAD_LENGTH_CLOSE:
+            self._bad_length_close()
             return True
         nbytes, opcode, byte1 = got
         frame = bytes(self.in_down[:nbytes])
@@ -250,17 +261,61 @@ class ClientConn:
         framed as four ordinary requests (scratchpad/b1/r3c.py, the same Xvfb,
         2026-09-10; it is in the fixture's comment). And a NoOperation goes
         upstream in its place, because the sequence delta must be zero for ever.
+
+        The two BIG-REQUESTS forms that reach here take the same route, and the
+        four bytes are measured for them too (scripts/xw11-probe-bigreq.py
+        against Xvfb 2:21.1.22-1ubuntu1, 2026-09-16; Xwayland is not measured):
+
+        * a big form claiming ONE word, less than its own 8-byte header
+          [tests/fixtures/xw11/badlength-bigreq-short.hex]. The server answered
+          one BadLength naming major 20 and then never answered the
+          GetInputFocus five words behind it, so it ate the 4-byte header and
+          re-framed the stream from the length word -- which is what this does,
+          and the reason the 8-byte consumption that looks tidier is wrong.
+        * a big form over the ceiling that connection's own `Enable` reply
+          named, 4194304 words and 0x0FFFFFFF alike
+          [tests/fixtures/xw11/badlength-bigreq-over.hex]. The same thirty-two
+          bytes, byte for byte, and the same four eaten. The proxy refuses it
+          in `wire.split_request` rather than buffering toward a length no
+          server would have honoured.
         """
         opcode = self.in_down[0]
         byte1 = self.in_down[1]
+        say = ("zero 16-bit length with BIG-REQUESTS not enabled: BadLength, "
+               "major %d" % opcode)
+        if self.bigreq:
+            (big,) = struct.unpack_from("<I", self.in_down, 4)
+            why = ("under its own 8-byte header" if big < 2
+                   else "over the ceiling of %d words" % self.big_ceiling)
+            say = "big-request length %d words %s: BadLength, major %d" % (big, why, opcode)
         del self.in_down[:4]
         self.seq = (self.seq + 1) & 0xFFFF
         minor = byte1 if opcode >= 128 else 0
         self.out_down += wire.error(wire.ERR_LENGTH, self.seq, 0, opcode, minor)
         self.out_up += wire.NOOP
         if self.server is not None:
-            self.server.say("seq=%d zero 16-bit length with BIG-REQUESTS not "
-                            "enabled: BadLength, major %d" % (self.seq, opcode))
+            self.server.say("seq=%d %s" % (self.seq, say))
+
+    def _bad_length_close(self) -> None:
+        """A BIG-REQUESTS form whose 32-bit length word is zero: the server
+        sends nothing and hangs up.
+
+        Measured against Xvfb 2:21.1.22-1ubuntu1 on 2026-09-16 from a raw socket
+        (scripts/xw11-probe-bigreq.py, pinned as
+        tests/fixtures/xw11/badlength-bigreq-zero.hex; Xwayland is not measured):
+        no BadLength, no error of any kind, a zero-byte read, and the four
+        NoOperations and the GetInputFocus behind the probe went nowhere. So
+        nothing is written down here either -- the buffer is dropped and the
+        connection is marked closing, which `Server._drained` turns into a close
+        of both sides, the same door the MSB refusal goes out of.
+        """
+        del self.in_down[:]
+        self.closing = True
+        self.state = CLOSED
+        if self.server is not None:
+            self.server.say("big-request length 0 words: the server closes the "
+                            "connection, measured 2026-09-16 against Xvfb "
+                            "21.1.22, scripts/xw11-probe-bigreq.py")
 
     def dispatch(self, frame: bytes, opcode: int, byte1: int) -> None:
         """The policy, as a lookup and three ways to answer it.
@@ -290,6 +345,10 @@ class ClientConn:
             # this as request 2 of every connection, before anything else
             # (recon/wire.md 2, recon/tools.md 2), so it is not an edge case.
             self.bigreq = True
+            # And the reply to this very request carries the ceiling, which is
+            # read on the way back (`_one_packet`): the framing switches here,
+            # the bound a word later.
+            self._bigreq_pending = self.seq
         req = self.decode(frame, opcode, byte1)
         cls = getattr(policy.lookup(opcode, req.ext, req.minor), req.target)
         if self.server is not None:
@@ -474,12 +533,23 @@ class ClientConn:
 
     def _forget_stale(self) -> None:
         if not self.editors and not self.placeholders and not self._qext_pending \
-                and not self.holding:
+                and not self.holding and self._bigreq_pending is None:
             return
         for book in (self.editors, self.placeholders, self._qext_pending,
                      self.holding):
             for seq in [s for s in book if (self.seq - s) % 0x10000 > _SEQ_WINDOW]:
                 del book[seq]
+        # The Enable's sequence ages out on the same window as `_qext_pending`,
+        # and for the same reason: sequences are 16 bits and come round again.
+        # A marker left standing for a reply that never came would be matched by
+        # whatever reply reuses the number 65536 requests later, and that reply's
+        # word at offset 8 -- any word at all -- would become this connection's
+        # request ceiling. An Enable whose reply is an error clears the marker
+        # where the error lands; this closes the other drift, where no packet for
+        # that sequence ever arrives.
+        if self._bigreq_pending is not None \
+                and (self.seq - self._bigreq_pending) % 0x10000 > _SEQ_WINDOW:
+            self._bigreq_pending = None
         self._flush_tail()
 
     # -- the server's side ----------------------------------------------------
@@ -586,11 +656,29 @@ class ClientConn:
         if code == 0:
             # An error for a sequence drops its editor: the reply is not coming.
             self.editors.pop(seq, None)
+            if seq == self._bigreq_pending:
+                # And it drops the Enable's marker, for the same reason. A server
+                # that refuses the Enable leaves the ceiling at the default --
+                # where a marker left standing would sit until some later reply
+                # came round to that sequence number and had its offset-8 word
+                # read as a maximum request length it never claimed.
+                self._bigreq_pending = None
         if editor is None:
             head = bytes(self.in_up[:32])
             if code > 1 and self._drop_root_property(head):
                 del self.in_up[:32]
                 return True
+            if code == 1 and seq == self._bigreq_pending:
+                # The `BigReqEnable` reply, forwarded untouched, on its way past:
+                # its CARD32 at offset 8 is the server's own maximum request
+                # length in words (4194303 on both servers here), and it is the
+                # only place the real number is ever said. A zero would be a
+                # server naming no maximum at all, which none has: the default
+                # stands rather than a ceiling of nothing.
+                self._bigreq_pending = None
+                (words,) = struct.unpack_from("<I", head, 8)
+                if words:
+                    self.big_ceiling = words
             if code == 1 and seq in self._qext_pending:
                 # A QueryExtension reply is 32 bytes exactly, so the whole of it
                 # is here even on the streaming path -- which is the path it

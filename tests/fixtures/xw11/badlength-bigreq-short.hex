@@ -1,0 +1,25 @@
+# Measured 2026-09-16 against Xvfb 2:21.1.22-1ubuntu1 on :95 from a raw socket
+# (scripts/xw11-probe-bigreq.py, which is in the tree so this can be re-cut on a
+# newer server -- or on Xwayland, which was NOT measured for any of the three
+# big-form fixtures; both servers are the same 21.1.x core, os/io.c, but that is
+# an argument and not a measurement).
+# After a cookie-less setup, request 1 was QueryExtension("BIG-REQUESTS"),
+# request 2 that extension's Enable (its reply advertised 4194303 words), and
+# request 3 -- line 1 here -- a big-form GetProperty claiming ONE word, which is
+# less than its own 8-byte header. That is block (a) of the probe's output, the
+# first of the six it prints. Line 2 is the server's whole answer: one
+# 32-byte BadLength (code 16) naming seq=3, bad=0, minor=0, major=20.
+# The two facts the packet does not show and the proxy owes:
+#   * the connection STAYS OPEN -- nothing was closed and nothing else came back;
+#   * the server ate FOUR bytes, not eight. Four NoOperations and a
+#     GetInputFocus followed the bad request on the wire and the GetInputFocus
+#     was NEVER answered: had the server eaten the whole 8-byte header, the four
+#     NoOperations would have framed and the reply would have come back as seq 8,
+#     which is exactly what the 2-word probe in the same run does show. Instead
+#     the server re-framed from the length word -- 01000000 as a CreateWindow
+#     with a zero 16-bit length, then 7f000100 as its 32-bit big length -- and is
+#     still waiting for a quarter-megabyte that never arrives.
+# That is what xw11/client.py:_bad_length does, and why it consumes 4 bytes on
+# this path too.
+1400000001000000
+0010030000000000000014000000000000000000000000000000000000000000

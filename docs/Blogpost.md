@@ -342,7 +342,7 @@ Mutter and KWin reference count key state across the seat's devices. So it clear
 what it holds itself, and it says which foreign modifier is blocking it when it can
 read that, and it is silent with identical behaviour when it cannot.
 
-## 5578 tests, and what these releases removed
+## 5689 tests, and what these releases removed
 
 The suite is the reason any of the sentences above can be written as facts. It has
 byte parity oracles that run the real `xdotool`, `wmctrl`, `xprop` and `xrandr` and
@@ -472,5 +472,5 @@ why I am not happy about it either. But the four-line script works again, on GNO
 on KDE and on sway and on X11, and it does not know which. That was the entire
 requirement.
 
-The tools are at [github.com/zardus/w11](https://github.com/zardus/w11).
+The tools are at [github.com/fixing-wayland/w11](https://github.com/fixing-wayland/w11).
 [Technical.md](Technical.md) is where to start if you want to change something.

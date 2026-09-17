@@ -3,7 +3,7 @@
 
 Every `events()` in this tree is a blocking Python generator and none of them is
 a selectable fd [recon/seams.md 0.3], so the pump is the shape `wxprop` already
-uses for the same job (`spy_merged_root`, wxprop/core.py:1154): a daemon thread
+uses for the same job (`spy_merged_root`, hacks/property/core.py:1154): a daemon thread
 steps the generator, puts a token on a deque and writes one byte to a pipe the
 selector loop is already watching.
 
@@ -188,7 +188,7 @@ class PollPath(PumpCase):
     def test_a_backend_with_no_event_stream_is_polled(self):
         """wlr and COSMIC have no `events()` at all, and this is the measurement
         the design leans on: `_events_hook` really answers None for a backend
-        that never overrode it (wxprop/core.py:1072)."""
+        that never overrode it (hacks/property/core.py:1072)."""
         backend = FakeBackend(has_events=False, windows=[fake_window(1)])
         self.assertIsNone(_events_hook(backend))
         pump = self.pump(backend, poll=0.05)

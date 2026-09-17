@@ -1650,7 +1650,7 @@ _HYPR_TYPING_RE = re.compile(r"keyboard|keybd|kbd", re.I)
 #: process rather than about the session, which is what tells the two questions apart.
 UINPUT_NODE = "/dev/uinput"
 
-#: The override `wdotool/uinput.py:dev_path()` honours, and the reason this module reads the environment
+#: The override `hacks/input/uinput.py:dev_path()` honours, and the reason this module reads the environment
 #: rather than that constant alone: a daemon started with `WDOTOOL_UINPUT_PATH=/dev/uinput2` opens THAT
 #: node, and a fourth rule comparing st_rdev against /dev/uinput would find no fd of its own and quietly
 #: encode for the session's group instead of its device's -- the exact failure the rule exists to end.
@@ -1696,9 +1696,9 @@ def _hypr_injected(name) -> bool:
 def _hypr_our_keyboard(devices):
     """The row for the keyboard WE injected (`HYPR_INJECTED`), or None.
 
-    The uinput device is created as "wdotool virtual keyboard" (`wdotool/uinput.py:162`) and Hyprland lists
-    it as `wdotool-virtual-keyboard` -- the name the live 0.53.3 session reported at `active_layout_index: 0`
-    while the physical keyboard sat at 1 [M recon2/hyprland.md §3]."""
+    The uinput device is created as "wdotool virtual keyboard" (`hacks/input/uinput.py:162`) and Hyprland
+    lists it as `wdotool-virtual-keyboard` -- the name the live 0.53.3 session reported at
+    `active_layout_index: 0` while the physical keyboard sat at 1 [M recon2/hyprland.md §3]."""
     kbs = devices.get("keyboards") if isinstance(devices, dict) else None
     if not isinstance(kbs, list):
         return None
@@ -1923,7 +1923,7 @@ CINNAMON_TIMEOUT = 2.0     # the Eval round trip is ~9 ms with a gdbus spawn in 
 #: schema has no `mru-sources`) and `sources` unpacked from its GVariant. There
 #: is no interpolation and there never may be -- `org.Cinnamon.Eval` runs
 #: whatever arrives, and a window title reaching a script would be arbitrary
-#: code execution in the user's session (the rule wdotool/cinnamon_js.py states
+#: code execution in the user's session (the rule hacks/window/cinnamon_js.py states
 #: at length). Nothing here writes: no `set_`, no `set_uint`, no `set_value`.
 CINNAMON_SCRIPT = (
     "JSON.stringify((s => [s.get_uint('current'), s.get_value('sources').deep_unpack()])"

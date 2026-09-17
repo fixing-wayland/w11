@@ -27,6 +27,7 @@ places `THE_COUNT_LIVES_IN` names.  It is cheap to fix and it is the only thing
 that keeps the number meaning anything.
 """
 
+import json
 import os
 import re
 import subprocess
@@ -46,6 +47,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import support                                                    # noqa: E402
+from hacks.display import gnome_overlap                           # noqa: E402
 from w11common import VERSION                                     # noqa: E402
 
 #: Where the collected test count is written down.  Four documents, and the
@@ -70,6 +72,20 @@ SECTION = re.compile(r"^#{1,6} .*$", re.M)
 
 OVERLAP_JS = os.path.join(ROOT, "gnome", "w11-overlap@w11",
                           "extension.js")
+#: The bridge's own declaration of what it runs on, written by hand
+#: (gnome/README.md:33-34 says so).  Nothing else in the tree pins this list --
+#: tests/test_release_deb.py:337-341 and tests/test_gnome_overlap.py:1461 pin
+#: the *overlap* extension's generated one -- which is how "six Shell versions"
+#: survived the commit that appended "51" to it.
+BRIDGE_METADATA = os.path.join(ROOT, "gnome", "w11-bridge@w11", "metadata.json")
+#: The mutter headers `gen-gir.py --from-header` is run against in
+#: tests/test_gnome_overlap.py.  Three of the four shipped generations were
+#: derived from a header that is in the tree; GNOME 51's was derived on the
+#: machine it was measured on, which is the asymmetry the prose has to state.
+MUTTER_FIXTURES = os.path.join(ROOT, "tests", "fixtures", "mutter")
+#: The inverse of NUMBER_WORDS, for building the phrase a document should carry
+#: out of a count the code produces.
+WORD_FOR = {n: w for w, n in NUMBER_WORDS.items()}
 
 
 def collected():
@@ -466,6 +482,176 @@ class TheOverlapCheckCount(unittest.TestCase):
         for name in ("read-back", "positive-control"):
             self.assertIn(name, refused)
             self.assertNotIn(name, self.passing_checks())
+
+
+class TheOverlapGenerationCount(unittest.TestCase):
+    """The generation table decides how many builds the documents may claim.
+
+    `TheOverlapCheckCount` above pins the number of checks the extension runs,
+    and nothing pinned the number of *builds* it runs on -- which is the one
+    that drifted.  The GNOME 49 record went into `hacks/display/gnome_overlap.py`
+    (GENERATIONS), `gnome/w11-overlap@w11/generations.json` and the extension's
+    `metadata.json`, its header went into `tests/fixtures/mutter/`, and
+    docs/WXRANDR.md went on saying "three builds" and listing 49 among the
+    releases the flag refuses (WXRANDR.md:965) -- telling a Fedora 43 reader on
+    GNOME Shell 49.9, whose `unsupported_reason('49.9')` returns None and whose
+    `W11Overlap17` typelib is in the package, that the route is closed to them.
+
+    So every number in that prose is produced here from the table rather than
+    read: the count word, the pasted `What is shipped:` block, the two lists of
+    releases that are refused, and the three-of-four asymmetry between the
+    headers in the tree and the descriptions that ship."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.docs = support.documents()
+        cls.table = list(gnome_overlap.describe_table())
+        cls.majors = list(gnome_overlap.SUPPORTED_MAJORS)
+
+    @staticmethod
+    def english(items):
+        """`[46, 49, 50]` -> `46, 49 and 50`, the way the prose writes it."""
+        items = [str(i) for i in items]
+        if len(items) < 2:
+            return "".join(items)
+        return "%s and %s" % (", ".join(items[:-1]), items[-1])
+
+    def test_the_two_references_count_the_builds_the_table_carries(self):
+        """`len(GENERATIONS)` spelled out, in the two documents that describe
+        the route.  A sweep over every `<number> builds` phrase would be wrong
+        and was not written: docs/Technical.md:2453 says "two builds of the same
+        source give the same bytes", which counts reproducible builds of w11 and
+        not measured builds of GNOME.  The stale spelling is asserted gone by
+        name instead, because that is the one a paste re-introduces."""
+        word = WORD_FOR[len(gnome_overlap.GENERATIONS)]
+        self.assertEqual(len(gnome_overlap.GENERATIONS), len(self.majors))
+        for name in ("docs/WXRANDR.md", "docs/Technical.md"):
+            with self.subTest(name):
+                self.assertIn("%s builds" % word, self.docs[name])
+                self.assertNotIn("three builds", self.docs[name])
+
+    def test_the_pasted_refusal_block_is_the_table_the_tool_prints(self):
+        """docs/WXRANDR.md pastes the refusal `--unsafe-gnome-overlap` prints on
+        an unmeasured release, and its `What is shipped:` list is
+        `describe_table()` -- `hacks/display/gnome_overlap.py:505` passes that
+        very list to `block()`.  The continuation lines are indented under the
+        label by 24 spaces, so each line is stripped before it is compared; the
+        order is the table's and is compared too, because the table is sorted by
+        GNOME major and a document that lists 49 after 50 is a document nobody
+        re-derived."""
+        text = self.docs["docs/WXRANDR.md"]
+        self.assertEqual(text.count("What is shipped:"), 1)
+        block = text.split("What is shipped:")[1].split("To add this build:")[0]
+        shipped = [ln.strip() for ln in block.splitlines() if ln.strip()]
+        self.assertEqual(shipped, self.table)
+
+    def test_the_refused_release_sentence_names_no_measured_build(self):
+        """"On anything else it refuses without reading anything private -- 47,
+        48, 52, a shell that will not name its version".  Every number in that
+        sentence is a release `unsupported_reason()` refuses, so none of them
+        may be in `SUPPORTED_MAJORS`; 49 was, for as long as the sentence went
+        un-re-read."""
+        text = self.docs["docs/WXRANDR.md"]
+        hits = re.findall(r"refuses without reading anything private[^.]*", text)
+        self.assertTrue(hits, "docs/WXRANDR.md no longer says what it refuses")
+        for sentence in hits:
+            for said in re.findall(r"\b(\d+)\b", sentence):
+                with self.subTest(sentence.split("\n")[0]):
+                    self.assertNotIn(int(said), self.majors)
+
+    def test_every_no_support_sentence_names_no_measured_build(self):
+        """The same claim in the "what it will not do" list at WXRANDR.md:1068,
+        where it was written as a range -- "No support for GNOME 47 to 49" --
+        and a range hides the wrong number better than a list does.  Ranges are
+        expanded before the comparison for exactly that reason."""
+        text = self.docs["docs/WXRANDR.md"]
+        hits = re.findall(r"No support for GNOME [^.—]*", text)
+        self.assertTrue(hits, "docs/WXRANDR.md no longer says what it omits")
+        for sentence in hits:
+            said = set()
+            for lo, hi in re.findall(r"\b(\d+) to (\d+)\b", sentence):
+                said |= set(range(int(lo), int(hi) + 1))
+            said |= {int(n) for n in re.findall(r"\b(\d+)\b", sentence)}
+            with self.subTest(sentence.split("\n")[0]):
+                self.assertFalse(said & set(self.majors), sorted(said))
+
+    def test_the_prose_says_which_headers_are_in_the_tree_and_how_many_ship(self):
+        """The asymmetry both references state: `gen-gir.py --from-header` is
+        run against the headers in `tests/fixtures/mutter/` and reproduces those
+        of the shipped descriptions, and GNOME 51's was derived on the machine
+        it was measured on instead.  Both counts and the list of majors are
+        built here, so adding a header fixture or a generation moves the
+        sentence rather than quietly falsifying it."""
+        headers = sorted(int(re.search(r"(\d+)\.h$", n).group(1))
+                         for n in os.listdir(MUTTER_FIXTURES)
+                         if re.search(r"(\d+)\.h$", n))
+        self.assertTrue(headers, MUTTER_FIXTURES)
+        self.assertLessEqual(set(headers), set(self.majors))
+        phrase = "those %s of the %s" % (WORD_FOR[len(headers)],
+                                         WORD_FOR[len(self.table)])
+        named = "mutter %s headers" % self.english(headers)
+        for name in ("docs/WXRANDR.md", "docs/Technical.md"):
+            # Both sentences are wrapped at the column the file is written to,
+            # and docs/WXRANDR.md:809-810 wraps between "50" and "headers", so
+            # the comparison is against the text with its line breaks collapsed
+            # rather than against the lines as they are stored.
+            flat = " ".join(self.docs[name].split())
+            with self.subTest(name):
+                self.assertIn(phrase, flat)
+                self.assertIn(named, flat)
+
+
+class TheBridgeShellRange(unittest.TestCase):
+    """The bridge's `metadata.json` decides what the bridge is said to run on.
+
+    It said six Shell versions in three places -- gnome/README.md:120,
+    docs/Technical.md:1080 and the header comment of
+    gnome/w11-overlap@w11/extension.js -- while the list had carried seven since
+    "51" was appended to it, and gnome/README.md:33-34 said the true range
+    twenty-six lines above the wrong count.  The count is gone rather than
+    bumped, because a count of a hand-written list is the thing that goes stale:
+    the documents now carry the range, which is derived from the list here."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(BRIDGE_METADATA, encoding="utf-8") as fh:
+            cls.majors = [int(v) for v in json.load(fh)["shell-version"]]
+        with open(OVERLAP_JS, encoding="utf-8") as fh:
+            cls.js = fh.read()
+        cls.docs = support.documents()
+
+    def range_phrase(self):
+        return "GNOME Shell %d to %d" % (min(self.majors), max(self.majors))
+
+    def test_the_declared_list_is_a_run_of_majors(self):
+        """The premise of writing it as a range at all: the list is contiguous,
+        so "45 to 51" leaves nothing out.  A gap in it would have to be written
+        as a list, and this is the test that would say so."""
+        self.assertEqual(self.majors,
+                         list(range(min(self.majors), max(self.majors) + 1)))
+
+    def test_both_documents_state_the_range_the_metadata_declares(self):
+        for name in ("gnome/README.md", "docs/Technical.md"):
+            with self.subTest(name):
+                self.assertIn(self.range_phrase(), self.docs[name])
+
+    def test_the_readme_file_map_states_it_too(self):
+        """gnome/README.md:34 annotates `metadata.json` in the file map with
+        "(45 to 51 today; the other extension's is generated)" -- the line that
+        was right while the count twenty-six lines below it was wrong."""
+        self.assertIn("(%d to %d today" % (min(self.majors), max(self.majors)),
+                      self.docs["gnome/README.md"])
+
+    def test_no_document_counts_the_shell_versions_any_more(self):
+        """A count is what drifted, so no count is allowed back: not "six Shell
+        versions", not "seven Shell versions", not a digit.  The extension's
+        header comment is read as a file rather than through
+        `support.documents()`, which walks the markdown only."""
+        counted = re.compile(r"\b\w+ Shell versions\b")
+        for name in ("gnome/README.md", "docs/Technical.md"):
+            with self.subTest(name):
+                self.assertIsNone(counted.search(self.docs[name]))
+        self.assertIsNone(counted.search(re.sub(r"\n//\s*", " ", self.js)))
 
 
 class TheCommandCount(unittest.TestCase):

@@ -312,7 +312,7 @@ class SilentMutter(twm.FakeMutter):
 
 class DisplayConfigSource(BboxCase):
     """The second source: org.gnome.Mutter.DisplayConfig, asked only when the
-    wire is ambiguous (wdotool/layoutbox.py).
+    wire is ambiguous (hacks/input/layoutbox.py).
 
     The service here is the wire-level mock from tests/test_wxrandr_mutter.py
     -- the same GetCurrentState the wxrandr backend is tested against, with

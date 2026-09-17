@@ -1891,5 +1891,202 @@ class TheOffHeadHook(unittest.TestCase):
         self.assertIn("PASS --output Virtual-2 --off:", with_shot.stdout, with_shot.stderr)
         self.assertNotIn("FAIL --output Virtual-2 --off", with_shot.stdout)
 
+
+class TheBootPath(unittest.TestCase):
+    """What the driver does between `vmctl start` and the first phase.
+
+    There are two ways out of it and both are `exit 2` -- ssh never answers, or the
+    desktop never comes up -- and both used to run with no EXIT trap installed, because
+    the trap was armed twenty-six lines further down, past the session banner.  QEMU is
+    daemonized (vm/vmctl:586) and vmctl's `cmd_start` kills the pid only when
+    `wait_consoles`/`apply_heads` fail, never for its own final wait_ssh, so the
+    instance outlived the run that booted it; the NEXT run's `vmctl start --fresh` then
+    hit vmctl's refusal (vm/vmctl:854-855), dropped it into `|| true`, never re-created
+    the overlay, and measured the first run's disk while reporting a fresh one.
+
+    The double answers `stop` by leaving a `stopped-<name>` file in the per-run state
+    directory, because cleanup() runs `"$VM" stop "$NAME" >/dev/null 2>&1 || true` and
+    there is nothing in the run's own output to look at."""
+
+    def run_driver(self, work, env, args=("--reuse", "--phases", "windows")):
+        """The driver against the double: `--reuse` so the start is the cheap one (no
+        --flavor, no --fresh, no install phase), LIVE_SMOKE_SLEEP=0 so wait_ssh's 72 probes
+        cost nothing (its `sleep 5` goes through the override at live-smoke.sh:342), and no
+        `--keep`, which is what makes cleanup() take its stop branch instead of printing the
+        keep line.  The refusal below is the one case that has to drop `--reuse`: that arm
+        is now the only one vmctl's `is already running` is an error in."""
+        state = os.path.join(work, "state")
+        os.makedirs(state, exist_ok=True)
+        e = dict(os.environ)
+        e.update({"LIVE_SMOKE_VMCTL": FAKE_VMCTL,
+                  "FAKE_VMCTL_STATE": state,
+                  "LIVE_SMOKE_OUT": os.path.join(work, "out"),
+                  "LIVE_SMOKE_SLEEP": "0"})
+        e.update(env)
+        got = subprocess.run(["bash", DRIVER, "resolute-sway", "--name", "x"] + list(args),
+                             capture_output=True, text=True, timeout=300, cwd=ROOT, env=e)
+        return got, state
+
+    def test_the_trap_is_armed_before_the_boot_can_fail(self):
+        """Static, because the ordering is the whole fix: a trap installed after the two
+        bail-outs is a trap that never runs on the runs that need it."""
+        text = read(DRIVER)
+        self.assertEqual(text.count("trap cleanup EXIT"), 1, "more than one trap to reason about")
+        start = text.index('"$VM" start "$NAME"')
+        trap = text.index("trap cleanup EXIT")
+        ssh_bail = text.index('wait_ssh || { echo "cannot reach')
+        session_bail = text.index('wait_session || { echo "no graphical session"')
+        self.assertLess(start, trap, "the trap would stop an instance this run never started")
+        self.assertLess(trap, ssh_bail, "`cannot reach ... over ssh` exits before the trap is armed")
+        self.assertLess(trap, session_bail, "`no graphical session` exits before the trap is armed")
+
+    def test_a_stale_instance_is_refused_and_not_stopped(self):
+        """vmctl's refusal is the one nonzero start that is not the slow-boot case the
+        `|| true` was written for, and without `--reuse` the guest on the other side belongs
+        to somebody else's run: the driver says so and stops nothing.  The stale-disk bug is
+        this arm's alone -- vmctl refuses before it re-creates the overlay (vm/vmctl:853-855,
+        the new disk at :875), so only a --fresh run can silently measure the earlier run's
+        disk -- which is why the refusal is narrowed to it."""
+        with tempfile.TemporaryDirectory() as work:
+            got, state = self.run_driver(work, {"FAKE_VMCTL_START_RC": "1"},
+                                         args=("--phases", "windows"))
+            self.assertEqual(got.returncode, 2, got.stdout[-3000:] + got.stderr[-2000:])
+            self.assertIn("already running", got.stdout)
+            self.assertIn("vm/vmctl stop x", got.stdout)
+            self.assertNotIn("cannot reach", got.stdout)
+            self.assertFalse(os.path.exists(os.path.join(state, "stopped-x")),
+                             "the run stopped an instance it did not start")
+
+    def test_reuse_takes_the_already_running_instance_it_asks_for(self):
+        """The other side of that refusal, and the reason it is not unconditional.  --reuse
+        is `reuse the existing instance and whatever is installed in it` (live-smoke.sh:16-19)
+        and --keep leaves exactly that instance up (line 47) -- `--reuse --keep` is the
+        iteration command vm/live-smoke.d/capture-from-run:18-19 and
+        tests/fixtures/live/README.md:115-116 both print -- while vmctl's cmd_start raises on
+        a live pid before it reads a flag (vm/vmctl:853-855).  So every --reuse start of a
+        kept instance answers `is already running`, and a run that stops there is a run that
+        cannot iterate without a full reboot.  With no transcript and no FAKE_VMCTL_STRICT
+        every guest command answers empty with status 0, so the run goes all the way through
+        phase windows and exits on its FAIL count -- whatever that count is, it is the
+        phases' answer and not the boot's `exit 2`."""
+        with tempfile.TemporaryDirectory() as work:
+            got, state = self.run_driver(work, {"FAKE_VMCTL_START_RC": "1"})
+            tail = got.stdout[-3000:] + got.stderr[-2000:]
+            self.assertIn("is already running", got.stdout)       # vmctl's own line, logged
+            self.assertNotIn("vm/vmctl stop x first", got.stdout, tail)
+            self.assertIn("--reuse: x was already up", got.stdout, tail)
+            self.assertIn("phase windows", got.stdout, tail)
+            fails = re.search(r"^== \[\d+s\] done: (\d+) pass, (\d+) fail$", got.stdout, re.M)
+            self.assertTrue(fails, tail)
+            self.assertEqual(got.returncode, min(int(fails.group(2)), 125), tail)
+            self.assertTrue(os.path.exists(os.path.join(state, "stopped-x")),
+                            "no --keep, so the trap still owes this instance a stop: " + tail)
+
+    def test_a_successful_start_reports_itself_into_the_log(self):
+        """The start's stderr is not an error channel: vmctl's log() (vm/vmctl:185) puts
+        `QEMU pid N, ..., ssh port P` (vm/vmctl:921), `heads: 0=...` (vm/vmctl:938) and
+        `ssh up after Ns` (vm/vmctl:944) there -- the lines vm/README.md:31-33 shows a
+        plain start printing -- and they reached the log on their own while only stdout
+        was going to /dev/null.  Capturing the status captured them too, so the driver
+        has to print what it captured whatever the status says.  The run still ends at
+        `cannot reach x over ssh`, which is the cheapest way past the start."""
+        with tempfile.TemporaryDirectory() as work:
+            empty = os.path.join(work, "nothing-recorded.txt")
+            with open(empty, "w", encoding="utf-8") as fh:
+                fh.write("")
+            said = "vmctl: x: QEMU pid 1234, flavor resolute-sway, 2 vCPU/4G, ssh port 2400, bus unix:/x"
+            got, _ = self.run_driver(work, {"FAKE_VMCTL_STRICT": "1",
+                                            "FAKE_VMCTL_TRANSCRIPT": empty,
+                                            "FAKE_VMCTL_START_STDERR": said})
+            self.assertEqual(got.returncode, 2, got.stdout[-3000:] + got.stderr[-2000:])
+            self.assertIn(said, got.stdout,
+                          "a successful start's own report never reached the log: " + got.stdout[-2000:])
+
+    def test_a_silent_start_adds_no_blank_line(self):
+        """The other half of the same print: the fake says nothing on stderr when it
+        succeeds, and an ungated `printf` would drop an empty line under every `vmctl
+        start` banner step() writes (live-smoke.sh:307) -- in every replay log the rig
+        keeps.  Hence the `-z` guard.  With nothing recorded the next thing the driver
+        says is the ssh bail-out, so the banner and that line are neighbours or the
+        guard is gone."""
+        with tempfile.TemporaryDirectory() as work:
+            empty = os.path.join(work, "nothing-recorded.txt")
+            with open(empty, "w", encoding="utf-8") as fh:
+                fh.write("")
+            got, _ = self.run_driver(work, {"FAKE_VMCTL_STRICT": "1",
+                                            "FAKE_VMCTL_TRANSCRIPT": empty})
+            lines = got.stdout.splitlines()
+            banner = [i for i, ln in enumerate(lines) if "vmctl start x" in ln]
+            self.assertTrue(banner, got.stdout[-2000:])
+            self.assertEqual(lines[banner[0] + 1], "cannot reach x over ssh",
+                             "something went into the log between the start and the bail-out: %r"
+                             % (lines[banner[0] + 1:banner[0] + 3],))
+
+    def test_an_unreachable_guest_stops_what_this_run_started(self):
+        """An EMPTY transcript under FAKE_VMCTL_STRICT is a guest that answers nothing:
+        `vmctl ssh -- true` exits 127 every time, wait_ssh gives up, and the instance
+        this run started has to go with it."""
+        with tempfile.TemporaryDirectory() as work:
+            empty = os.path.join(work, "nothing-recorded.txt")
+            with open(empty, "w", encoding="utf-8") as fh:
+                fh.write("")
+            got, state = self.run_driver(work, {"FAKE_VMCTL_STRICT": "1",
+                                                "FAKE_VMCTL_TRANSCRIPT": empty})
+            self.assertEqual(got.returncode, 2, got.stdout[-3000:] + got.stderr[-2000:])
+            self.assertIn("cannot reach x over ssh", got.stdout)
+            self.assertTrue(os.path.exists(os.path.join(state, "stopped-x")),
+                            "the guest this run started was left running: " + got.stdout[-2000:])
+
+
+class TheReplayLookup(unittest.TestCase):
+    """fake-vmctl's prefix fallback, which exists for ONE shape: a call the driver makes
+    with a tail the normaliser did not know about, answered out of the recording of the
+    same call without it.  The reverse -- a short, unrecorded command answered out of a
+    longer recording that happens to start with it -- is not a near miss but a wrong
+    answer with a wrong status, and it is invisible: the command never reaches the strict
+    branch, so it is never written to $FAKE_VMCTL_MISSES, which is the only thing
+    selftest-offline.sh (`sort -u "$WORK/$lbl-strict.misses" | grep -c .`) and
+    scripts/rig-recordings.sh count when they decide whether a recording still answers
+    what its step file asks."""
+
+    #: A committed capture with both `wwmctl -l -G` and `wwmctl -l` in it, so a bare
+    #: `wwmctl` has two longer recordings to be answered out of by mistake.
+    FIXTURE = os.path.join(
+        LIVEFIX, "resolute-sway-1.11-busrec-install-windows-wm-proxy-input-display-root-nodialog-replay.txt")
+
+    def ask(self, work, cmd, label):
+        """One guest command through the double, strict, with its own state directory --
+        the counters in it are per RUN, and each of these is a run of one command."""
+        state = os.path.join(work, label)
+        os.makedirs(state, exist_ok=True)
+        e = dict(os.environ)
+        e.update({"FAKE_VMCTL_STRICT": "1", "FAKE_VMCTL_STATE": state,
+                  "FAKE_VMCTL_TRANSCRIPT": self.FIXTURE})
+        return subprocess.run([sys.executable, FAKE_VMCTL, "user", "smoke", "--", "sh", "-c", cmd],
+                              capture_output=True, text=True, timeout=60, cwd=ROOT, env=e)
+
+    def test_the_replay_never_answers_a_shorter_command_out_of_a_longer_one(self):
+        """A real guest answers a bare `wwmctl` with wmctrl's usage and a nonzero status;
+        the double used to answer it with `wwmctl -l -G`'s window list and status 0."""
+        with tempfile.TemporaryDirectory() as work:
+            got = self.ask(work, "wwmctl", "bare")
+            self.assertEqual(got.returncode, 127, got.stdout + got.stderr)
+            self.assertIn("nothing recorded for 'wwmctl'", got.stderr)
+            self.assertEqual(got.stdout, "")
+            # the control: the recorded command itself is still answered, bytes and status
+            full = self.ask(work, "wwmctl -l -G", "full")
+            self.assertEqual(full.returncode, 0, full.stderr)
+            self.assertIn("resolute-sway-smoke foot", full.stdout)
+
+    def test_a_recorded_command_with_a_tail_on_it_is_still_answered(self):
+        """The direction the fallback is for, and the reason it is not simply deleted:
+        `| tail -n 1` is not one of the tails norm() strips (fake-vmctl's _REDIR knows
+        head/tr/cut/wc/grep/sed/awk), so this really does go through the prefix path."""
+        with tempfile.TemporaryDirectory() as work:
+            full = self.ask(work, "wwmctl -l -G", "full")
+            tailed = self.ask(work, "wwmctl -l -G | tail -n 1", "tailed")
+            self.assertEqual(tailed.returncode, 0, tailed.stderr)
+            self.assertEqual(tailed.stdout, full.stdout)
+
 if __name__ == "__main__":
     unittest.main()

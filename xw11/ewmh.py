@@ -76,7 +76,7 @@ ALL_DESKTOPS = 0xFFFFFFFF
 
 #: The prefix `_NET_WM_STATE` atoms carry and `WindowBackend.set_state` does
 #: not: the backend contract takes the uppercase suffix ("MAXIMIZED_VERT")
-#: [recon/seams.md 2.1, wdotool/backend.py:350].
+#: [recon/seams.md 2.1, hacks/window/backend.py:350].
 STATE_PREFIX = "_NET_WM_STATE_"
 
 #: The two routed types that are ICCCM, not EWMH. No `_NET_SUPPORTED` list
@@ -199,9 +199,9 @@ def wm_state(server, entry, data, name):
     `backend.state_steps`.
 
     `data32[0]` is the action -- 0 remove, 1 add, 2 toggle -- which is exactly
-    `WindowBackend.set_state`'s own encoding (wdotool/backend.py:350), and
+    `WindowBackend.set_state`'s own encoding (hacks/window/backend.py:350), and
     `data32[1..2]` are one or two state atoms. `state_steps`
-    (wdotool/backend.py:100) turns the names into the calls that express them:
+    (hacks/window/backend.py:100) turns the names into the calls that express them:
     two maximize axes side by side become ONE call wherever the backend names
     the pair (GNOME's "MAXIMIZED"), because Mutter unmaximizes to the window's
     current frame rect and a second single-axis call carries the still

@@ -123,7 +123,7 @@ class FullStdout(NoTracebackEver):
 FAILING = [
     ("wdotool", ["nosuchcommand"], 1, 1),
     # rc 2, not 1: "there is no session to talk to" is its own answer
-    # (wdotool/backend_detect.py's NoSessionError). The row is here because
+    # (hacks/window/backend_detect.py's NoSessionError). The row is here because
     # every other one exits 1 and an interpreter that dies of
     # `AttributeError: 'NoneType' object has no attribute 'write'` -- what a
     # tool writing to a closed stderr used to do -- exits 1 too, so 1 alone

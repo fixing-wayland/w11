@@ -553,6 +553,29 @@ class OverlayModes(WriteCase):
         self.assertEqual(len(said), 1, self.log.lines)
         self.assertIn("not yet", said[0])
 
+    def test_a_change_property_mode_x_rejects_is_dropped_before_the_value_is_read(self):
+        """dix's `ProcChangeProperty` validates the mode first and answers
+        `BadValue` before it looks at the property at all, so a mode outside
+        Replace/Prepend/Append has to be a no-op on a name the shadow has not
+        got as well as on one it has. Without the guard every value from 3 to
+        255 fell through the `mode == PREPEND` test and was applied as
+        `Append`, and `mode` is a raw CARD8 off the wire."""
+        atom = self.conn.atom("_XW11_BADMODE")
+        self.assertFalse(self.shadows.write(self.entry, atom,
+                                            self.atom("STRING"), 8, b"x", 7))
+        said = self.log.carrying("BadValue")
+        self.assertEqual(len(said), 1, self.log.lines)
+        self.assertIn("mode 7", said[0])
+        self.assertIn("not yet", said[0])
+        self.assertNotIn(atom, self.shadows.props_for(self.entry))
+        # And over a value that IS there, the value stands.
+        self.assertTrue(self.shadows.write(self.entry, atom,
+                                           self.atom("STRING"), 8, b"v"))
+        self.assertFalse(self.shadows.write(self.entry, atom,
+                                            self.atom("STRING"), 8, b"x", 7))
+        self.assertEqual(self.shadows.props_for(self.entry)[atom][2], b"v")
+        self.assertEqual(len(self.log.carrying("BadValue")), 2, self.log.lines)
+
 
 class DeleteHides(WriteCase):
     """`xprop -remove` on a shadow (design section 4.7's tombstone)."""
@@ -753,7 +776,7 @@ class RefusalIsSilent(WriteCase):
 
     def test_an_unsupported_operation_says_not_yet_and_names_the_rung(self):
         """`WindowBackend._unsupported` raises a `CmdError` with
-        `.unsupported` (wdotool/backend.py:280). The gap is ours, so the line
+        `.unsupported` (hacks/window/backend.py:280). The gap is ours, so the line
         carries the route and never a policy."""
         err = CmdError("windowstate is not supported by this compositor")
         err.unsupported = True

@@ -21,6 +21,7 @@ import fcntl
 import hashlib
 import json
 import os
+import select
 import socket
 import struct
 import sys
@@ -38,6 +39,11 @@ FALLBACK_GEOMETRY = (0, 0, 1920, 1080)  # (min_x, min_y, width, height)
 
 # Per-request sanity bounds: one malicious/buggy request must not hold the
 # global injection lock for hours or overflow C int fields downstream.
+#
+# MAX_REPEAT is `click`'s alone. `key --repeat` crosses the socket now that a whole key command travels as one
+# `key_batch` request, and it is NOT bounded: xdotool's cmd_key.c repeats for whatever it is given, X is the
+# oracle, and what made a bound look necessary -- a batch that goes on injecting after the user's Ctrl-C
+# -- is answered instead by op_key_batch noticing that the client has left (_peer_gone).
 MAX_REPEAT = 1_000_000
 MAX_DELAY_MS = 300_000
 _I32_MIN, _I32_MAX = -(2**31), 2**31 - 1
@@ -58,14 +64,18 @@ _KEEP_ENV = ("XDG_RUNTIME_DIR", "WAYLAND_DISPLAY", "HOME", "PATH", "USER",
 _DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 
-def _num(val, what: str, lo: int, hi: int) -> int:
+def _num(val, what: str, lo: int, hi: int | None) -> int:
     """Validate one numeric request field: JSON numbers only (bool excluded),
-    truncated to int, bounds-checked. Raises RuntimeError -> {"ok":false}."""
+    truncated to int, bounds-checked. Raises RuntimeError -> {"ok":false}.
+
+    `hi=None` is a field with no upper bound, and `key_batch`'s `repeat` is the one that has it: xdotool's
+    `--repeat` takes any count and we do not get to refuse one it accepts. The message says `inf` for
+    that ceiling; every other call site passes an int and its wording is unchanged."""
     if isinstance(val, bool) or not isinstance(val, (int, float)):
         raise RuntimeError(f"invalid {what}: {val!r} (expected a number)")
     v = int(val)
-    if not lo <= v <= hi:
-        raise RuntimeError(f"{what} {v} out of range [{lo}, {hi}]")
+    if v < lo or (hi is not None and v > hi):
+        raise RuntimeError(f"{what} {v} out of range [{lo}, {'inf' if hi is None else hi}]")
     return v
 
 
@@ -73,6 +83,53 @@ def _text(val, what: str) -> str:
     if not isinstance(val, str):
         raise RuntimeError(f"invalid {what}: {val!r} (expected a string)")
     return val
+
+
+def _specs(val, what: str = "specs") -> list:
+    """The key sequences (or `type` pieces) one batch request carries.
+
+    A whole command travels as one request so that its clear/inject/restore stays under one hold of the
+    injection lock (`op_key_batch`), which makes this list the request field rather than a single string.
+    An empty list is a malformed request like any other bad field, not a no-op: a client that named nothing to
+    inject asked for something the daemon cannot do, and the answer to that is {"ok": false}."""
+    if not isinstance(val, list) or not val:
+        raise RuntimeError(f"invalid {what}: {val!r} (expected a non-empty list)")
+    return [_text(s, what) for s in val]
+
+
+def _peer_gone(session, timeout: float = 0.0) -> bool:
+    """Has the client that asked for this batch hung up? Waits up to `timeout` seconds for the answer.
+
+    xdotool's `--repeat` loop is the client's own, so Ctrl-C at the terminal ends the injection on the spot.
+    Ours runs in the daemon, which is two forks and a setsid away from that terminal (daemon_main), so the
+    SIGINT never reaches it: `key --repeat 100 --repeat-delay 1000 a` interrupted after a second went on typing
+    for another 99, holding the injection lock against every other command on the session. The batch ops
+    ask this between items and instead of sleeping the repeat delay -- readable plus a zero-length MSG_PEEK is
+    the peer's EOF, and a pipelined next request peeks as data and is not one.
+
+    An in-process caller (the tests' direct `op_*` calls, anything that never went through serve_client) has no
+    `conn` in its session dict; for it this is the `time.sleep` it replaced and the answer is always False."""
+    conn = session.get("conn") if session else None
+    if conn is None:
+        if timeout > 0:
+            time.sleep(timeout)
+        return False
+    try:
+        started = time.monotonic()
+        readable, _w, _x = select.select([conn], [], [], timeout)
+        if not readable:
+            return False
+        if conn.recv(1, socket.MSG_PEEK) == b"":
+            return True
+        # Data, not EOF: a pipelined next request. The client is there, so the delay is still owed in full;
+        # sleep out what select returned early on.
+        left = timeout - (time.monotonic() - started)
+        if left > 0:
+            time.sleep(left)
+        return False
+    except OSError:
+        # The socket is unusable, which is the client being gone by another name.
+        return True
 
 
 _LAYOUT_MODES = ("us", "fixed", "auto", "xkb")
@@ -227,7 +284,7 @@ def _wayland_bbox(detail: bool = False):
     Wayland wire. Prefers zxdg_output_manager_v1 logical size/position.
 
     With detail=True, returns (box, outs) -- the per-head wire state as well, which
-    is what says whether the box is in an ambiguous pixel space (wdotool/layoutbox.py)."""
+    is what says whether the box is in an ambiguous pixel space (hacks/input/layoutbox.py)."""
     from w11common import session
     from w11common.wayland_mini import WlConn
 
@@ -401,9 +458,9 @@ _BTN_LABELS = {uinput.BTN_LEFT: "left", uinput.BTN_MIDDLE: "middle",
 # what the user would have to fix.
 #
 # `xdotool getmouselocation` always answers, so a session where this one refuses is a gap of ours and owes a
-# route. Two reach it and both are written up in wdotool/vptr.py's header, which is where the cost of each was
-# worked out; the sentence carries the short form of both because the user reading it is the one who has to
-# decide whether to wait for it.
+# route. Two reach it and both are written up in hacks/input/vptr.py's header, which is where the cost of each
+# was worked out; the sentence carries the short form of both because the user reading it is the one who has
+# to decide whether to wait for it.
 POINTER_UNKNOWN = (
     "wdotool does not know where the pointer is: it has not moved it, and "
     "zwlr_virtual_pointer_v1 cannot be asked -- the protocol delivers no "
@@ -1087,7 +1144,7 @@ class _Daemon:
             # The box is the wire's, always -- it is the space the compositor maps
             # absolute motion across, measured even where it is stale. One GNOME state
             # advertises a layout it is not drawing, and there this says so once; on
-            # every other session it opens nothing. See wdotool/layoutbox.py.
+            # every other session it opens nothing. See hacks/input/layoutbox.py.
             self.geom = layoutbox.check(
                 box, outs, warn=lambda tag, msg: self._xkb_say(tag, msg, warnings))
             self.geom_fallback = False
@@ -1662,40 +1719,115 @@ class _Daemon:
                 "session's keymap instead.", warnings)
         return None
 
-    def op_key(self, spec, direction, delay_ms, clearmods, session=None,
-               layout_mode=None, vkbd_mode=None, warnings=None, xkb_group=None):
+    def op_key_batch(self, specs, direction, delay_ms, repeat, repeat_delay_ms, clearmods, session=None,
+                     layout_mode=None, vkbd_mode=None, warnings=None,
+                     xkb_group=None) -> tuple[list, list]:
+        """Every sequence of one key/keydown/keyup command, and every `--repeat` pass of it, under ONE
+        clear/restore.
+
+        xdotool's cmd_key.c clears the modifiers before the repeat loop and restores them after it, once per
+        target window. Measured against xdotool 3.20160805.1 on Xvfb (2026-09-16): `keydown ctrl; key
+        --clearmodifiers --repeat 3 a` is one Control_L release, three plain `a` and one Control_L press, and
+        `key --clearmodifiers a b` clears once around both sequences. We used to send one request per sequence
+        and per repetition, so the restore at the end of the first request pressed the modifiers back and
+        repetitions 2..N arrived as Ctrl+a. The whole command is one request instead, which is what keeps
+        the tree's atomicity -- clear, inject and restore without letting go of the injection lock
+        (_mods_cleared, docs/WDOTOOL.md's `clearmods` bullet) -- around the whole command rather than around
+        its first sequence.
+
+        A sequence xdo rejects is one `{"spec", "error"}` item and the batch carries on: the client prints
+        xdotool's three diagnostics per bad sequence and sums the failures into the command's exit status
+        (B12), and the good sequences on either side of it are injected, exactly as xdotool injects them.
+
+        `repeat` is not bounded -- xdotool repeats for whatever count it is given and X is the oracle --
+        and a negative `--repeat-delay`, which the old client silently declined to sleep on, is clamped to 0 by
+        the client rather than refused here. `repeat_delay_ms` keeps the MAX_DELAY_MS ceiling `--delay` has
+        always had -- the one refusal of the three that survives, and the one docs/WDOTOOL.md's what-differs
+        table names.
+
+        What makes an unbounded repeat safe is that the loop watches the client: between items, and in place of
+        the sleep between repetitions, `_peer_gone` asks whether the peer hung up, and a batch whose client has
+        left stops there. The modifiers are still restored -- the break is inside `_mods_cleared`, whose
+        finally does the restore -- and `_flush` still runs, so what the compositor sees is a command that
+        ended early, not one that ended badly. The lock is held across those waits, as it already is across
+        `--delay`.
+        """
         # The caller's list when it passed one: these ops can raise after _keyboard() has already let go of a
         # hold (see handle()), and a warnings list local to this frame takes that line down with it.
         if warnings is None:
             warnings = []
+        if direction not in ("press", "down", "up"):
+            raise RuntimeError(f"invalid key direction {direction!r}")
         dev, vk = self._keyboard(warnings, vkbd_mode)
         # Outside the clear/restore window: reading the compositor's keymap is a query, and holding the
         # modifiers released across it buys nothing.
         layout = self._typing_layout(vk, warnings, layout_mode, xkb_group)
-        # Restore even when the sequence is rejected or the injection fails:
+        results: list = []
+        d = delay_ms / 1000
+        # Restore even when a sequence is rejected or the injection fails:
         # the modifiers are already released by then.
+        gone = False
         with self._mods_cleared(clearmods, warnings, session, dev, vk):
-            # ValueError on a sequence xdo rejects outright
-            keys, warns = keymap.parse_keyseq(spec, layout)
-            d = delay_ms / 1000
-            if direction == "press":
-                # xdo_send_keysequence_window converts the sequence once per pass (press, then release), so
-                # every "(symbol) No such key name" diagnostic is printed twice by the real xdotool (B12). Our
-                # own one-shot layout notice is not one of xdo's and is not doubled.
-                warns = warns * 2
-                self._press(keys, d / 2, layout, dev)
-                self._release(keys, d / 2, layout, dev)
-            elif direction == "down":
-                self._press(keys, d, layout, dev)
-            elif direction == "up":
-                self._release(keys, d, layout, dev)
-            else:
-                raise RuntimeError(f"invalid key direction {direction!r}")
+            for r in range(repeat):
+                for n, spec in enumerate(specs):
+                    # Between items only: `r or n` is false for the very first sequence of the command, which
+                    # is always injected -- xdotool has already sent it by the time a Ctrl-C can land.
+                    if (r or n) and _peer_gone(session):
+                        gone = True
+                        break
+                    try:
+                        keys, warns = keymap.parse_keyseq(spec, layout)
+                    except ValueError as e:
+                        # A sequence xdo rejects outright. One item, and on with the next one.
+                        results.append({"spec": spec, "error": str(e)})
+                        continue
+                    if direction == "press":
+                        # xdo_send_keysequence_window converts the sequence once per pass (press, then
+                        # release), so every "(symbol) No such key name" diagnostic is printed twice by the
+                        # real xdotool (B12). Our own one-shot layout notice is not one of xdo's and is not
+                        # doubled.
+                        warns = warns * 2
+                        self._press(keys, d / 2, layout, dev)
+                        self._release(keys, d / 2, layout, dev)
+                    elif direction == "down":
+                        self._press(keys, d, layout, dev)
+                    else:
+                        self._release(keys, d, layout, dev)
+                    results.append({"spec": spec, "warnings": warns})
+                if gone:
+                    break
+                # The repeat delay is a wait on the client's socket rather than a sleep, so a hang-up ends it
+                # early instead of after the full `--repeat-delay`.
+                if r < repeat - 1 and _peer_gone(session, repeat_delay_ms / 1000):
+                    gone = True
+                    break
         self._flush(dev)
-        return warnings + warns
+        return warnings, results
 
-    def op_type(self, text, delay_ms, clearmods, session=None,
-                layout_mode=None, vkbd_mode=None, warnings=None, xkb_group=None):
+    def op_key(self, spec, direction, delay_ms, clearmods, session=None,
+               layout_mode=None, vkbd_mode=None, warnings=None, xkb_group=None):
+        """One sequence as its own request: the frozen `key` op, which DaemonClient.key still speaks and every
+        daemon from before op_key_batch answers. It is op_key_batch with a one-item batch and no repeat, so
+        there is one behaviour to keep right; the only difference the wrapper makes is that the sink is
+        flushed after a rejected sequence too, which nothing on either end can tell apart."""
+        warnings, results = self.op_key_batch(
+            [spec], direction, delay_ms, 1, 0, clearmods, session,
+            layout_mode, vkbd_mode, warnings, xkb_group)
+        item = results[0]
+        if "error" in item:
+            raise ValueError(item["error"])
+        return warnings + item["warnings"]
+
+    def op_type_batch(self, texts, delay_ms, clearmods, session=None,
+                      layout_mode=None, vkbd_mode=None, warnings=None, xkb_group=None) -> list:
+        """Every argument of one `type` command under ONE clear/restore -- op_key_batch's half of the story for
+        cmd_type.c, which also clears before the loop over its arguments and restores after it. `type a b` with
+        --clearmodifiers used to be two requests, and the second one rode the modifiers the first one pressed
+        back.
+
+        Like op_key_batch, the loop watches the client between characters: a `type` of a long string at
+        `--delay 300000` is minutes of held lock, and the Ctrl-C that used to end it ends only the client.
+        The break is inside `_mods_cleared`, so the restore still happens."""
         # The caller's list when it passed one: these ops can raise after _keyboard() has already let go of a
         # hold (see handle()), and a warnings list local to this frame takes that line down with it.
         if warnings is None:
@@ -1703,37 +1835,53 @@ class _Daemon:
         dev, vk = self._keyboard(warnings, vkbd_mode)
         layout = self._typing_layout(vk, warnings, layout_mode, xkb_group)  # see op_key
         lname = keymap.layout_name(layout)
+        gone = False
         with self._mods_cleared(clearmods, warnings, session, dev, vk):
             # xdo_enter_text_window: delay split between down and up, down capped at 50ms
             down_d = min(delay_ms / 2, 50) / 1000
             up_d = delay_ms / 1000 - down_d
-            for ch in text:
-                if layout is None:
-                    hit = keymap.char_to_key(ch)
-                    seq = None if hit is None else [(hit[0], int(hit[1]))]
-                else:
-                    # One character can be two keystrokes: a dead key and then
-                    # the base letter, which is how a French keyboard types "ô".
-                    seq = layout.lookup_char(ch)
-                if not seq:
-                    warnings.append(f"Can't type character '{ch}' (not on the {lname} layout). Skipping.")
-                    continue
-                for code, mask in seq:
-                    mods = [m for m in self._mod_keycodes(mask, layout)
-                            if not (m in (keymap.KEY_LEFTSHIFT, keymap.KEY_RIGHTSHIFT)
-                                    and any(s in self.down for s in _SHIFTS))
-                            and m not in self.down]
-                    for mod in mods:
-                        dev.key(mod, True)
-                    dev.key(code, True)
-                    if down_d > 0:
-                        time.sleep(down_d)
-                    dev.key(code, False)
-                    for mod in reversed(mods):
-                        dev.key(mod, False)
-                    self._key_gap(up_d)
+            first = True
+            for text in texts:
+                for ch in text:
+                    # Between characters only: the first one is always typed (see op_key_batch).
+                    if not first and _peer_gone(session):
+                        gone = True
+                        break
+                    first = False
+                    if layout is None:
+                        hit = keymap.char_to_key(ch)
+                        seq = None if hit is None else [(hit[0], int(hit[1]))]
+                    else:
+                        # One character can be two keystrokes: a dead key and then
+                        # the base letter, which is how a French keyboard types "ô".
+                        seq = layout.lookup_char(ch)
+                    if not seq:
+                        warnings.append(f"Can't type character '{ch}' (not on the {lname} layout). Skipping.")
+                        continue
+                    for code, mask in seq:
+                        mods = [m for m in self._mod_keycodes(mask, layout)
+                                if not (m in (keymap.KEY_LEFTSHIFT, keymap.KEY_RIGHTSHIFT)
+                                        and any(s in self.down for s in _SHIFTS))
+                                and m not in self.down]
+                        for mod in mods:
+                            dev.key(mod, True)
+                        dev.key(code, True)
+                        if down_d > 0:
+                            time.sleep(down_d)
+                        dev.key(code, False)
+                        for mod in reversed(mods):
+                            dev.key(mod, False)
+                        self._key_gap(up_d)
+                if gone:
+                    break
         self._flush(dev)
         return warnings
+
+    def op_type(self, text, delay_ms, clearmods, session=None,
+                layout_mode=None, vkbd_mode=None, warnings=None, xkb_group=None):
+        """One piece of text as its own request: the frozen `type` op (see op_key)."""
+        return self.op_type_batch([text], delay_ms, clearmods, session,
+                                  layout_mode, vkbd_mode, warnings, xkb_group)
 
     # -- protocol ----------------------------------------------------------
 
@@ -1769,6 +1917,37 @@ class _Daemon:
                     warnings = self.op_key(
                         _text(req.get("spec"), "spec"),
                         req.get("direction", "press"),
+                        _num(req.get("delay_ms", 12), "delay_ms", 0, MAX_DELAY_MS),
+                        req.get("clearmods", False), session,
+                        _layout_mode(req.get("layout_mode")),
+                        _vkbd_mode(req.get("vkbd_mode")),
+                        warnings=warnings,
+                        xkb_group=_xkb_group(req.get("xkb_group")))
+            elif op == "key_batch":
+                # A whole key/keydown/keyup command in one request: one clear, every sequence of every
+                # repetition, one restore. The per-sequence answers come back in "results" because a rejected
+                # sequence does not fail the command -- it is three lines on stderr and a bump to the exit
+                # status, per xdotool's cmd_key.c.
+                with self._vk_guard():
+                    warnings, results = self.op_key_batch(
+                        _specs(req.get("specs")),
+                        req.get("direction", "press"),
+                        _num(req.get("delay_ms", 12), "delay_ms", 0, MAX_DELAY_MS),
+                        # No ceiling on `repeat`: xdotool's cmd_key.c takes any count, X is the oracle, and
+                        # the batch stops when the client does. `repeat_delay_ms` keeps the MAX_DELAY_MS
+                        # bound `delay_ms` has always had.
+                        _num(req.get("repeat", 1), "repeat", 1, None),
+                        _num(req.get("repeat_delay_ms", 0), "repeat_delay_ms", 0, MAX_DELAY_MS),
+                        req.get("clearmods", False), session,
+                        _layout_mode(req.get("layout_mode")),
+                        _vkbd_mode(req.get("vkbd_mode")),
+                        warnings=warnings,
+                        xkb_group=_xkb_group(req.get("xkb_group")))
+                return {"ok": True, "warnings": warnings, "results": results}
+            elif op == "type_batch":
+                with self._vk_guard():
+                    warnings = self.op_type_batch(
+                        _specs(req.get("texts"), "texts"),
                         _num(req.get("delay_ms", 12), "delay_ms", 0, MAX_DELAY_MS),
                         req.get("clearmods", False), session,
                         _layout_mode(req.get("layout_mode")),
@@ -1840,7 +2019,11 @@ class _Daemon:
         # only OSError is caught -- a traceback in the daemon log, the connection dropped, and EPIPE for the
         # client's next request.
         rfile = conn.makefile("r", encoding="utf-8", errors="replace")
-        session: dict = {}   # per-connection state (see handle())
+        # per-connection state (see handle()). "conn" is the socket itself, which the batch ops poll between
+        # items so that a command whose client has been Ctrl-C'd stops injecting instead of running the whole
+        # `--repeat` out with the lock held (_peer_gone). Reading it is a peek, never a consume: the
+        # request framing stays rfile's alone.
+        session: dict = {"conn": conn}
         try:
             while True:
                 line = rfile.readline(_MAX_REQUEST + 1)
@@ -2228,6 +2411,65 @@ class DaemonClient:
                   clearmods=clearmods, **self._modes(layout_mode, vkbd_mode),
                   **self._pin())
 
+    # A whole key/type command in one request, which is what puts --clearmodifiers' clear and restore around
+    # the whole command instead of around its first sequence (op_key_batch). The fallback below is for the
+    # one case where the daemon at the other end is older than the op: an upgrade leaves the running daemon in
+    # place for up to its 15-minute idle life, and `unknown op 'key_batch'` from it must not be an error the
+    # user sees. For that window the command is injected sequence by sequence again, so `clearmods` stays
+    # armed on every request and the daemon clears and restores around each sequence -- one clear/restore pair
+    # per sequence rather than the one pair per command the op gives, which is the pre-op client's behaviour
+    # minus its first-only disarm (that disarm was the defect: it left every later sequence to run with
+    # the modifiers this daemon had just pressed back down).
+    @staticmethod
+    def _pre_batch(e: "CmdError", op: str) -> bool:
+        return str(e).startswith(f"unknown op '{op}'")
+
+    def key_batch(self, specs, direction: str, delay_ms: int, repeat: int = 1,
+                  repeat_delay_ms: int = 0, clearmods: bool = False,
+                  layout_mode: str | None = None, vkbd_mode: str | None = None) -> list:
+        """One item per sequence per repetition, each `{"spec", "warnings"}` or `{"spec", "error"}`."""
+        try:
+            resp = self._rpc(op="key_batch", specs=list(specs), direction=direction,
+                             delay_ms=delay_ms, repeat=repeat, repeat_delay_ms=repeat_delay_ms,
+                             clearmods=clearmods, **self._modes(layout_mode, vkbd_mode), **self._pin())
+        except CmdError as e:
+            if not self._pre_batch(e, "key_batch"):
+                raise
+            return self._key_batch_one_by_one(specs, direction, delay_ms, repeat,
+                                              repeat_delay_ms, clearmods, layout_mode, vkbd_mode)
+        return list(resp.get("results") or [])
+
+    def _key_batch_one_by_one(self, specs, direction, delay_ms, repeat,
+                              repeat_delay_ms, clearmods, layout_mode, vkbd_mode) -> list:
+        # The pre-batch daemon: one request per sequence per repetition, the repeat loop and its delay here.
+        # The items carry no warnings because _rpc already printed each reply's own on the way past -- adding
+        # them here would print them twice.
+        items = []
+        for r in range(repeat):
+            for spec in specs:
+                try:
+                    self.key(spec, direction, delay_ms, clearmods, layout_mode, vkbd_mode)
+                except CmdError as e:
+                    if not str(e).startswith("Error: Invalid key sequence"):
+                        raise
+                    items.append({"spec": spec, "error": str(e)})
+                else:
+                    items.append({"spec": spec, "warnings": []})
+            if repeat_delay_ms > 0 and r < repeat - 1:
+                time.sleep(repeat_delay_ms / 1000)
+        return items
+
+    def type_batch(self, texts, delay_ms: int, clearmods: bool = False,
+                   layout_mode: str | None = None, vkbd_mode: str | None = None):
+        try:
+            self._rpc(op="type_batch", texts=list(texts), delay_ms=delay_ms, clearmods=clearmods,
+                      **self._modes(layout_mode, vkbd_mode), **self._pin())
+        except CmdError as e:
+            if not self._pre_batch(e, "type_batch"):
+                raise
+            for text in texts:
+                self.type_text(text, delay_ms, clearmods, layout_mode, vkbd_mode)
+
     def clear_modifiers(self) -> list:
         """Release the modifier keys and report which ones wdotool itself was holding, to be handed back to
         restore_modifiers() when the injection is done. Kept for the frozen API: every command passes
@@ -2286,6 +2528,17 @@ class DaemonClient:
         not have the daemon's pointer-map one printed over it."""
         resp = self._rpc(op="geometry", quiet=True)
         return (resp["w"], resp["h"], bool(resp.get("fallback")))
+
+    def geometry_box_status(self) -> tuple[int, int, int, int, bool]:
+        """(x, y, w, h, fallback): geometry_status() with the layout origin kept -- multi-output layouts
+        have non-zero or negative origins (`_bbox_of` above says so, and `op_mousemove_abs` clamps into
+        `[gx, gx+w-1]`), and behave_screen_edge's samples are in those coordinates, so the box it measures
+        against must carry the origin too (wdotool/input_cmds.py `_screen_box`).
+
+        `quiet=True` for the same reason as geometry_status(): the asking caller must not have the daemon's
+        pointer-map notice printed over its own line about the guess."""
+        resp = self._rpc(op="geometry", quiet=True)
+        return (resp.get("x", 0), resp.get("y", 0), resp["w"], resp["h"], bool(resp.get("fallback")))
 
     def geometry_full(self) -> tuple[int, int, int, int]:
         """(min_x, min_y, w, h) of the output layout — the origin matters on

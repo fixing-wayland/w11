@@ -43,7 +43,7 @@ TITLE = "rvfoot"
 NOT_APPLIED = "did not apply it"
 
 #: `close` gets its own line, because its silence has a cause the others do not -- a client that is asking
-#: to save. It names river and never blames the compositor alone [wdotool/backend_wlr.py CLOSE_REASON].
+#: to save. It names river and never blames the compositor alone [hacks/window/backend_wlr.py CLOSE_REASON].
 NOT_CLOSED = "the window did not close within"
 
 HAVE_RIVER = bool(shutil.which("river") and shutil.which(HeadlessRiver.WM))

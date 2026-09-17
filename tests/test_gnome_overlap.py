@@ -12,7 +12,7 @@ demanded rather than argued.
 
 The rules the extension applies are in gnome/w11-overlap@w11/
 rules.js, deliberately in a file with no `gi` imports so that plain node can run
-it: `RulesJS` checks it against wxrandr/monitors_xml.py, which is the same rule
+it: `RulesJS` checks it against hacks/display/monitors_xml.py, which is the same rule
 written twice, and skips itself where there is no node.
 
 Four things this file is here to hold still:
@@ -773,7 +773,7 @@ class Refusals(Case):
         self.assertIn("GNOME 46 -> libmutter-14.so.0, W11Overlap14", err)
         # and where the answer goes
         self.assertIn("gnome/w11-overlap@w11/generations.json", err)
-        self.assertIn("wxrandr/gnome_overlap.py", err)
+        self.assertIn("hacks/display/gnome_overlap.py", err)
         self.assertIn('docs/Technical.md section 6, "Adding a GNOME generation"', err)
         self.assertEqual(self.ext_calls(), ["Probe"])
         self.assertEqual(self.applied(), [])
@@ -1134,12 +1134,13 @@ class Applying(Case):
         `ok: false`, no `check` and no `reason`, because the monitors.xml digest
         moved across a call that had already written the words.
 
-        Until wxrandr/mutter.py:851 was `if not reply.get("ok") and not
-        reply.get("applied")`, that reply took the refusal path and printed
-        "the overlap extension refused (?): no reason given" -- about a layout
-        that is on the screen.  What has to happen instead is everything an
-        applied run does: the CHANGED shout with both digests, the post-apply
-        snapshot, and exit 1 for the `ok: false`, in that order.
+        Until `apply_overlap` in hacks/display/mutter.py was `if not
+        reply.get("ok") and not reply.get("applied")`, that reply took the
+        refusal path and printed "the overlap extension refused (?): no reason
+        given" -- about a layout that is on the screen.  What has to happen
+        instead is everything an applied run does: the CHANGED shout with both
+        digests, the post-apply snapshot, and exit 1 for the `ok: false`, in
+        that order.
 
         Reachability, measured: on GNOME 46.0 (noble-gnome golden, package
         route) a second apply at +1200+0 with a loop appending to
@@ -1315,10 +1316,12 @@ class ShippedExtension(unittest.TestCase):
                         body.index("this._pass('pending-dialog'"))
 
     # ------------------------------------------------------------------
-    # T03's static half.  The node harness that runs the whole guard chain is
-    # tests/test_bridge_js.py (class OverlapGuards); what is pinned here is
-    # what can be read off the file, so that a regression in one of these is
-    # caught even where there is no node.
+    # T03's static half.  There is no node harness for the guard chain: what is
+    # pinned here is what can be read off the file, and the chain itself runs
+    # end to end only on the rig (tests/test_gnome_overlap_live.py under
+    # WXRANDR_LIVE_GNOME, vm/live-smoke.sh).  A harness would start from
+    # tests/fixtures/gjs/loader.mjs plus fakes for GLib.file_get_contents
+    # (/proc/self/maps), GIRepository and the lib.
 
     @unittest.expectedFailure
     def test_a_bounded_string_read_checks_the_bytes_it_will_read(self):

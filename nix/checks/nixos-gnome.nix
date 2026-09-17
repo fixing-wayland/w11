@@ -151,7 +151,7 @@ pkgs.testers.runNixOSTest {
     # rule is here for.  It says the hop after that -- a uinput device
     # created, written and destroyed inside one process lifetime, then picked
     # up by logind/libinput and handed to Mutter -- is not instant, and
-    # wdotool/uinput.py has no settle wait between UI_DEV_CREATE and the
+    # hacks/input/uinput.py has no settle wait between UI_DEV_CREATE and the
     # first event (grep: no sleep in that file at all).  wlroots wins the
     # same race on the same host, which is why the sway check can assert
     # delivery and this one cannot.  Asserting it here would be a flake, and

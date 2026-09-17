@@ -280,9 +280,9 @@ class WindowBackend:
     #: `wmctrl -n 4` writes _NET_NUMBER_OF_DESKTOPS and the X window manager makes four, so this is owed on
     #: every compositor.  Every backend that lands here already drives a workspace surface for `set_desktop`,
     #: and on wlr and cosmic that surface can already do it: `ext_workspace_manager_v1` carries
-    #: `create_workspace` on the group and `remove` on the handle (wdotool/ext_workspace.py's `_WS_REMOVE`
-    #: and `CAP_REMOVE`), the first gated on the GROUP's capabilities and the second on the workspace's,
-    #: both read for nothing else today.
+    #: `create_workspace` on the group and `remove` on the handle (hacks/window/ext_workspace.py's
+    #: `_WS_REMOVE` and `CAP_REMOVE`), the first gated on the GROUP's capabilities and the second on the
+    #: workspace's, both read for nothing else today.
     #: sway, hypr, cinnamon and wayfire have their own IPC or bus instead, which is a rung lower.
     NOT_YET_NUM_DESKTOPS = (
         "counting workspaces into existence is not yet done here, and the route is the surface this "

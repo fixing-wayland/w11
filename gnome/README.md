@@ -117,7 +117,7 @@ prints the extension state and any load error.
 
 `w11-overlap@w11` is a **second** extension in this directory, and it
 is not the one above. Everything above is the bridge: feature-detected JavaScript
-against public API, six Shell versions, needed by `wdotool`, `wwmctl` and `wxprop`,
+against public API, GNOME Shell 45 to 51, needed by `wdotool`, `wwmctl` and `wxprop`,
 safe to install and forget. The overlap extension is a different kind of thing and is
 kept apart from it on purpose, its own uuid, its own installer
 (`sh gnome/install-overlap.sh`) and its own **separate enable step**. The package

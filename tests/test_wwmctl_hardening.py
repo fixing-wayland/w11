@@ -2,7 +2,7 @@
 """Regression tests from the wwmctl adversarial-review pass: hostile or
 misbehaving X servers, degenerate properties, and core-level degradation.
 
-Findings fixed and pinned here (wdotool/x11_mini.py unless noted):
+Findings fixed and pinned here (hacks/window/x11_mini.py unless noted):
 - the GetProperty offset loop could be spun forever (or OOMed) by a server
   that always claims bytes_after > 0: now capped in size and iterations,
 - a "success" setup reply with a lying body shape leaked struct.error or
@@ -18,7 +18,7 @@ Findings fixed and pinned here (wdotool/x11_mini.py unless noted):
 - an oversized request (huge -N title) died of struct.error: now a clean
   XUnavailable naming the X11 maximum request length,
 - a degenerate single-string WM_CLASS printed with a trailing dot
-  ("solo." instead of the oracle's "solo") [also wwmctl/core.py],
+  ("solo." instead of the oracle's "solo") [also hacks/window/wmctl.py],
 - core._enrich paid one 5s timeout per call per X window against a hung
   XWayland: an XUnavailable now drops the X plane for the whole listing,
 - core.windows() tracebacked if backend._nodes() drifted its tuple shape:

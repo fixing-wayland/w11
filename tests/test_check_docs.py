@@ -188,6 +188,77 @@ class ASubstringIsNotAnOption(Harness):
         self.assertEqual(self.cd.documented_in("--q1", docs), [])
 
 
+class AnOptionIsDocumentedInItsOwnDocument(Harness):
+    """Another program's flag cannot stand in for one of ours.
+
+    `documented_in` searched every .md under ROOT, so `wxrandr --size` -- which wxrandr really accepts
+    (wxrandr/cli.py:256, acted on by `_do_1_0`) and no wxrandr document spelled -- read as documented on
+    the strength of `vmctl build <flavor> [--size 30G]` in vm/README.md and vm/SETUP.md.  The gate now
+    asks only the tool's own documents, `OWN_DOCS[tool]` = docs/<TOOL>.md and the top-level README.md.
+    Verified by mutation: with the `tool` argument dropped from the call at the DOCUMENTED NOWHERE loop,
+    the first test below fails and every other test in this file still passes.
+    """
+
+    PLANTED = "--zzz-planted"
+
+    def with_docs(self, name):
+        """`documents()` with the planted option appended to one document's text."""
+        real = self.cd.documents()
+        self.assertIn(name, real, "the document this test plants in has moved")
+        patched = dict(real)
+        patched[name] = real[name] + "\n" + self.PLANTED + "\n"
+        return mock.patch.object(self.cd, "documents", lambda: patched)
+
+    def report_for(self, name):
+        """What the run says about the planted option, with it written into `name` and nowhere else."""
+        code, help_ = self.planted([self.PLANTED])
+        with code, help_, self.with_docs(name):
+            rc, out = self.run_main(["--tool", "wxrandr"])
+        line = [ln for ln in out.splitlines() if ln.split()[:1] == [self.PLANTED]]
+        return rc, out, line
+
+    def test_another_programs_document_does_not_document_our_option(self):
+        """vm/README.md is vmctl's, not wxrandr's: the option is still documented nowhere."""
+        rc, out, line = self.report_for("vm/README.md")
+        self.assertEqual(rc, 1, out)
+        self.assertTrue(line, "%s not reported at all:\n%s" % (self.PLANTED, out))
+        self.assertEqual(line[0].split(None, 1)[1], "DOCUMENTED NOWHERE",
+                         "%s was reported, but not for being undocumented" % self.PLANTED)
+
+    def test_the_tools_own_document_does(self):
+        """The control: the same word in docs/WXRANDR.md and the run is clean, so the report above is
+        the ownership rule and not the planting."""
+        rc, out, line = self.report_for("docs/WXRANDR.md")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(line, [], out)
+
+    def test_the_top_level_readme_counts_for_every_tool(self):
+        """README.md is the one document that introduces all seven, so an option documented only there
+        is documented.  Asserted as a table entry and then driven through a run."""
+        for tool in self.cd.TOOLS:
+            with self.subTest(tool):
+                self.assertEqual(self.cd.OWN_DOCS[tool],
+                                 ("docs/%s.md" % tool.upper(), "README.md"))
+        rc, out, line = self.report_for("README.md")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(line, [], out)
+
+    def test_the_matcher_without_a_tool_still_reads_the_whole_tree(self):
+        """`documented_in(opt, docs)` with no tool is unchanged -- the scoping is one argument at one
+        call site, and the SILENT, helped-not-accepted and EMITS loops never consult the documents."""
+        docs = {"vm/README.md": "vmctl build <flavor> [--size 30G]\n",
+                "docs/WXRANDR.md": "nothing of the sort here\n"}
+        self.assertEqual(self.cd.documented_in("--size", docs), ["vm/README.md"])
+        self.assertEqual(self.cd.documented_in("--size", docs, "wxrandr"), [])
+
+    def test_the_option_that_found_this_is_documented_now(self):
+        """`wxrandr --size` is the one option in the tree the old gate let through, so the tree has to
+        answer for it: it is accepted, and docs/WXRANDR.md names it."""
+        self.assertIn("--size", self.cd.options_in_code("wxrandr"))
+        self.assertEqual(self.cd.documented_in("--size", self.cd.documents(), "wxrandr"),
+                         ["docs/WXRANDR.md"])
+
+
 class HelpIsNotAParser(Harness):
     """Fix 52, second half, finding F7.2."""
 
@@ -287,7 +358,7 @@ class TheExternalTable(Harness):
 
     def test_every_option_wmirror_writes_is_one_wl_mirror_has(self):
         """The check the script already makes, asserted here so that it is a
-        test failure and not a line of output: `wmirror/core.py` builds
+        test failure and not a line of output: `hacks/mirror/core.py` builds
         wl-mirror's command line, and an option that program dropped would
         make every mirror fail at run time."""
         rc, out = self.run_main(["--tool", "wmirror"])

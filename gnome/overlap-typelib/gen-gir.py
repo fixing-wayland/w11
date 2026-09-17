@@ -53,7 +53,7 @@ What it generates it generates *from the table*,
 gnome/w11-overlap@w11/generations.json: one .gir and one
 .typelib per record, and metadata.json's `shell-version` list.  So adding a
 GNOME release is a record in that file (and its twin, GENERATIONS in
-wxrandr/gnome_overlap.py) plus one run of this script -- there is no fourth
+hacks/display/gnome_overlap.py) plus one run of this script -- there is no fourth
 place to forget.
 
 Needs `g-ir-compiler` (Ubuntu: libgirepository1.0-dev).  The compiled typelibs are
@@ -480,7 +480,7 @@ def report_header(path: str, shell) -> int:
         print("  GNOME %d is not in the table.  Adding it is one record in each of"
               % shell)
         print("      %s" % TABLE_PATH)
-        print("      wxrandr/gnome_overlap.py  (GENERATIONS)")
+        print("      hacks/display/gnome_overlap.py  (GENERATIONS)")
         print("  and nothing anywhere else.  The record:")
         print("      {\"shell_major\": %d, \"libmutter\": \"<as in the soname>\","
               % shell)

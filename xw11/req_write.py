@@ -121,7 +121,7 @@ def call(server, op, *args):
         return False
     if isinstance(got, str) and got:
         # `set_state` answers a one-line reason when the compositor ACCEPTED
-        # the request and did not apply it (wdotool/backend.py:350) -- KWin
+        # the request and did not apply it (hacks/window/backend.py:350) -- KWin
         # does it for a window rule. The clone prints that line and succeeds;
         # so does this, in the log, because the request still produces no
         # packet.

@@ -134,6 +134,11 @@ def _target_windows(ctx, window_arg):
 # what wdotool itself was holding -- see the daemon's "modifiers around an injection" note for why a modifier
 # held on a physical keyboard can be neither released nor safely pressed back from here; the daemon says so,
 # once per command, when it can tell.
+#
+# The whole command travels as ONE `key_batch`/`type_batch` request -- every key sequence, every `--repeat`
+# pass, every `type` argument -- so that single lock hold covers all of it, which is what cmd_key.c and
+# cmd_type.c do with their one clear before the loop and one restore after it. One request per sequence
+# put the modifiers back at the end of the first one and sent the rest with them down.
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +176,11 @@ def _key_common(ctx, args, default_name, direction):
     repeat = _atoi(opts.get("repeat", 1))
     if "repeat" in opts and repeat < 1:
         raise CmdError(f"Invalid '--repeat' value given: {opts['repeat']}")
-    repeat_delay = _strtonum(opts.get("repeat-delay", 0))
+    # `--repeat-delay` is a strtol, so it takes a negative just as xdotool's does; xdotool then sleeps only
+    # `if (repeat_delay > 0 && ...)`, i.e. never, and exits 0. Clamping here is that same no-sleep: the value
+    # now crosses the socket, and the daemon's [0, 300000] bound on it (_num) would otherwise turn a command
+    # X accepts into rc 1 with nothing injected.
+    repeat_delay = max(0, _strtonum(opts.get("repeat-delay", 0)))
     window_arg = opts.get("window")
     if window_arg is None and ctx.stack:
         window_arg = "%1"
@@ -187,6 +196,7 @@ def _key_common(ctx, args, default_name, direction):
 
     daemon = ctx.daemon()
     failed = 0
+    clearmods = bool(opts.get("clearmodifiers"))
     # xdo.c converts the key sequence to keycodes once per press/release pass: `key` runs both (down then up),
     # `keydown`/`keyup` only one. Every failing pass prints BOTH diagnostics and adds 1 to the command's exit
     # status, so `key 'a b'` exits 2 with five stderr lines while `keydown 'a b'` exits 1 with three (B12).
@@ -194,25 +204,31 @@ def _key_common(ctx, args, default_name, direction):
     for wid in _target_windows(ctx, window_arg):
         if wid is not None:
             _activate_settle(ctx, wid)
-        clearmods = bool(opts.get("clearmodifiers"))
-        for r in range(repeat):
-            for seq in seqs:
-                try:
-                    # only sent when --layout was given, so an older daemon
-                    # and every test double keep their existing signature
-                    daemon.key(seq, direction, delay, clearmods, **_mode_kw(ctx))
-                    clearmods = False
-                except CmdError as e:
-                    if not str(e).startswith("Error: Invalid key sequence"):
-                        raise
-                    for _ in range(passes):
-                        print(e, file=sys.stderr)
-                        print("Failure converting key sequence '%s' to keycodes" % seq, file=sys.stderr)
-                    print(f"xdo_send_keysequence_window reported an error for string '{seq}'",
-                          file=sys.stderr)
-                    failed += passes
-            if repeat_delay > 0 and r < repeat - 1:
-                time.sleep(repeat_delay / 1000)
+        # `_mode_kw` carries only the mode kwargs `--layout`/`--vkbd` actually gave, so an older daemon and
+        # every test double keep their existing signature.
+        #
+        # Nothing to inject -- `key <next-command>` names no sequence at all -- is a no-op with rc 0, which is
+        # what `xdotool key getdisplaygeometry` does (measured on Xvfb, 2026-09-16: it prints the geometry and
+        # exits 0). The empty list is never put on the wire: the daemon answers a batch request that names
+        # nothing with {"ok": false}, which would make this exit 1. The activation above still happens,
+        # exactly as xdotool still walks its window list.
+        results = daemon.key_batch(seqs, direction, delay, repeat, repeat_delay,
+                                   clearmods, **_mode_kw(ctx)) if seqs else []
+        for item in results:
+            for warning in item.get("warnings") or []:
+                print(warning, file=sys.stderr)
+            err = item.get("error")
+            if err is None:
+                continue
+            if not err.startswith("Error: Invalid key sequence"):
+                raise CmdError(err)
+            seq = item.get("spec", "")
+            for _ in range(passes):
+                print(err, file=sys.stderr)
+                print("Failure converting key sequence '%s' to keycodes" % seq, file=sys.stderr)
+            print(f"xdo_send_keysequence_window reported an error for string '{seq}'",
+                  file=sys.stderr)
+            failed += passes
     if failed:
         # real xdotool aborts the chain, exiting with the failure count (the C
         # code sums the per-sequence keyfunc results and returns it)
@@ -338,8 +354,10 @@ def cmd_type(ctx, args):
     for wid in _target_windows(ctx, window_arg):
         if wid is not None:
             _activate_settle(ctx, wid)
-        for piece in data:
-            daemon.type_text(piece, delay, clearmods=clearmods, **_mode_kw(ctx))
+        # `type --terminator END END` collects no pieces: nothing typed, rc 0, and no request (see
+        # _key_common; the daemon refuses an empty batch rather than treating it as a no-op).
+        if data:
+            daemon.type_batch(data, delay, clearmods=clearmods, **_mode_kw(ctx))
     return i + consumed
 
 
@@ -607,11 +625,18 @@ EDGE_NO_POINTER = (
 def _screen_box(ctx) -> "tuple[int, int, int, int]":
     """The layout bounding box (x, y, w, h) the edge is measured against, the way `getdisplaygeometry` finds
     the size: the daemon's wl_output query first, then the window backend, then xdotool's 1920x1080 last resort
-    (an edge on the wrong box is still an edge, so this warns nowhere and never fails)."""
+    (an edge on the wrong box is still an edge, so this warns nowhere and never fails).
+
+    Only the daemon rung carries an origin, and it must: the samples fed to `EdgeMachine` are global layout
+    coordinates (`_edge_sample` below returns the compositor's own pointer, or the daemon's tracked px/py,
+    both of which the daemon clamps into `[gx, gx+w-1]`), and on a layout laid out as -1920..1919 a box
+    anchored at 0 puts `right` on a column that does not exist and `left` across the whole left-hand head.
+    The two fallback rungs answer with a size alone -- neither `display_size()` nor xdotool's 1920x1080 has
+    an origin to keep -- so they stay anchored at 0 rather than inventing one."""
     try:
-        w, h, guessed = ctx.daemon().geometry_status()
+        gx, gy, w, h, guessed = ctx.daemon().geometry_box_status()
         if not guessed:
-            return (0, 0, w, h)
+            return (gx, gy, w, h)
     except (CmdError, OSError):
         pass
     try:

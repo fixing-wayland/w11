@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check wxrandr/kwin.py's wire constants against the upstream protocol XML.
+"""Check hacks/display/kwin.py's wire constants against the upstream protocol XML.
 
 Run this on the *host*, with network: it fetches plasma-wayland-protocols'
 kde-output-device-v2.xml and kde-output-management-v2.xml from invent.kde.org
@@ -16,7 +16,7 @@ which is how Plasma 6.7 and newer publish outputs -- is the one part of the
 backend no image here can run: the KDE golden images are Plasma 5.27 and 6.6,
 which still export the devices as wl_registry globals. Until a 6.7 image
 exists, this is the check that stands in for one, so run it when a new Plasma
-lands and before believing the version table in wxrandr/kwin.py.
+lands and before believing the version table in hacks/display/kwin.py.
 
 Exit status 0 if every constant matches, 1 otherwise.
 """

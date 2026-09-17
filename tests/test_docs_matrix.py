@@ -478,14 +478,15 @@ class TheRigImages(unittest.TestCase):
 
     def test_the_prose_counts_what_the_support_matrix_rests_on(self):
         """README's *Desktop support* matrix is measured on the Ubuntu
-        flavors and on nothing else, because those are the only goldens CI has
-        built; the sentence saying so has to move with the directory too."""
+        flavors and on nothing else -- the other 13 flavors' goldens were built
+        later (run 34688228778) and which of them are support targets is still the
+        owner's call; both sentences saying so have to move with the directory too."""
         text = self.docs["vm/README.md"]
         m = re.search(r"The (\d+) Ubuntu flavors are what the \*Desktop support\*", text)
         self.assertTrue(m, "the matrix-count sentence has been reworded")
         self.assertEqual(int(m.group(1)),
                          sum(1 for n in self.names if self.distro[n] == "ubuntu"))
-        m = re.search(r"The (\d+) Fedora, Arch and\s*\n?\s*NixOS flavors have no golden", text)
+        m = re.search(r"The (\d+) Fedora, Arch and\s*\n?\s*NixOS flavors had no golden", text)
         self.assertTrue(m, "the not-built sentence has been reworded")
         self.assertEqual(int(m.group(1)),
                          sum(1 for n in self.names if self.distro[n] != "ubuntu"))

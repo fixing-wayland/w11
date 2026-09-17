@@ -254,6 +254,32 @@ class Edits(unittest.TestCase):
         self.assertEqual([o.mirror_of for o in lay.outputs],
                          [None, None, "HDMI-1", None])
 
+    def test_an_active_output_with_no_current_rate_takes_the_preferred_mode(self):
+        # No rate in the table carries a `*`, so xrandr_parse hands the model
+        # `current == (None, None)` for an active output (see
+        # tests/test_warandr_parse.py's NoCurrentRate).  Layout.from_screen
+        # (model.py:172-183) is the one place that gap is filled, and the rule
+        # is preferred_mode(): the first mode carrying `+`, which here is the
+        # second one, not modes[0].
+        text = ("Screen 0: minimum 16 x 16, current 1280 x 720, "
+                "maximum 32767 x 32767\n"
+                "VGA-0 connected 1280x720+0+0 (normal left inverted right "
+                "x axis y axis) 338mm x 190mm\n"
+                "   1280x720      60.00\n"
+                "   1024x768      60.00 +\n")
+        lay = Layout.from_screen(xrandr_parse.parse(text))
+        self.assertEqual(lay.get("VGA-0").mode.name, "1024x768")
+
+    def test_and_the_first_mode_when_none_is_preferred(self):
+        text = ("Screen 0: minimum 16 x 16, current 1280 x 720, "
+                "maximum 32767 x 32767\n"
+                "VGA-0 connected 1280x720+0+0 (normal left inverted right "
+                "x axis y axis) 338mm x 190mm\n"
+                "   1280x720      60.00\n"
+                "   1024x768      60.00\n")
+        lay = Layout.from_screen(xrandr_parse.parse(text))
+        self.assertEqual(lay.get("VGA-0").mode.name, "1280x720")
+
     def test_chained_same_as_flattened(self):
         lay = synthetic()
         c = lay.add(Output("C", modes=[Mode("800x600", 800, 600, [60.0])]))

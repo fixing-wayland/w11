@@ -84,6 +84,7 @@ check the backend-specific entry before relying on it.
 | `key`/`type --window` | Wayland input | Activates the target before injection; does not send an XSendEvent to it. |
 | `getmouselocation` | Backend-dependent | Queries the compositor where available; otherwise reports a position established by wdotool or fails. See [pointer queries](#pointer-queries). |
 | `--clearmodifiers` | uinput / virtual keyboard | Treatment of physically held modifiers depends on the input path. See [physically held modifiers](#physically-held-modifiers). |
+| `key`/`type --delay`, `key --repeat-delay` over 300000 ms | Wayland input daemon | Refused with `delay_ms N out of range [0, 300000]` / `repeat_delay_ms N out of range [0, 300000]` and rc 1, with nothing injected; xdotool sleeps for whatever it is given. The socket is a trust boundary of ours and these numbers cross it. `--repeat` has no such ceiling, and a negative `--repeat-delay` is the no-sleep xdotool makes of it rather than a refusal. See [the input daemon](#the-input-daemon). |
 | `type` non-US characters | Active layout | Warns and skips characters the layout cannot produce. |
 | `search --role` | Backends without role metadata | Matches against an empty role. Reading `WM_WINDOW_ROLE` for XWayland clients is route 5; native clients need compositor metadata (routes 2–3), with a per-backend reader. |
 | `windowraise` / `windowlower` | Backend-dependent | Support and focus side effects vary; see [backend notes](#backend-notes) and the [KDE differences](#what-differs-from-x-on-kde-plasma). |
@@ -1071,6 +1072,20 @@ class DaemonClient:
         # spec "ctrl+shift+t"; direction in {"press","down","up"}
         # layout_mode/vkbd_mode: --layout / --vkbd, sent only when given
         # clearmods: release the modifiers, inject, press back the ones we held
+    def key_batch(self, specs, direction: str, delay_ms: int, repeat: int = 1,
+                  repeat_delay_ms: int = 0, clearmods: bool = False,
+                  layout_mode: str | None = None,
+                  vkbd_mode: str | None = None) -> list: ...
+    def type_batch(self, texts, delay_ms: int, clearmods: bool = False,
+                   layout_mode: str | None = None, vkbd_mode: str | None = None): ...
+        # a whole key/type command in one request, which is what puts
+        # --clearmodifiers' clear and restore around the command rather than
+        # around its first sequence; key_batch answers one
+        # {"spec", "warnings"} or {"spec", "error"} item per sequence per
+        # repetition. `key`/`type_text` above are the frozen single-item form
+        # and are what these fall back to against a daemon older than the two
+        # ops (`unknown op 'key_batch'`, an upgrade with the old daemon still
+        # in its 15-minute idle life).
     def clear_modifiers(self) -> list: ...      # release them; -> the ones we held
     def restore_modifiers(self, held): ...      # press those back
         # kept for this API; no command uses the pair -- as two extra round
@@ -1115,7 +1130,13 @@ Daemon notes:
   keys, do the injection, then press back the ones **this daemon was holding**
   (`self.down`), sampled with no ioctl and no re-read, clear, inject and
   restore run under one hold of the injection lock, so there is no window in
-  which the answer can go stale and no gap for another process to inject into.
+  which the answer can go stale and no gap for another process to inject into
+  -- once per command and per target window, around every `--repeat`
+  repetition and every key sequence or `type` argument, as `cmd_key.c` and
+  `cmd_type.c` do (measured against xdotool 3.20160805.1 on Xvfb, 2026-09-16:
+  `keydown ctrl; key --clearmodifiers --repeat 3 a` is one Control_L release,
+  three plain `a`, one Control_L press). The whole command travels as one
+  `key_batch`/`type_batch` request so the lock is held throughout.
   It is deliberately not more than that, for two kernel reasons measured live
   on GNOME, KDE and sway: `input_handle_event()` **drops an `EV_KEY` release
   for a code the emitting device does not hold**, so a key-up for a modifier
@@ -1133,6 +1154,30 @@ Daemon notes:
   needs root (logind's `uaccess` ACL covers `/dev/uinput`, not keyboards);
   without it the behaviour is identical and nothing is said.
   `WDOTOOL_NO_KEYSTATE=1` forces that path for testing.
+- **`--repeat` and `--repeat-delay` cross the socket** now that the whole key command
+  travels as one `key_batch` request. `--repeat` is **not** bounded: `cmd_key.c`
+  repeats for whatever count it parsed, and a count xdotool runs is one we run. A
+  negative `--repeat-delay` is not refused either — the client clamps it to 0, which
+  is exactly the sleep `cmd_key.c` skips for a negative (`repeat_delay > 0`) and the
+  same rc 0 (measured on Xvfb, 2026-09-16: `xdotool key --repeat 1 --repeat-delay -5 a`
+  prints nothing and exits 0). What is bounded is the delay itself, exactly as
+  `--delay` has always been bounded (`_num(..., 0, MAX_DELAY_MS)`): over 300000 ms it
+  is refused with `repeat_delay_ms N out of range [0, 300000]` and rc 1, with nothing
+  injected, which is the row this pair adds to
+  [the table above](#current-compatibility-differences).
+- **A batch stops when its client does.** xdotool's repeat loop runs in the process
+  the terminal interrupts, so Ctrl-C ends the injection on the spot. Ours runs in a
+  daemon, two forks and a `setsid` away from that terminal, so the SIGINT never
+  reaches it: `key --repeat 100 --repeat-delay 1000 a` interrupted after a second used
+  to go on typing for another 99, holding the injection lock against every other
+  wdotool command on the session. `op_key_batch` and `op_type_batch` now ask the
+  client's connection between items — readable, plus a zero-length `MSG_PEEK`, is the
+  peer's EOF, while a pipelined next request peeks as data and is not one — and wait
+  on that socket in place of sleeping the repeat delay, so a hang-up ends the wait
+  early. The break is inside the clear/restore window, so the modifiers
+  `--clearmodifiers` released are still pressed back and the sink is still flushed:
+  what the compositor sees is a command that ended early, which is what Ctrl-C means.
+  An unbounded `--repeat` is safe because of this and not in spite of it.
 - geometry: Wayland client via `wayland_mini` (wl_output geometry+mode; prefer
   zxdg_output logical size/position when advertised), with a 3s socket timeout so a
   wedged compositor falls back instead of hanging the daemon. Cache is the full
@@ -1373,8 +1418,9 @@ Daemon notes:
 - hardening: the socket is bound under umask 0o177 and chmod 0600 (root daemon
   serves root only; non-root users spawn their own per-user daemon and hit the
   clean "/dev/uinput ... run it as root" error). Per-request catch-all keeps a
-  malformed request from killing the connection; repeat ≤ 1e6, delays ≤ 300s,
-  coordinates int32, request lines ≤ 16MB. Partially-created uinput devices are
+  malformed request from killing the connection; `click`'s repeat ≤ 1e6, delays ≤ 300s,
+  coordinates int32, request lines ≤ 16MB. `key --repeat` is the one number with no
+  ceiling, because xdotool's has none and the batch stops when its client does (above). Partially-created uinput devices are
   closed on failure and creation is retried on the next request.
 - Protocol: one JSON object per line each way; `{"ok":true,...}` /
   `{"ok":false,"error":"..."}`. Ops mirror the client API 1:1.

@@ -777,8 +777,8 @@ class WlrBackend(XPlaneViews, WindowBackend):
 
         The four bits this protocol carries are the four `View` fields wxprop reads: `_node_from_view` builds
         `visible` from `minimized`/`hidden` and `fullscreen_mode` from `fullscreen`, and
-        `_NET_WM_STATE_HIDDEN` comes off that node [wxprop/core.py:171-176, 545]. Leaving them at their
-        defaults would drop `_NET_WM_STATE_HIDDEN` from a minimized native window -- which the listing
+        `_NET_WM_STATE_HIDDEN` comes off that node [hacks/property/core.py:171-176, 545]. Leaving them at
+        their defaults would drop `_NET_WM_STATE_HIDDEN` from a minimized native window -- which the listing
         fallback `{"visible": w.visible}` used to print, before this backend had a views() at all."""
         out = []
         for oid in self.order:

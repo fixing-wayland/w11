@@ -506,6 +506,80 @@ class TheThreeBuilders(unittest.TestCase):
              "Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2":
                 ["28680fe5b371a5a82ebf43a31926e086a168e59949d03969c5093e7071f90b7f"]})
 
+#: The stub `qemu-img`.  Two shapes are used by the flatten block: `convert -c -O qcow2
+#: <src> <dst>`, whose OUTPUT is its last argument, and `info <file>`, whose stdout the
+#: script pipes through sed.  $QEMU_RC decides whether the convert fails, and it writes
+#: $QEMU_OUT to the destination first either way -- real qemu-img has already created and
+#: partly written the target file when it runs out of room, which is the state the `rm -f`
+#: in the block is written for.
+QEMU_IMG = r"""#!/bin/sh
+if [ "$1" = info ]; then exit 0; fi
+for out in "$@"; do :; done
+printf '%s' "$QEMU_OUT" > "$out"
+exit "$QEMU_RC"
+"""
+
+
+class TheFlatten(unittest.TestCase):
+    """The convert that makes the cached golden stand alone, and what a failed one does.
+
+    `vmctl build` writes the golden as a qcow2 overlay on $VMIMAGES/<base>
+    (vm/vmctl:744, moved to the golden at vm/vmctl:793), so the convert is the whole of
+    the header's "no backing file, so the cache does not depend on a path".  It was
+    written `qemu-img convert ... && mv ...`, which under `set -eu` is not a check at
+    all: a non-final member of an `&&` list is exempt from `set -e`, and this one is a
+    top-level statement rather than a function's last command, so nothing propagated its
+    status anywhere.  A runner whose /mnt filled while writing the second full copy of a
+    5-30 GB image therefore pushed the UNFLATTENED golden under `<flavor>:<key>`, and
+    every later run pulled a qcow2 whose backing file is a path that runner never
+    downloads (the base is fetched only on a cache miss), so `vmctl start` could not open
+    the overlay -- one poisoned ref, forever, for one full disk."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="w11-ciflatten-")
+        self.addCleanup(shutil.rmtree, self.dir, ignore_errors=True)
+        self.bin = os.path.join(self.dir, "bin")
+        os.mkdir(self.bin)
+        stub = os.path.join(self.bin, "qemu-img")
+        with open(stub, "w", encoding="utf-8") as fh:
+            fh.write(QEMU_IMG)
+        os.chmod(stub, 0o755)
+        self.golden = os.path.join(self.dir, "x.qcow2")
+        with open(self.golden, "wb") as fh:
+            fh.write(b"the golden as vmctl built it")
+
+    def run_flatten(self, out, rc):
+        block = support.sh_block(SCRIPT, "# -- flatten + compress",
+                                 'qemu-img info "$golden"')
+        script = "\n".join(["set -eu", 'say() { echo "say: $*"; }',
+                            'golden=$1', block])
+        env = dict(os.environ, PATH=self.bin + ":" + os.environ["PATH"],
+                   QEMU_OUT=out, QEMU_RC=str(rc))
+        return subprocess.run(["bash", "-c", script, "harness", self.golden],
+                              capture_output=True, text=True, timeout=120, env=env)
+
+    def test_a_failed_convert_stops_the_build_and_leaves_no_standalone(self):
+        """The three things the old shape got wrong, one assertion each: the run stops,
+        it says which file it stopped on, and the half-written `<flavor>.qcow2.standalone`
+        does not stay in $VMDATA/golden for nobody to remove.  The golden itself is
+        untouched, so a rerun on a runner with room builds nothing again."""
+        got = self.run_flatten("abc", 1)
+        self.assertNotEqual(got.returncode, 0, got.stdout)
+        self.assertIn("flatten failed for " + self.golden, got.stderr)
+        self.assertEqual(sorted(os.listdir(self.dir)), ["bin", "x.qcow2"])
+        with open(self.golden, "rb") as fh:
+            self.assertEqual(fh.read(), b"the golden as vmctl built it")
+
+    def test_a_good_convert_replaces_the_golden(self):
+        """The other half of the premise: on a convert that works the flattened file IS
+        the golden afterwards, under the name the push names (`$flavor.qcow2`), with no
+        `.standalone` left beside it."""
+        got = self.run_flatten("FLAT", 0)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        with open(self.golden, "rb") as fh:
+            self.assertEqual(fh.read(), b"FLAT")
+        self.assertEqual(sorted(os.listdir(self.dir)), ["bin", "x.qcow2"])
+
 
 if __name__ == "__main__":
     unittest.main()

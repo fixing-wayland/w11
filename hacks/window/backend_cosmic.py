@@ -637,8 +637,8 @@ class CosmicBackend(XPlaneViews, WindowBackend):
         """The first active workspace in `_ws_handles()` order, or -1.
 
         The first and not the only one: with a group per output, every head's current workspace says it is
-        active, and wwmctl/core.py takes the first active row as the current desktop and prints `*` on each
-        (backend_hypr's `_active_workspace_id` carries the same sentence for Hyprland's per-monitor
+        active, and hacks/window/wmctl.py takes the first active row as the current desktop and prints `*` on
+        each (backend_hypr's `_active_workspace_id` carries the same sentence for Hyprland's per-monitor
         workspaces). `WorkspaceClient.active_index()` is that same first-active scan over the same rows."""
         if self.ws is None:
             self._not_yet("get_desktop", NO_WORKSPACES)
@@ -752,9 +752,10 @@ class CosmicBackend(XPlaneViews, WindowBackend):
         """The `View` state flags for each row of `list()`, in the same order.
 
         wxprop reads exactly these off the View: `visible` from `minimized`/`hidden`, `fullscreen_mode` from
-        `fullscreen`, and `_NET_WM_STATE_HIDDEN`/`_NET_WM_STATE_STICKY` off that node [wxprop/core.py:171-176,
-        545]. `minimized` is the state bit rather than `not w.visible`, because a window can also be
-        invisible here for being on another workspace, and that is not what HIDDEN means."""
+        `fullscreen`, and `_NET_WM_STATE_HIDDEN`/`_NET_WM_STATE_STICKY` off that node
+        [hacks/property/core.py:171-176, 545]. `minimized` is the state bit rather than `not w.visible`,
+        because a window can also be invisible here for being on another workspace, and that is not what
+        HIDDEN means."""
         out = []
         for oid in self.order:
             rec = self.tops[oid]

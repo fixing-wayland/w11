@@ -209,6 +209,25 @@ class MinimumSize(FakeWlr):
         self.assertIn("cannot be smaller than 16x16", p.stderr)
         self.assertEqual(self.apply_count(), 0)
 
+    def test_scale_from_zero_is_refused_the_way_xrandr_refuses_it(self):
+        """A zero dimension is refused at parse time, with xrandr's own line.
+
+        This one is byte parity, not a size guard: xrandr.c tests `w <= 0 || h <= 0` and then says
+        "nonnegative" anyway, and that mismatch is the oracle's, so it is reproduced.  Re-measured
+        2026-09-16 with xrandr 1.5.3 against Xvfb -- `0x0`, `0x100`, `100x0` and `-1x5` all print this
+        pair and exit 1.  Before wxrandr/cli.py's guard moved from `<` to `<=` the three zero forms were
+        accepted, `build_targets` in hacks/display/core.py dropped them at its `fw > 0 and fh > 0` guard (a
+        zero dimension has no scale to compute), and the run exited 0 with an empty stderr having sent one
+        output configuration anyway."""
+        for v in ("0x0", "0x100", "100x0"):
+            with self.subTest(size=v):
+                p = self.wxrandr("--output", "HEAD-1", "--scale-from", v)
+                self.assertEqual(p.returncode, 1)
+                self.assertEqual(p.stderr, "xrandr: --scale-from dimensions must be "
+                                           "nonnegative\n" + HELP_LINE)
+                self.assertEqual(self.apply_count(), 0, "a refused command sent an "
+                                 "output configuration anyway")
+
     def test_dryrun_refuses_it_too(self):
         p = self.wxrandr("--dryrun", "--output", "HEAD-1", "--scale", "99999")
         self.assertEqual(p.returncode, 1)

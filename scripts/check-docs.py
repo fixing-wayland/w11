@@ -30,6 +30,15 @@ import tokenize
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOLS = ["wdotool", "wwmctl", "wxprop", "wxrandr", "warandr", "wmirror", "xw11"]
 
+#: The documents that count as a tool's OWN: `docs/<TOOL>.md` and the top-level
+#: README.md.  An option is documented only where its own tool is documented --
+#: any .md in the tree used to do, so `wxrandr --size` read as documented on the
+#: strength of `vmctl build ... [--size 30G]` in vm/README.md and vm/SETUP.md, a
+#: different program's flag, while no wxrandr document spelled the token at all.
+#: That was the one case in the tree; the rule is what keeps the next one (a w11
+#: option colliding with a vmctl, pip or qemu flag) from inheriting the free pass.
+OWN_DOCS = {t: ("docs/%s.md" % t.upper(), "README.md") for t in TOOLS}
+
 #: where each tool's engine modules moved to: `options_in_code` reads these beside the tool's own directory
 HACKS = {"wdotool": ("hacks/input", "hacks/window"), "wwmctl": ("hacks/window",),
          "wxrandr": ("hacks/display",), "wxprop": ("hacks/property",), "wmirror": ("hacks/mirror",)}
@@ -116,7 +125,7 @@ EMITS = {
                            "arandr's layout scripts, so xrandr's whole vocabulary "
                            "appears in warandr/model.py and warandr/randr.py"),
     "wmirror": ("wl-mirror", "wmirror runs wl-mirror and owns its lifetime "
-                             "(wmirror/core.py builds its command line)"),
+                             "(hacks/mirror/core.py builds its command line)"),
 }
 
 #: wl-mirror's own options, which is the only external program this tree spells
@@ -229,8 +238,14 @@ def options_from_parser(tool):
 #: its spelling was, and every option of this project whose name extends
 #: another's was un-checkable.  `-` counts as a word character here: these are
 #: option names, and `--backend`/`--backend-` are two different things.
-def documented_in(opt, docs):
-    """The documents that name `opt` as a whole option name, sorted."""
+def documented_in(opt, docs, tool=None):
+    """The documents that name `opt` as a whole option name, sorted.
+
+    With `tool`, only that tool's own documents (`OWN_DOCS`) are searched, so
+    another program's identically spelled flag cannot stand in for it.
+    """
+    if tool is not None:
+        docs = {n: t for n, t in docs.items() if n in OWN_DOCS[tool]}
     pat = re.compile(r"(?<![\w-])%s(?![\w-])" % re.escape(opt))
     return sorted(n for n, t in docs.items() if pat.search(t))
 
@@ -257,7 +272,8 @@ def main(argv=None):
                     help="only options and passages containing WORD, for "
                          "checking one feature across everything")
     ap.add_argument("--list", action="store_true",
-                    help="also print every option and which documents name it")
+                    help="also print every option and which of its own "
+                         "documents name it")
     args = ap.parse_args(argv)
     tools = args.tool or TOOLS
     docs = documents()
@@ -301,7 +317,7 @@ def main(argv=None):
             print("  %-34s %s" % (opt, what))
 
         for opt in sorted(accepted - EXEMPT):
-            where = documented_in(opt, docs)
+            where = documented_in(opt, docs, tool)
             if not where:
                 report(opt, "DOCUMENTED NOWHERE")
             if opt not in helped and opt not in silent:

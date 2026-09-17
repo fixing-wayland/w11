@@ -79,7 +79,7 @@ from w11common.errors import CmdError
 from hacks.window import kwin_js
 from hacks.window.backend import ID_BASE as _ID_BASE, ID_MASK as _ID_MASK, ID_SALT_STEP
 from hacks.window.backend import View, Window, WindowBackend, Workspace, warn as _warn
-# The XWayland matcher moved to a module of its own (wdotool/xid_match.py): every wlroots-family
+# The XWayland matcher moved to a module of its own (hacks/window/xid_match.py): every wlroots-family
 # backend has the same pairing to do and none of them is KWin. Nothing about it changed.
 from hacks.window.xid_match import match_xids as _match_xids
 from wdotool.ctx import NoSessionError

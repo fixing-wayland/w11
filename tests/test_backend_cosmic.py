@@ -289,7 +289,7 @@ class LateWindow(SlowRefresh):
             self.rows = rows
 
 
-#: ext_workspace_manager_v1 / group / handle opcodes, off the XML wdotool/ext_workspace.py documents. The
+#: ext_workspace_manager_v1 / group / handle opcodes, off the XML hacks/window/ext_workspace.py documents. The
 #: shared WorkspaceServer keeps its own copies private, and TwoGroupCosmic sends a shape it has no
 #: parameter for, so they are written out here the way ExtWorkspaceEnter writes out its two.
 _WSM_EV_GROUP, _WSM_EV_WORKSPACE, _WSM_EV_DONE = 0, 1, 2
@@ -875,7 +875,7 @@ class ViewFlags(CosmicXPlane, CosmicTest):
     def test_wxprop_prints_the_states_the_protocol_carries(self):
         """The contract that made this a bug: `_node_from_view` reads `minimized`/`hidden` for `visible`,
         `fullscreen` for `fullscreen_mode` and `sticky` for STICKY, and `_NET_WM_STATE_HIDDEN` comes off that
-        node [wxprop/core.py:171-176, 545]."""
+        node [hacks/property/core.py:171-176, 545]."""
         views = self.flagged()
         self.assertEqual(net_wm_state(views["cosmicterm"]), ["_NET_WM_STATE_HIDDEN"])
         self.assertEqual(net_wm_state(views["typedtest"]),

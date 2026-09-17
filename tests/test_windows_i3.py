@@ -2,9 +2,9 @@
 """The sway backend's i3 dialect, against the recordings of a live i3 4.25.1.
 
 i3 speaks the same i3-ipc protocol sway does, so `W11_PASSTHROUGH=never` (and `wxrandr --backend
-sway`) land on `wdotool/backend_sway.py` on an i3 box -- the default path there is the X11 handover and is
-right [M recon2/i3.md §2a].  Forced onto our own code it half-worked and half-lied, and this file is the four
-lies, one class each [M recon2/i3.md §2b, §2c]:
+sway`) land on `hacks/window/backend_sway.py` on an i3 box -- the default path there is the X11 handover and
+is right [M recon2/i3.md §2a].  Forced onto our own code it half-worked and half-lied, and this file is the
+four lies, one class each [M recon2/i3.md §2b, §2c]:
 
 * ids: a con id is a pointer (47 bits, `97479943571072`), every X-shaped consumer takes the low 32
   (`0x5168c680`), and `wxprop -id` answered `BadWindow` on it;

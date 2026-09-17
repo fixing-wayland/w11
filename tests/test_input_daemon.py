@@ -8,6 +8,8 @@ import os
 import socket
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -112,6 +114,34 @@ def make_daemon(geom=(0, 0, 1920, 1080), rel_abs=False, evdev=_DEFAULT):
         d.evdev = evdev
         d._reader = keystate.Reader(evdev=evdev, exclude_paths=(OURS_PATH,))
     return d
+
+
+class DepartedPeer:
+    """The client's end of a connection that goes away in the middle of a batch.
+
+    One side of a real socketpair, with the other side closed after `after` questions, so that `select` and
+    `recv(MSG_PEEK)` answer exactly what they answer for a client that was Ctrl-C'd: readable, and a
+    zero-length peek. `_peer_gone` asks `select` first and `select` asks `fileno()`, so counting the `fileno()`
+    calls counts the questions and the close can be dropped between two of them."""
+
+    def __init__(self, after: int):
+        self.ours, self.theirs = socket.socketpair()
+        self.after = after
+        self.asked = 0
+
+    def fileno(self):
+        self.asked += 1
+        if self.asked > self.after and self.theirs.fileno() != -1:
+            self.theirs.close()
+        return self.ours.fileno()
+
+    def recv(self, n, flags=0):
+        return self.ours.recv(n, flags)
+
+    def close(self):
+        self.ours.close()
+        with contextlib.suppress(OSError):
+            self.theirs.close()
 
 
 def compositor_pixel(axis_value: int, span: int) -> int:
@@ -408,6 +438,113 @@ class TestClearModifiers(unittest.TestCase):
             d.op_key("ctrl-x", "press", 0, True)   # invalid sequence
         self.assertEqual(self.rest(d), [("KEY", CTRL, 1)])
 
+    # -- one clear around the whole command
+
+    def test_clearmodifiers_is_one_clear_and_one_restore_around_the_whole_command(self):
+        """The oracle, measured against xdotool 3.20160805.1 on Xvfb
+        (2026-09-16): `keydown ctrl; key --clearmodifiers --repeat 3 a` is one
+        Control_L release, three plain `a` and one Control_L press. We used to
+        restore at the end of the first sequence's own request, so every later
+        sequence and repetition arrived as Ctrl+key."""
+        d = make_daemon()
+        d.down = {CTRL}
+        warnings, results = d.op_key_batch(["a", "b"], "press", 0, 3, 0, True)
+        self.assertEqual({e[1] for e in self.ups(d)}, set(MODS))
+        self.assertTrue(all(e[2] == 0 for e in self.ups(d)))
+        self.assertEqual(self.rest(d),
+                         [("KEY", 30, 1), ("KEY", 30, 0),
+                          ("KEY", 48, 1), ("KEY", 48, 0)] * 3
+                         + [("KEY", CTRL, 1)])
+        self.assertEqual([r.get("error") for r in results], [None] * 6)
+        self.assertEqual(warnings, [])
+        self.assertIn(CTRL, d.down)
+
+    def test_a_rejected_sequence_is_one_item_and_the_batch_carries_on(self):
+        # xdotool converts and injects each sequence in turn and only sums the
+        # failures at the end (B12): the sequences on either side of a bad one
+        # are injected, inside the same clear/restore.
+        d = make_daemon()
+        d.down = {CTRL}
+        _warnings, results = d.op_key_batch(["a", "bad.x", "b"], "press", 0, 1, 0, True)
+        self.assertEqual(results[1]["error"], "Error: Invalid key sequence 'bad.x'")
+        self.assertEqual([r.get("spec") for r in results], ["a", "bad.x", "b"])
+        self.assertEqual(self.rest(d), [("KEY", 30, 1), ("KEY", 30, 0),
+                                        ("KEY", 48, 1), ("KEY", 48, 0),
+                                        ("KEY", CTRL, 1)])
+
+    # -- the batch stops when the client does
+
+    def test_a_departed_client_ends_the_repeat_loop_and_the_modifiers_still_come_back(self):
+        """xdotool's repeat loop is the client's own, so Ctrl-C ends the
+        injection on the spot. Ours runs in the daemon, two forks and a setsid
+        away from the terminal that gets the SIGINT, so `key --repeat 100
+        --repeat-delay 1000 a` interrupted after a second used to type for
+        another 99 with the injection lock held against every other command.
+        The loop asks the socket between items and in place of the sleep, and
+        the break is inside `_mods_cleared`, so the restore still happens."""
+        d = make_daemon()
+        d.down = {CTRL}
+        peer = DepartedPeer(after=2)
+        self.addCleanup(peer.close)
+        _warnings, results = d.op_key_batch(["a"], "press", 0, 1000, 10, True,
+                                            {"conn": peer})
+        # Two passes: the first is always injected. The questions go: the
+        # repeat-delay wait after pass 0, the between-items check before pass
+        # 1, then the repeat-delay wait after pass 1 -- the third, which the
+        # peer answers with EOF.
+        self.assertEqual(len(results), 2)
+        self.assertEqual(self.rest(d), [("KEY", 30, 1), ("KEY", 30, 0)] * 2
+                                       + [("KEY", CTRL, 1)])
+        self.assertIn(CTRL, d.down)
+
+    def test_the_repeat_delay_is_a_wait_on_the_socket_not_a_sleep(self):
+        """`--repeat-delay 300000` between two passes is five minutes of held
+        lock. The wait is a `select` on the client's connection, so a hang-up
+        ends it immediately instead of after the full delay -- without that,
+        the check between items would not be reached until the sleep was
+        over."""
+        d = make_daemon()
+        peer = DepartedPeer(after=0)     # gone at the very first question
+        self.addCleanup(peer.close)
+        started = time.monotonic()
+        _warnings, results = d.op_key_batch(["a"], "press", 0, 2, 300_000, False,
+                                            {"conn": peer})
+        self.assertLess(time.monotonic() - started, 5.0)
+        self.assertEqual(len(results), 1)
+
+    def test_a_departed_client_ends_a_type_batch_between_characters(self):
+        # `type` of a long string at --delay 300000 is the same held lock by
+        # another name, so the character loop asks the same question.
+        d = make_daemon()
+        d.down = {CTRL}
+        peer = DepartedPeer(after=1)
+        self.addCleanup(peer.close)
+        d.op_type_batch(["abc"], 0, True, {"conn": peer})
+        self.assertEqual(self.rest(d), [("KEY", 30, 1), ("KEY", 30, 0),
+                                        ("KEY", 48, 1), ("KEY", 48, 0),
+                                        ("KEY", CTRL, 1)])
+
+    def test_an_in_process_caller_has_no_socket_and_never_waits_on_one(self):
+        # Every other test in this file calls the ops directly, with no `conn`
+        # in the session dict: for them the question is the `time.sleep` it
+        # replaced, and the answer is always "still here".
+        d = make_daemon()
+        _warnings, results = d.op_key_batch(["a"], "press", 0, 3, 0, False, {})
+        self.assertEqual(len(results), 3)
+        self.assertFalse(daemon._peer_gone(None))
+        self.assertFalse(daemon._peer_gone({}))
+
+    def test_type_batch_clears_once_around_every_piece(self):
+        # cmd_type.c clears before the loop over its arguments, not inside it.
+        d = make_daemon()
+        d.down = {CTRL}
+        d.op_type_batch(["ab", "c"], 0, True)
+        self.assertEqual({e[1] for e in self.ups(d)}, set(MODS))
+        self.assertEqual(self.rest(d), [("KEY", 30, 1), ("KEY", 30, 0),
+                                        ("KEY", 48, 1), ("KEY", 48, 0),
+                                        ("KEY", 46, 1), ("KEY", 46, 0),
+                                        ("KEY", CTRL, 1)])
+
     # -- what actually reaches the compositor (the kernel's filter)
 
     def test_a_foreign_modifier_produces_no_event_at_all(self):
@@ -538,6 +675,82 @@ class TestClearModifiers(unittest.TestCase):
                                   "delay_ms": 0}, {})["ok"])
         self.assertEqual(d.kb.events, [])
         self.assertEqual(d.down, {CTRL})
+
+    def test_handle_answers_key_batch_with_results(self):
+        d = make_daemon()
+        resp = d.handle({"op": "key_batch", "specs": ["a"], "repeat": 2,
+                         "delay_ms": 0}, {})
+        self.assertTrue(resp["ok"], resp)
+        self.assertEqual([r["spec"] for r in resp["results"]], ["a", "a"])
+        # An empty list is a malformed request field like any other, not a
+        # no-op. handle() catches nothing; serve_client is what turns the
+        # raise into {"ok": false}.
+        with self.assertRaises(RuntimeError):
+            d.handle({"op": "key_batch", "specs": []}, {})
+
+    def test_key_batch_repeat_has_no_ceiling_and_repeat_delay_keeps_delays(self):
+        """xdotool's `--repeat` takes any count -- cmd_key.c loops for
+        whatever it parsed -- so a count we refuse is a command X runs and we
+        do not. The bound went away when the batch started noticing a
+        departed client; `repeat_delay_ms` keeps the [0, 300000] bound
+        `delay_ms` has always had, and that one difference is the what-differs
+        row in docs/WDOTOOL.md."""
+        d = daemon._Daemon.__new__(daemon._Daemon)
+        d.lock = threading.RLock()
+        seen = []
+
+        def fake_batch(specs, direction, delay_ms, repeat, repeat_delay_ms, *a, **kw):
+            seen.append((repeat, repeat_delay_ms))
+            return [], []
+
+        d.op_key_batch = fake_batch
+        resp = d.handle({"op": "key_batch", "specs": ["a"], "repeat": 2_000_000})
+        self.assertTrue(resp["ok"], resp)
+        self.assertEqual(seen, [(2_000_000, 0)])
+        # The floor is still a floor, and its message names the missing ceiling.
+        with self.assertRaisesRegex(RuntimeError, r"repeat 0 out of range \[1, inf\]"):
+            d.handle({"op": "key_batch", "specs": ["a"], "repeat": 0})
+        with self.assertRaisesRegex(RuntimeError,
+                                    r"repeat_delay_ms 400000 out of range \[0, 300000\]"):
+            d.handle({"op": "key_batch", "specs": ["a"], "repeat_delay_ms": 400_000})
+
+    def test_type_batch_warnings_reach_the_reply(self):
+        # The arm has to assign `warnings` before falling through to the
+        # common return, exactly as the `type` arm does: a batch that could
+        # not type a character says so, and a `warnings = ...` left off here
+        # would have dropped every one of those lines on the floor.
+        d = daemon._Daemon.__new__(daemon._Daemon)
+        d.lock = threading.RLock()
+        d.op_type_batch = lambda *a, **k: ["w1"]
+        self.assertEqual(d.handle({"op": "type_batch", "texts": ["hi"]})["warnings"],
+                         ["w1"])
+
+    def test_key_batch_falls_back_to_per_sequence_requests_on_an_older_daemon(self):
+        """An upgrade leaves the running daemon in place for up to its
+        15-minute idle life, and that one does not know the op. `unknown op
+        'key_batch'` must not reach the user: the client sends one `key`
+        request per sequence for that window, which is what it did before the
+        batch existed."""
+        sent = []
+
+        class OldDaemonClient(daemon.DaemonClient):
+            def __init__(self):
+                pass
+
+            def _rpc(self, **kw):
+                if kw["op"] == "key_batch":
+                    raise CmdError("unknown op 'key_batch'")
+                sent.append(kw)
+                return {}
+
+        items = OldDaemonClient().key_batch(["a", "b"], "press", 12, clearmods=True)
+        self.assertEqual([r["op"] for r in sent], ["key", "key"])
+        self.assertEqual([r["spec"] for r in sent], ["a", "b"])
+        self.assertEqual([r["clearmods"] for r in sent], [True, True])
+        # No warnings on the items: _rpc already printed each reply's own on
+        # the way past, and repeating them here would print them twice.
+        self.assertEqual(items, [{"spec": "a", "warnings": []},
+                                 {"spec": "b", "warnings": []}])
 
     # -- the two ops kept for the frozen client API
 

@@ -1621,7 +1621,7 @@ class FakeHypr(UnixServer):
                 # `j/monitors` gave Virtual-1 and Virtual-2, `j/monitors all` those two plus Virtual-3 with
                 # `disabled: true`, the same keys and all 26 availableModes). `all` is a superset of the
                 # plain answer, so a double that sets only "monitors" answers both -- which is what keeps
-                # every test written before wxrandr/hypr.py started asking for `all`. A test about a
+                # every test written before hacks/display/hypr.py started asking for `all`. A test about a
                 # disabled head sets "monitors all" itself; the recorded one is
                 # tests/fixtures/hypr/monitors-all-one-disabled.json.
                 name = "monitors"
@@ -2822,7 +2822,7 @@ class ProxyRig:
 #
 # One fake for every backend the proxy can be handed, because the proxy calls
 # the same six required methods and the same handful of optional ones on all of
-# them (`WindowBackend`, wdotool/backend.py:223). Two things it models that a
+# them (`WindowBackend`, hacks/window/backend.py:223). Two things it models that a
 # simpler stub would not:
 #
 # * **`events()` is either really overridden or really absent.**
@@ -3216,7 +3216,7 @@ class FakeDaemon(threading.Thread):
 
     def warn_for(self, spec, text=None):
         """Make `key` for this spec answer the daemon's own sentence for a key
-        the active layout cannot reach [wdotool/keymap.py:333]. That warning is
+        the active layout cannot reach [hacks/input/keymap.py:333]. That warning is
         not an error: the daemon warns, skips the key and answers ok, which is
         xdotool's behaviour and what the proxy reads to decide to type
         instead."""

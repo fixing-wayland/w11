@@ -1,9 +1,9 @@
 """U24: the Cinnamon window backend, against a mock org.Cinnamon that only understands the JS it is sent.
 
 Cinnamon's `org.Cinnamon.Eval(s) -> (b, s)` runs `JSON.stringify(eval(code))` with no gate of any kind
-[M recon2/cinnamon.md §2.2], so wdotool/backend_cinnamon.py drives muffin with one JS program per operation
-and the programs are wdotool/cinnamon_js.py. That makes the *text of the scripts* the interface, and this
-file treats it as one:
+[M recon2/cinnamon.md §2.2], so hacks/window/backend_cinnamon.py drives muffin with one JS program per
+operation and the programs are hacks/window/cinnamon_js.py. That makes the *text of the scripts* the
+interface, and this file treats it as one:
 
 * `MockCinnamon` PARSES what arrives. It knows the two list programs by their exact text and the per-window
   programs by the shape of their wrapper, and it applies the ones it understands to a little model of a

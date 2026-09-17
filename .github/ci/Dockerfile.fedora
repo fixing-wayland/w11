@@ -29,6 +29,14 @@
 ARG BASE=fedora:44
 FROM ${BASE}
 ARG NODE=v22.22.1
+# The tarball's sha256, as nodejs.org/dist/${NODE}/SHASUMS256.txt publishes it for
+# node-${NODE}-linux-x64.tar.xz (fetched and matched again on 2026-09-16).  Everything
+# else this tree downloads is pinned -- ci.yml's `plan` step pins every base image by
+# digest, vm/flavors/*.yaml carry `# vmctl-base-sha256:` / `# vmctl-iso-sha256:` and
+# scripts/ci-golden.sh:108-115 checks them -- and this was the one artifact that was
+# unpacked as root out of a `curl | tar` with nothing verifying the bytes.  A bump of
+# ARG NODE above is a bump of this line too, or the build stops at sha256sum.
+ARG NODE_SHA256=9a6bc82f9b491279147219f6a18add1e18424dce90d41d2a5fcd69d4924ba3aa
 ENV LANG=C.UTF-8
 # Weak dependencies are NOT disabled: the point of this image is that nothing
 # skips, and a %pyproject_* macro package that quietly lost a recommended
@@ -48,7 +56,9 @@ RUN dnf -y install \
 RUN setcap -r /usr/bin/sway 2>/dev/null || true
 # Fedora's nodejs is a different major from the one tests/test_bridge_js.py was
 # written against, so the image takes the same tarball the Ubuntu one does.
-RUN curl -fsSL "https://nodejs.org/dist/${NODE}/node-${NODE}-linux-x64.tar.xz" | tar -xJ -C /opt \
+RUN curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/${NODE}/node-${NODE}-linux-x64.tar.xz" \
+    && echo "${NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/node.tar.xz -C /opt && rm /tmp/node.tar.xz \
     && ln -s "/opt/node-${NODE}-linux-x64/bin/node" /usr/local/bin/node && node --version
 # uid 1000 because the sudo fixtures name SUDO_UID=1000 and the handover resolves
 # it through passwd; NOPASSWD because scripts/build-rpm.sh dnf-installs what it

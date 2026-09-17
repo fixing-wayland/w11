@@ -726,7 +726,7 @@ class MutterOutputs:
     # reaches it, does not import it and cannot enter it: `overlap_route`
     # returns None for every layout GNOME accepts, and `Session.apply` then
     # takes the same DisplayConfig path it always did.  See
-    # wxrandr/gnome_overlap.py.
+    # hacks/display/gnome_overlap.py.
 
     def current_groups(self) -> list:
         """The running layout as connector groups, from the snapshot -- what the
@@ -1036,7 +1036,17 @@ class MutterOutputs:
             except DBusError:
                 pass
             self._matched = True
-        self._send(method, plan)
+        try:
+            self._send(method, plan)
+        except BaseException:
+            # the snapshot is holding the descriptor of the directory it read out of
+            # (monitors_xml.Snapshot), and keep_backup(), which is what closes it, is
+            # below this call and is not reached when the apply raises.  warandr drives
+            # this method again and again in one process, so a leak here is a leak that
+            # accumulates.
+            if saved:
+                saved.close()
+            raise
         if saved:
             # Mutter accepted the layout, so its own writer may replace the file the
             # moment the user confirms the dialog -- and it writes the file whole, out

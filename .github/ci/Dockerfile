@@ -11,6 +11,14 @@
 ARG BASE=ubuntu:26.04
 FROM ${BASE}
 ARG NODE=v22.22.1
+# The tarball's sha256, as nodejs.org/dist/${NODE}/SHASUMS256.txt publishes it for
+# node-${NODE}-linux-x64.tar.xz (fetched and matched again on 2026-09-16).  Everything
+# else this tree downloads is pinned -- ci.yml's `plan` step pins every base image by
+# digest, vm/flavors/*.yaml carry `# vmctl-base-sha256:` / `# vmctl-iso-sha256:` and
+# scripts/ci-golden.sh:108-115 checks them -- and this was the one artifact that was
+# unpacked as root out of a `curl | tar` with nothing verifying the bytes.  A bump of
+# ARG NODE above is a bump of this line too, or the build stops at sha256sum.
+ARG NODE_SHA256=9a6bc82f9b491279147219f6a18add1e18424dce90d41d2a5fcd69d4924ba3aa
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-gi gir1.2-gtk-3.0 gir1.2-gtk-4.0 \
@@ -39,7 +47,9 @@ RUN . /etc/os-release && case "$VERSION_ID" in \
            && apt-get install -y --no-install-recommends labwc wayfire i3 openbox \
            && rm -rf /var/lib/apt/lists/* ;; \
     esac
-RUN curl -fsSL "https://nodejs.org/dist/${NODE}/node-${NODE}-linux-x64.tar.xz" | tar -xJ -C /opt \
+RUN curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/${NODE}/node-${NODE}-linux-x64.tar.xz" \
+    && echo "${NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/node.tar.xz -C /opt && rm /tmp/node.tar.xz \
     && ln -s "/opt/node-${NODE}-linux-x64/bin/node" /usr/local/bin/node && node --version
 # The suite is not written to run as root (the root daemon listens on /run and a few
 # tests skip themselves there). uid 1000 because the sudo fixtures name SUDO_UID=1000

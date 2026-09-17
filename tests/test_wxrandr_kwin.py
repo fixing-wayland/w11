@@ -2155,7 +2155,7 @@ class Mirroring(KwinCase):
 class HostileKwin(KwinCase):
     """KWin takes the configuration, applies it -- and never answers.
 
-    `_send` waits `kwin.APPLY_TIMEOUT` (10.0 in wxrandr/kwin.py, patched to 1.0
+    `_send` waits `kwin.APPLY_TIMEOUT` (10.0 in hacks/display/kwin.py, patched to 1.0
     here) for `applied` or `failed` and then gives up.  The compositor half of
     that is `KwinOutputServer.swallow_apply`, which folds the requests into the
     fake's heads -- KWin has no temporary mode, so a layout it applies is a
@@ -2179,7 +2179,7 @@ class HostileKwin(KwinCase):
         """The deadline is ours, not KWin's: the compositor here has taken the
         configuration and will never send `applied` or `failed`, and the only
         thing that ends the wait is `kwin.APPLY_TIMEOUT` (10.0 in
-        wxrandr/kwin.py; 1.0 here, so the wall clock lands in 0.9-3.0 s).
+        hacks/display/kwin.py; 1.0 here, so the wall clock lands in 0.9-3.0 s).
 
         The screen moved anyway, which is the fact that makes this worth a test:
         measured on Plasma 6.6/KWin 6.6.6 (live-measurements.md), KWin has no

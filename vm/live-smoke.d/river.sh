@@ -344,7 +344,7 @@ layout_phase() {
     sleep 1
     same "--vkbd on types byte-exact with no uinput and no privilege" "vkbd: yz@" "$(editor_text)"
     # The layout.  river advertises river_xkb_config_v1 v2 and river_xkb_bindings_v1 v3, and no
-    # reader in wdotool/xkbmap.py binds either, so the keymap alone answers here -- which is
+    # reader in hacks/input/xkbmap.py binds either, so the keymap alone answers here -- which is
     # right on a golden carrying one layout and is the check below.  A SECOND group read off
     # river's own protocol is NOT YET: the route is 1, a sixth reader beside the Hyprland,
     # Wayfire, KWin, GNOME and Cinnamon ones, and nobody has scheduled it.

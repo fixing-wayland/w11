@@ -7,7 +7,7 @@
 # of user test (uid 1000, password test, NOPASSWD sudo) on vt 1.  Native display tool:
 # `cosmic-randr list --kdl`, which is what vm/live-smoke.d/oracle.py reads here.
 #
-# This is the flavor wdotool/backend_cosmic.py exists for.  cosmic-comp publishes NO
+# This is the flavor hacks/window/backend_cosmic.py exists for.  cosmic-comp publishes NO
 # zwlr_foreign_toplevel_manager_v1 at all, so before that backend every window command --
 # all of wwmctl, wxprop's native plane, every `wdotool window*` -- answered
 # `no Wayland session found: ... the compositor does not offer wlr-foreign-toplevel` with rc 1

@@ -1077,7 +1077,7 @@ handover branch's own words, on purpose, so that a user who asks the status and 
 `gnome/w11-overlap@w11`, behind `wxrandr --unsafe-gnome-overlap`
 ([WXRANDR.md](WXRANDR.md#--unsafe-gnome-overlap-the-one-route-through)). It is a
 **second, separate** extension: the bridge is feature-detected JavaScript over public
-API across six Shell versions and stays that way, and this one ships a compiled
+API across GNOME Shell 45 to 51 and stays that way, and this one ships a compiled
 typelib pinned to one libmutter generation's private structure layout. Different kind
 of thing, its own uuid, its own installer (`gnome/install-overlap.sh`) and its own enable
 step. Since 0.4 the package carries its files, because a route nobody can reach from
@@ -1807,8 +1807,8 @@ check it, and none of it needs a debugger:
    type rather than a guess, and a header that has moved anything in the head of the
    struct is refused outright, because then the description's shape is wrong and not
    only its numbers. Both are exercised by `tests/test_gnome_overlap.py`, which also
-   runs it against the mutter 46 and mutter 50 headers in `tests/fixtures/mutter/` and
-   demands those two of the three shipped descriptions back — so the offsets this
+   runs it against the mutter 46, 49 and 50 headers in `tests/fixtures/mutter/` and
+   demands those three of the four shipped descriptions back — so the offsets this
    feature rests on now have upstream source and a live compositor agreeing about
    them.
 4. **`sentinel`** — the size is right and the *tail* moved. This is the dangerous
@@ -1845,7 +1845,7 @@ Stated plainly, because a reader has to be able to decide against this:
   public-view comparison noticing that the numbers are nonsense. Both were measured
   catching exactly that, on two different swaps, and both are checks rather than
   certainties.
-* **The allowlist is a claim about three builds this project measured.** A distribution
+* **The allowlist is a claim about four builds this project measured.** A distribution
   that backports a Mutter change without moving the Shell's major version can make the
   version gate say yes to a library nobody has seen. What stands behind it then is the
   structure size, the sentinel and the public-view comparison, in that order. This is
@@ -2097,7 +2097,7 @@ themselves. They are not part of the interface.
 
 ## 9. Module → test file → fake
 
-5578 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
+5689 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
 hold across all of them and are enforced by tests of their own:
 
 * **every `tests/test_*.py` sets `W11_PASSTHROUGH=never`**, or the suite
@@ -2516,21 +2516,23 @@ licence that is not one of `/usr/share/licenses/common/` — and both build scri
 identifier back out of `LICENSE` (an `SPDX-License-Identifier:` header verbatim, otherwise a
 heading table) and refuse the build if the spec or the recipe disagrees with it.
 
-One thing the project has not settled and this file will not settle for it: the upstream URL
-is spelled **three** ways. `debian/copyright`'s `Source:` says github.com/zardus/w11;
-`README.md`'s install section, `debian/control`'s `Homepage:`, the spec's `URL:` and the
-PKGBUILD's `url=` say github.com/zardus/w11; and the flake's own invocation
-— `nix run github:emolabs/w11`, in `nix/package.nix`'s `meta.homepage`, in README.md's
-Nix bullet and in this file's own flake section — says emolabs. Whoever settles it should change
-every one of them in the same commit — `debian/copyright`, `debian/control`, `README.md` (which
-carries two of the three spellings), the spec, the PKGBUILD, `nix/package.nix` — and re-measure
-the PKGBUILD's pinned `sha256sums` against the tarball at whichever host wins (today's pin is
-the GitHub tarball, 3,952,338 bytes). CI never uses either line — `build-pkgbuild.sh`
-rewrites the `url=` and `nix build` here is always a local path — so nothing is red today.
+The upstream URL is settled, and it is `https://github.com/fixing-wayland/w11`. Every
+packaging input says so and has since the repository moved: `debian/copyright`'s `Source:`
+(line 4), `debian/control`'s `Homepage:` (line 11), the spec's `URL:`
+(`packaging/rpm/w11.spec`:42), the PKGBUILD's `url=` (`packaging/arch/PKGBUILD`:32) and
+`nix/package.nix`'s `meta.homepage` (line 40); `flake.nix` carries no URL of its own, so
+there is nothing there to disagree. What lagged the move was prose rather than packaging —
+README.md's releases link, its `git clone` line and its Nix bullet, and docs/Blogpost.md's
+closing link, each still naming the old host long after the packaging had stopped — which is
+why the spelling is no longer left to whoever happens to re-read a paragraph:
+`tests/test_repo_url.py` holds the packaging inputs and the prose to the one host, and a
+stale one goes red. The PKGBUILD's pinned `sha256sums` needs no re-measure for any of this:
+it is already the GitHub tarball at that host (3,952,338 bytes). CI uses neither line —
+`build-pkgbuild.sh` rewrites the `url=` and `nix build` here is always a local path.
 
 ### The flake, and the NixOS module
 
-`nix run github:emolabs/w11 -- --version` runs the tools without installing anything.
+`nix run github:fixing-wayland/w11 -- --version` runs the tools without installing anything.
 The flake is six packages rather than one: `w11` (five of the six tools, stdlib,
 216.0 MiB of closure), `warandr` (the one GTK program, 546.9 MiB), `gnome-bridge`,
 `gnome-overlap`, `udev-rules` and `x11-shadows`. The two installable ones have deliberately

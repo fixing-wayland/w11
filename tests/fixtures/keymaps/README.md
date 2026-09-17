@@ -81,7 +81,7 @@ two-layout keymap with no appended fallback. `kde_gr.xkb` is the only
 non-Latin layout here at all, Greek reaches every level (`€` on AltGr, tonos
 and dialytika as dead keys) and no Latin letter on any of them.
 
-Two facts these files record, both needed by `wdotool/xkbmap.py`:
+Two facts these files record, both needed by `hacks/input/xkbmap.py`:
 
 * GNOME always compiles **one more group than the user configured**, an
   `English (US)` fallback appended at the end. A session with a single `de`

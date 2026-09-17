@@ -1,7 +1,7 @@
 """wmirror: the lifetime of the helper, driven against a stub wl-mirror.
 
 wl-mirror is a process that has to outlive the command that started it, so
-wmirror follows wxrandr/gamma.py's holder: double-fork, (pid, starttime) in
+wmirror follows hacks/display/gamma.py's holder: double-fork, (pid, starttime) in
 a state file, uid check before any signal, bounded SIGTERM then SIGKILL.
 What is new here is that the process is not ours -- so the record carries
 two (pid, starttime) pairs, and every transition below has to leave nothing
@@ -920,7 +920,7 @@ class SpawnDetached(unittest.TestCase):
 
         `wmirror --stop` SIGTERMs the supervisor, and `supervise._on_term`
         answers by raising SystemExit(0); the gamma holder's handler does the
-        same (wxrandr/gamma.py). Caught as a failure -- which
+        same (hacks/display/gamma.py). Caught as a failure -- which
         `except BaseException` did -- a stop that landed during a start came
         back as the verdict `failed supervisor: SystemExit(0)`, so the start
         printed a crash for something that had simply been asked to stop.

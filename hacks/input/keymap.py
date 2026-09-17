@@ -374,6 +374,14 @@ def layout_name(layout) -> str:
 
 _EVDEVK_BASE = 0x10081000  # XF86keysym.h: _EVDEVK(v) == 0x10081000 + evdev code
 
+# The two digit sets `resolve_token` parses numbers with. Both are frozensets, not strings, because
+# `"" in "0123456789"` is True and the empty token must not take the numeric branch: `parse_keyseq`
+# (below) is the one caller in the tree that drops empty tokens before resolving, but `resolve_token`
+# is a public function that the tests (tests/test_hardening.py:327-439, tests/test_keymap.py) and any
+# future caller hand whole strings to.
+_ASCII_DIGITS = frozenset("0123456789")
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+
 
 def _keysym_value_to_key(ks: int, layout=None) -> tuple[int, bool] | None:
     """Resolve a raw keysym number to (keycode, shifted) via unicode (or, for
@@ -443,11 +451,32 @@ def resolve_token(tok: str, layout=None) -> tuple[int, bool] | None | str:
             if hit is None:
                 return f"key '{tok}' is not reachable on the {lname} layout. Ignoring it."
             return hit
-    if tok[:1].isdigit():
+    if len(tok) > 1 and tok[0] == "U" and all(c in _HEX_DIGITS for c in tok[1:]):
+        # The other half of XStringToKeysym: libX11's StrKeysym.c takes "U" followed by one or more hex
+        # digits, answers NoSymbol above U+10FFFF and for cp < 0x20 or 0x7e < cp < 0xa0 (0x7e itself is
+        # allowed), and the keysym is cp below 0x100, else 0x01000000 | cp. Measured 2026-09-16 (ctypes on
+        # libX11.so.6, and xdotool 3.20160805.1 on Xvfb): U41/U0041/U000041 -> 0x41, U20AC -> 0x10020ac,
+        # U7e -> 0x7e, U10FFFF -> 0x110ffff, while U7f/U1f/U9f/U0000/U110000/Uzz/u0041 -> NoSymbol, i.e.
+        # the "(symbol) No such key name" path below. A bare `U` is not this form at all -- it is the
+        # latin1 name for 'U' (0x55) and the NAME_TO_KEYSYM test above has already answered it.
+        cp = int(tok[1:], 16)
+        if 0x20 <= cp <= 0x10FFFF and not (0x7E < cp < 0xA0):
+            hit = _keysym_value_to_key(cp if cp < 0x100 else 0x01000000 | cp, layout)
+            if hit is None:
+                return f"key '{tok}' is not reachable on the {lname} layout. Ignoring it."
+            return hit
+    if tok[:1] in _ASCII_DIGITS:
         # Explicit numeric X keycode; evdev keycode = X keycode - 8.
+        # ASCII digits only, and only ASCII digits accumulate: libxdo gates this branch on C `isdigit()`
+        # of the first byte (`__ctype_b_loc`, so ASCII in every locale) and then parses with
+        # `strtol(tok, NULL, 10)`, which stops at the first byte that is not one. Python's
+        # `str.isdigit()` also takes Arabic-Indic digits, so `key '<U+0664><U+0662>'` used to press
+        # KEY_G here while xdotool printed "(symbol) No such key name". This is wdotool/cnum.py's rule,
+        # applied to the one number the tool parses outside it; `cnum.atoi` itself is not usable here
+        # because it accepts leading whitespace and a sign that the C `isdigit()` gate rejects.
         n = 0
         for c in tok:
-            if not c.isdigit():
+            if c not in _ASCII_DIGITS:
                 break
             n = n * 10 + int(c)
         code = n - 8

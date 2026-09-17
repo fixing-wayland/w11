@@ -955,8 +955,8 @@ class CinnamonProbe(unittest.TestCase):
 
 
 class HyprProbe(unittest.TestCase):
-    """`_probe_hypr()`'s two answers that need no Hyprland: no socket, and a socket with no wxrandr/hypr.py
-    built into this install."""
+    """`_probe_hypr()`'s two answers that need no Hyprland: no socket, and a socket with no
+    hacks/display/hypr.py built into this install."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="wxr-hypr-")
@@ -974,8 +974,8 @@ class HyprProbe(unittest.TestCase):
     def test_a_socket_with_no_backend_built_is_still_a_row_and_not_a_traceback(self):
         """`hypr` is second in AUTO_ORDER, so a probe that raises takes down every wxrandr invocation on a
         Hyprland desktop -- `--query` included, which reads honestly over the wlr floor
-        [M recon2/hyprland.md §4]. Until wxrandr/hypr.py lands this asserts the guard; after it lands the
-        import succeeds and the skip below fires instead."""
+        [M recon2/hyprland.md §4]. Until hacks/display/hypr.py lands this asserts the guard; after it lands
+        the import succeeds and the skip below fires instead."""
         rd = os.path.join(self.tmp, "user", "%d" % os.getuid())
         os.makedirs(os.path.join(rd, "hypr", "sig0"))
         sock = os.path.join(rd, "hypr", "sig0", ".socket.sock")
@@ -994,7 +994,7 @@ class HyprProbe(unittest.TestCase):
             self.assertEqual(p.reason,
                              "the hypr display backend is not built into this install")
             return
-        self.skipTest("wxrandr/hypr.py is built here; tests/test_wxrandr_hypr.py owns this probe")
+        self.skipTest("hacks/display/hypr.py is built here; tests/test_wxrandr_hypr.py owns this probe")
 
 
 if __name__ == "__main__":

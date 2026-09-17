@@ -421,7 +421,7 @@ class Persistent(CinnamonCase):
 
     def test_the_layout_mode_warning_keeps_gnomes_own_label_for_the_switch(self):
         """`Fractional Scaling` is the name of the toggle in GNOME's Settings, quoted capitalised
-        everywhere else in the tree (README.md, docs/Technical.md, wdotool/layoutbox.py); only the desktop
+        everywhere else in the tree (README.md, docs/Technical.md, hacks/input/layoutbox.py); only the desktop
         word is the flavour's."""
         self.assertIn("this session has Fractional Scaling off", mutter.LAYOUT_MODE_WARNING)
         self.assertIn("and GNOME then refuses the whole saved file",
@@ -606,8 +606,8 @@ class TheEightCliSites(CinnamonCase):
     def test_the_off_refusal_is_not_one_of_them(self):
         """The control, and the correction: `--output DP-1 --off` in the middle of a row is refused
         `Logical monitors not adjacent` on BOTH tokens -- keep_adjacent deliberately does not re-place an
-        output whose neighbour went away (wxrandr/mutter.py's module docstring says so), so this is not a
-        cli.py gap and no request asks for it to change."""
+        output whose neighbour went away (hacks/display/mutter.py's module docstring says so), so this is not
+        a cli.py gap and no request asks for it to change."""
         want = self.under_mutter("--output", "DP-1", "--off")
         got = self.run_cli("--output", "DP-1", "--off")
         self.assertEqual(got[0], 1)

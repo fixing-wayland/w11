@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """U11b: `ext_workspace.WorkspaceClient`'s own ordering, against a compositor with a group per output.
 
-`wdotool/ext_workspace.py` had one sort key, `(coordinates, arrival)`, and it is right for every session
+`hacks/window/ext_workspace.py` had one sort key, `(coordinates, arrival)`, and it is right for every session
 that publishes ONE `ext_workspace_group_handle_v1` -- labwc, Budgie, Xfce-on-Wayland, LXQt-on-Wayland. It is
 wrong for cosmic-comp, which publishes one group PER OUTPUT: measured on the fedora44-cosmic golden with two
 heads on 2026-09-11, groups 4278190084 (workspaces `1` coordinates [1] and `2` [2]) and 4278190087 (`1`

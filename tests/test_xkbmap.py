@@ -2698,7 +2698,7 @@ class SwitchingHypr(FakeHypr):
     golden (Hyprland 0.56.2, 2026-09-11), `dispatch switchxkblayout wdotool-virtual-keyboard 1` answers
     `Invalid dispatcher` and changes nothing, while the bare form answers `ok` and the new index is in the
     very next `j/devices`.  `stubborn=True` answers `ok` and moves nothing -- a request accepted and not
-    acted on, which is the state the whole route-2 apply in wxrandr/hypr.py exists for and which this
+    acted on, which is the state the whole route-2 apply in hacks/display/hypr.py exists for and which this
     reader has to survive; whether a name Hyprland does not know answers that way or `Invalid dispatcher`
     was not measured, so the double does not claim it."""
 
@@ -2817,7 +2817,7 @@ class TestTheFourthRuleOnHyprland(unittest.TestCase):
         self.assertEqual(self.srv.switches, [("wdotool-virtual-keyboard", 1)])
 
     def test_the_probe_follows_the_node_the_daemon_was_told_to_open(self):
-        """`WDOTOOL_UINPUT_PATH` is what `wdotool/uinput.py:dev_path()` opens, so it is what this probe
+        """`WDOTOOL_UINPUT_PATH` is what `hacks/input/uinput.py:dev_path()` opens, so it is what this probe
         stats.  A daemon started with the override held a node whose st_rdev matched nothing under
         /dev/uinput, the fourth rule never fired, and the injected device stayed in whatever group it was
         in -- silently typing `zyq` again.  UINPUT_NODE is pointed at a path that is not there, so only the

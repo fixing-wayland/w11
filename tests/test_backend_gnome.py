@@ -1851,7 +1851,7 @@ class DetectTests(_Base):
         refuses like any other failing maker and detect() carries on to its own line -- rc 2 with an
         explanation, not a traceback out of an import."""
         if importlib.util.find_spec("hacks.window.backend_hypr") is not None:
-            self.skipTest("wdotool/backend_hypr.py is built here; batch 5 owns this arm")
+            self.skipTest("hacks/window/backend_hypr.py is built here; batch 5 owns this arm")
         setattr(backend_detect, "_hypr", self._orig["_hypr"])
         d = os.path.join(self.rundir, str(os.getuid()), "hypr", "sig_1_1")
         os.makedirs(d)

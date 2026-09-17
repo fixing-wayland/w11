@@ -101,7 +101,7 @@ class Entry:
 class Change:
     """One difference between two snapshots. `names` carries the backend field
     names that moved for a PROPS change, which is what batch 5 maps onto
-    property atoms through wxprop's own tables (wxprop/core.py:1031-1070)."""
+    property atoms through wxprop's own tables (hacks/property/core.py:1031-1070)."""
 
     kind: str
     handle: int = 0
@@ -126,7 +126,7 @@ def node_flags(node) -> dict:
 
     `fullscreen_mode` is sway's own key and it is an INT (0 none, 1 output,
     2 global), which is why this is a `bool()` and not the value: `wxprop`
-    reads the same two keys the same way (wxprop/core.py:544, 554) and the
+    reads the same two keys the same way (hacks/property/core.py:544, 554) and the
     parity target is the clone's bytes."""
     return {"fullscreen": bool(node.get("fullscreen_mode")),
             "sticky": bool(node.get("sticky"))}
@@ -364,7 +364,7 @@ class Shadows:
         The node carries a second thing no `Window` has: `fullscreen_mode` and
         `sticky`, the two `_NET_WM_STATE` bits design section 4.4 does NOT
         bracket as rich. `wxprop` reads them straight off the node
-        (wxprop/core.py:544, 554), so a `foot` that sway has fullscreened
+        (hacks/property/core.py:544, 554), so a `foot` that sway has fullscreened
         prints `_NET_WM_STATE_FULLSCREEN` through the clone; without carrying
         them the proxy printed `_NET_WM_STATE(ATOM) =` for the same window
         [M 2026-09-10, headless sway on this box].
@@ -597,7 +597,7 @@ class Shadows:
     def workspace_names(self):
         """`[name]` for `_NET_DESKTOP_NAMES`, or None where the backend has no
         `workspaces()`. A nameless workspace prints its index, which is what
-        `wwmctl -d` does (wwmctl/core.py:790)."""
+        `wwmctl -d` does (hacks/window/wmctl.py:790)."""
         got = self._call("workspaces")
         if not got:
             return None
@@ -655,9 +655,26 @@ class Shadows:
         arm in that method (AGENTS.md rung 5: rung 5 is this proxy, so a gap
         inside it closes with more of it). Nothing measured sends one: xprop
         `-set` and `set_window --name` are `Replace` [recon/tools.md 4.3, 6].
+
+        A mode outside the three is the same gap and takes the same answer, and
+        it is refused HERE, before the value is so much as looked at, because
+        that is the order dix uses: `ProcChangeProperty` validates the mode and
+        returns `BadValue` before it touches the property, so a bogus mode must
+        be a no-op on a name the shadow has not got yet as well as on one it
+        has. `mode` is `req.byte1` off the wire (`xw11/req_write.py`), an
+        unvalidated CARD8, and without this every value from 3 to 255 fell
+        through the `mode == PREPEND` test and was applied as `Append`.
         """
         fmt = int(fmt)
         data = bytes(data)
+        if mode not in (REPLACE, PREPEND, APPEND):
+            self.say("ChangeProperty mode %d on atom %d of shadow 0x%x: X "
+                     "answers BadValue here and this proxy has no seam to "
+                     "answer an error on a request it consumes -- not yet; the "
+                     "route is one more class in xw11/policy.py and its arm in "
+                     "Server.handle (AGENTS.md rung 5). The write is dropped."
+                     % (mode, atom, entry.shadow))
+            return False
         if mode != REPLACE:
             current = self.props_for(entry).get(atom)
             if current is not None:
@@ -712,7 +729,7 @@ class Shadows:
 
 # -- the properties a shadow wears (design section 4.4) -----------------------
 #
-# A port of `NativeViewTarget._props()` (wxprop/core.py:529-597) with three
+# A port of `NativeViewTarget._props()` (hacks/property/core.py:529-597) with three
 # changes, all of them design section 4.4's: the atom ids are the ones `OwnConn`
 # interned upstream and not `NativeAtoms`' 0x40000000 fakes [recon/seams.md 1,
 # 4], the dict is cached on the entry and rebuilt whenever anything about the
@@ -730,7 +747,7 @@ class Shadows:
 # fixture pins it.
 
 #: `View.window_type` / `Window.window_type` (a Mutter type name) -> the one
-#: `_NET_WM_WINDOW_TYPE` atom. wxprop's own `_WINDOW_TYPES` (wxprop/core.py:348),
+#: `_NET_WM_WINDOW_TYPE` atom. wxprop's own `_WINDOW_TYPES` (hacks/property/core.py:348),
 #: repeated here for the same reason `policy.ATOMS` is: `import xw11` must not
 #: pull wxprop.core's 10 ms in.
 WINDOW_TYPES = {
@@ -759,7 +776,7 @@ WINDOW_TYPES = {
 #: The two that are NOT rich and are not the window's own -- FULLSCREEN and
 #: STICKY -- have a second source: on sway and i3 they are keys of the tree
 #: node (`Entry.flags`, filled by `Shadows._read`), which is where wxprop reads
-#: them from too (wxprop/core.py:544, 554). Without that a foot sway had
+#: them from too (hacks/property/core.py:544, 554). Without that a foot sway had
 #: fullscreened printed an empty `_NET_WM_STATE` through the proxy while the
 #: clone printed `_NET_WM_STATE_FULLSCREEN` [M 2026-09-10, headless sway].
 _STATE_BITS = (
@@ -780,7 +797,7 @@ _STATE_BITS = (
 def _p_string(text: str):
     """A latin-1 property, or UTF8_STRING when the text will not fit in one.
 
-    wxprop's `_p_string` (wxprop/core.py:408) exactly: typing UTF-8 bytes as
+    wxprop's `_p_string` (hacks/property/core.py:408) exactly: typing UTF-8 bytes as
     STRING is not a legibility trade-off but wrong -- xprop's STRING-to-locale
     rule decodes them as latin-1 and re-encodes for the locale, so every
     character above U+00FF prints as mojibake."""
@@ -858,7 +875,7 @@ def build_props(entry, atoms, resolve=None):
         put("_NET_WM_NAME", ("UTF8_STRING", 8, title.encode("utf-8")))
         put("WM_NAME", _p_string(title))
     # `app_id` is BOTH halves for a native toplevel and empty for an X client,
-    # which is wxprop's own rule (wxprop/core.py:576): a Wayland app id has no
+    # which is wxprop's own rule (hacks/property/core.py:576): a Wayland app id has no
     # instance/class pair to split. The last fallback -- instance = class -- is
     # for the ONE backend with no `views()` and therefore no `app_id` field to
     # read: sway's `list()` carries `class_ = app_id or WM_CLASS class` and
@@ -973,7 +990,7 @@ def root_props(shadows, atoms):
     `_NET_DESKTOP_NAMES` is absent where the backend has no `workspaces()` and
     `_NET_DESKTOP_GEOMETRY` where it will not say its size, which is what a
     real EWMH window manager that does not publish a name does: `wmctrl -d`
-    prints `N/A` for an absent column [wwmctl/core.py:780] rather than a zero
+    prints `N/A` for an absent column [hacks/window/wmctl.py:780] rather than a zero
     that reads as a real answer.
     """
     named = {}
@@ -998,7 +1015,7 @@ def root_props(shadows, atoms):
     size = shadows.display_size()
     if size is not None:
         # `wwmctl -d` prints its `DG:` column from `display_size()`
-        # (wwmctl/core.py:780) and the parity target is the clone's bytes.
+        # (hacks/window/wmctl.py:780) and the parity target is the clone's bytes.
         put("_NET_DESKTOP_GEOMETRY", _p_cardinal([size[0], size[1]]))
     # One `0,0` pair per desktop, which is where every desktop on every
     # compositor in the survey begins: no Wayland compositor scrolls a desktop

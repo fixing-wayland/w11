@@ -1,4 +1,4 @@
-"""The keymap the virtual-keyboard path uploads (`wdotool/vkbd.py`).
+"""The keymap the virtual-keyboard path uploads (`hacks/input/vkbd.py`).
 
 A **captured** keymap, byte for byte as a compositor handed it to its clients
 on `wl_keyboard.keymap` -- the same file as `tests/fixtures/keymaps/us.xkb`,
@@ -11,7 +11,7 @@ works. Until that is understood, nothing here may be edited, trimmed or
 regenerated -- capture a new one instead.
 
 Group 1 is `English (US)` and agrees, key by key, with the fixed US table in
-`wdotool/keymap.py`: `tests/test_vkbd.py` asserts exactly that, through
+`hacks/input/keymap.py`: `tests/test_vkbd.py` asserts exactly that, through
 `xkbmap.active_group_is_plain_us()` -- the repo's own bypass checker, which
 is the same comparison the uinput path makes before it trusts that table. So
 uploading this keymap is what makes `keymap.CHAR_TO_KEY` correct by

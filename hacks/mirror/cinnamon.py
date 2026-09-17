@@ -44,6 +44,10 @@ layout and drops the mirror when the two heads come to share pixels or the targe
 hacks/mirror/supervise.py does for wl-mirror over `zwlr_output_manager_v1` -- is not wired for this path
 (muffin has no wlr output manager; the same watch would read `org.cinnamon.Muffin.DisplayConfig`, AGENTS.md
 route 2). Start-time geometry is fully policed by `core.decide`; only the live re-check while it runs is owed.
+The second gap is `--scaling`: the group is placed 1:1 at the target's origin and clipped, so `fit`, `cover` and
+`exact` are not applied on this path and an explicit `--scaling` is refused (`NO_SCALING`) rather than accepted
+and quietly dropped. The route is this same program (rung 2) carrying a `set_scale` and a centring translation,
+and the cost is one rig measurement of what `clip_to_allocation` does under a scaled actor before it ships.
 """
 
 import json
@@ -64,6 +68,14 @@ ROUTE = "org.Cinnamon.Eval Clutter clone (AGENTS.md route 2)"
 
 _GONE = ("cinnamon mirror: %s is no longer owned on the session bus "
          "(cinnamon restarting, or the session ended)" % BUS_NAME)
+
+#: why an explicit `--scaling` is refused here instead of recorded and not done -- see the docstring above and
+#: the "What is not yet on this path" paragraph of docs/WMIRROR.md. `%s` is the mode the caller asked for.
+NO_SCALING = ("cinnamon mirror: --scaling %s is not yet done on this path: the Clutter clone group is placed "
+              "1:1 at the target origin and clipped to the region, so fit, cover and exact are not applied "
+              "here. The route is the same org.Cinnamon.Eval program (AGENTS.md route 2) with a set_scale and "
+              "a centring translation on the group, at the cost of one rig measurement of how "
+              "clip_to_allocation behaves under a scaled actor before it ships")
 
 
 # -- the JS programs ----------------------------------------------------------
@@ -169,12 +181,16 @@ def available(bus: Bus | None = None) -> bool:
 # in a process we forked. `supervise.reap` skips it (its `if rec.get("kind")` guard) and this module's `reap`
 # owns its liveness instead, over Eval.
 
-def start(recs: dict, source: str, target: str, region, scaling: str, dst, bus: Bus | None = None):
+def start(recs: dict, source: str, target: str, region, dst, bus: Bus | None = None):
     """Build the mirror over Eval and write its record. Returns None on success, else the lines to print.
 
     `dst` is the target output (a wxcore.OutputState): its layout origin is where the group is placed, in the
     same coordinates as `region`. A region that covers the whole source is a valid mirror too, so `region` is
-    never None here -- `core.decide` has already refused the cases the layout expresses on its own."""
+    never None here -- `core.decide` has already refused the cases the layout expresses on its own.
+
+    No `scaling`: the group is placed 1:1 and clipped, so there is no mode to record. The record carries no
+    `scaling` key and `fmt_record` prints `scaling 1:1`, because a record that carried `fit` would have `--list`
+    claiming a letterbox that never happened -- wmirror/cli.py refuses an explicit `--scaling` here instead."""
     try:
         ev = Eval(bus)
     except DBusError as e:
@@ -187,7 +203,7 @@ def start(recs: dict, source: str, target: str, region, scaling: str, dst, bus: 
     if not isinstance(token, int):
         return ["cinnamon mirror: the build program did not return a token (got %r)" % (token,)]
     recs[target] = {"kind": KIND, "source": source, "target": target,
-                    "region": list(region), "scaling": scaling, "token": token,
+                    "region": list(region), "token": token,
                     "route": ROUTE}
     return None
 
@@ -253,6 +269,8 @@ def fmt_record(target: str, rec: dict) -> str:
     region = rec.get("region")
     if region:
         bits.append("region %s" % core.fmt_region(region))
-    bits.append("scaling %s" % (rec.get("scaling") or core.DEFAULT_SCALING))
+    # 1:1, not `rec.get("scaling")`: nothing on this path scales, and a record written before that was said
+    # out loud may still carry a stale mode -- the line says what the mirror does, not what was asked for.
+    bits.append("scaling 1:1")
     bits.append("%s tok %s" % (rec.get("route") or ROUTE, rec.get("token", "?")))
     return "  ".join(bits)

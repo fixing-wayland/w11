@@ -267,9 +267,9 @@ class Desktops(Base):
     def test_exactly_one_workspace_is_current_even_with_two_heads(self):
         """`active` is "this is the current desktop", not "this is on some screen". The recorded session shows
         workspace 1 on Virtual-1 and 2 on HEADLESS-2 -- both visible, and `j/activeworkspace` names 1. wwmctl
-        prints `*` on every active row and reads the first as the current desktop (wwmctl/core.py), so the
-        visible-set reading would mark two desktops current where wmctrl marks one; sway's backend fills the
-        flag from the node's `focused` for exactly this reason (wdotool/backend_sway.py)."""
+        prints `*` on every active row and reads the first as the current desktop (hacks/window/wmctl.py), so
+        the visible-set reading would mark two desktops current where wmctrl marks one; sway's backend fills
+        the flag from the node's `focused` for exactly this reason (hacks/window/backend_sway.py)."""
         b = self.backend()
         wss = b.workspaces()
         self.assertEqual([ws.index for ws in wss if ws.active], [b.get_desktop()])
@@ -435,6 +435,31 @@ class Dispatches(Base):
             "dispatch fullscreen 0",     # then the fullscreen
         ])
 
+    def test_removing_the_other_state_is_a_no_op(self):
+        """`remove,fullscreen` on a window that is merely maximized must not touch the maximize, and
+        `remove,maximized_vert,maximized_horz` on a fullscreen one must not touch the fullscreen -- under
+        EWMH each `_NET_WM_STATE_REMOVE` names one atom and a window that does not hold it is left exactly as
+        it was, focus included. Hyprland folds both into the single tri-state `fullscreen` field, so the
+        backend has to tell "remove the other one" from "remove the standing one" itself; the second half
+        goes through the folded `MAXIMIZED` that state_steps builds out of the pair (the test above, 408)."""
+        srv = self.hypr()
+        rows = json.loads(json.dumps(srv.payloads["clients"]))
+        rows[0]["fullscreen"] = 1      # maximized, not fullscreen
+        srv.payloads["clients"] = rows
+        b = self.backend(srv)
+        srv.requests.clear()
+        b.set_state(self.float_id, "FULLSCREEN", 0)
+        self.assertEqual(self.dispatches(), [])
+
+        srv = self.hypr()
+        rows = json.loads(json.dumps(srv.payloads["clients"]))
+        rows[0]["fullscreen"] = 2      # fullscreen, not maximized
+        srv.payloads["clients"] = rows
+        b = self.backend(srv)
+        srv.requests.clear()
+        b.set_state(self.float_id, "MAXIMIZED", 0)
+        self.assertEqual(self.dispatches(), [])
+
     def test_sticky_is_pin_and_only_for_floating_windows(self):
         self.b.set_state(self.float_id, "STICKY", 1)
         self.assertEqual(self.dispatches(), ["dispatch pin address:0x59daae6de8f0"])
@@ -500,9 +525,9 @@ class Refusals(Base):
         self.assertEqual(self.dispatches(), [])
 
     def test_raising_a_tiled_window_warns_and_sends_nothing(self):
-        """sway's shape and sway's rung (wdotool/backend_sway.py, `raise_`): a tiled window sits in a layout with
-        no z to alter, so `alterzorder` -- the route the floating half names -- is not the route here; the
-        restack has to come from the compositor's own code. Warning, and nothing sent."""
+        """sway's shape and sway's rung (hacks/window/backend_sway.py, `raise_`): a tiled window sits in a
+        layout with no z to alter, so `alterzorder` -- the route the floating half names -- is not the route
+        here; the restack has to come from the compositor's own code. Warning, and nothing sent."""
         b = self.backend()
         with mock.patch.object(hypr_mod, "warn") as w:
             b.raise_(backend_mod.mint_id(FOOT_TILED))
@@ -689,10 +714,11 @@ class FailureModes(Base):
 class Views(Base):
     """U19's last claim: the XWayland row is matched to a real X client on pid and class.
 
-    A real `FakeXServer` and a real `X11Conn`, not a stub of the matcher: `hyprctl` publishes `xwayland: true`,
-    the pid and the exact rectangle but no X id at all, and the whole point is that the join through
-    `_NET_CLIENT_LIST` is what produces `0x00400020` and `xmessage.Xmessage`
-    [M recon2/hyprland.md §3: wwmctl -lpx printed the synthetic 0x000f4243 where wmctrl printed 0x00400020]."""
+    A real `FakeXServer` and a real `X11Conn`, not a stub of the matcher: `hyprctl` publishes
+    `xwayland: true`, the pid and the exact rectangle but no X id at all, and the whole point is that the
+    join through `_NET_CLIENT_LIST` is what produces `0x00400020` and `xmessage.Xmessage`
+    [M recon2/hyprland.md §3: wwmctl -lpx printed the synthetic 0x000f4243 where wmctrl printed
+    0x00400020]."""
 
     XID = 0x00400020
 
@@ -745,7 +771,7 @@ class Views(Base):
 
     def test_a_client_that_contradicts_the_row_is_not_matched(self):
         """pid and WM_CLASS are filters: an X client of another pid AND another class agrees with nothing, so
-        the xmessage keeps xid 0 -- an unknown id beats a wrong one (wdotool/xid_match.py)."""
+        the xmessage keeps xid 0 -- an unknown id beats a wrong one (hacks/window/xid_match.py)."""
         self.plant(pid=999, inst="xterm", cls="XTerm")
         v = self.views()["xmessage"]
         self.assertEqual(v.xid, 0)

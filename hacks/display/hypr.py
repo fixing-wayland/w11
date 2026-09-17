@@ -15,7 +15,8 @@ recon2/arch.md]:
 
 That last line is what this file is: `keyword monitor NAME,WxH@Hz,XxY,SCALE` applied instantly and correctly
 on a session that had never touched the protocol. So the route is Hyprland's own IPC, and the wlr path is left
-for `--backend wlr` and told what it is walking into (wxrandr/core.py's timeout carries a Hyprland clause).
+for `--backend wlr` and told what it is walking into (hacks/display/core.py's timeout carries a Hyprland
+clause).
 
 And when the keyword is the one doing nothing -- which is a state, not a version: a fresh 0.56.2 session took
 none of three modes or a scale [M goal2/recon/flavors.md 3b] while the arch-hypr golden took every one of them
@@ -56,9 +57,9 @@ class HyprIPC:
     AF_UNIX client [M recon2/hyprland.md §2] -- and this is the display half of it: connect, `j/<name>`,
     `keyword <text>`.
 
-    It is a second copy of `wdotool/hypr_ipc.py`'s reader, and deliberately, for the reason
-    `wdotool/layoutbox.py` carries its own copy of Mutter's logical-size rule: the zipapp install route builds
-    `dist/wxrandr` out of `w11common` and `wxrandr` alone (scripts/build-pyz.sh, pinned by
+    It is a second copy of `hacks/window/hypr_ipc.py`'s reader, and deliberately, for the reason
+    `hacks/input/layoutbox.py` carries its own copy of Mutter's logical-size rule: the zipapp install route
+    builds `dist/wxrandr` out of `w11common` and `wxrandr` alone (scripts/build-pyz.sh, pinned by
     tests/test_build_scripts.py:TheZipapps -- "no display tool carries the input stack", 680 kB off each of
     the three), so a `from wdotool...` here would work from the .deb and quietly not from the zipapp -- and
     "quietly" on Hyprland means falling back to a wlr path that cannot apply. The price is this class; what
@@ -218,6 +219,23 @@ NO_CONF_NOTE = ("there is no %s to source the rules from, and a config file writ
                 "session started with\n")
 
 
+#: `--persistent` on a session that is not the caller's: the layout is on the screen (the live `keyword
+#: monitor` crossed the uid boundary and landed) and the file is the half that did not happen.
+HYPR_PERSIST_OTHER_USER_NOTE = (
+    "--persistent: the layout was applied live and its file half was skipped: this Hyprland session belongs "
+    "to uid %d and this command runs as uid %d, so the file would go into %s inside their home, which this "
+    "process does not write as root (a symlink planted there would be written through). Not yet; the route "
+    "is writing that half as the seated user (fork, setgid/setuid to uid %d, then the same write), at the "
+    "cost of a root-shell measurement on the rig. Until then run `wxrandr --persistent` as that user\n")
+
+#: The same boundary on the route-2 apply, where the file is not an extra but the apply itself: there is no
+#: layout to keep without it, so this one is the refusal rather than a note beside a success.
+HYPR_RELOAD_OTHER_USER_NOTE = (
+    "the live `keyword monitor` did not land and the reload route writes the rules into %s inside the home "
+    "of uid %d, which this process (uid %d) does not do as root; not yet -- the route and its cost are those "
+    "of --persistent (write it as the seated user), and until then run the command as that user\n")
+
+
 def hypr_config_dir() -> str:
     """Where Hyprland looks for hyprland.conf: `$XDG_CONFIG_HOME/hypr`, else `~/.config/hypr`."""
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
@@ -260,6 +278,15 @@ class HyprOutputs:
         self.rows: "dict[str, dict]" = {}
         #: Hyprland's config directory, resolved once per run (a test points it at its own).
         self.conf_dir = conf_dir or hypr_config_dir()
+        #: The seated uid when this session is somebody else's -- root over ssh or `sudo` on the user's own
+        #: Hyprland, which the socket scan finds across uids.  `conf_dir` above is then the CALLER's
+        #: `~/.config/hypr` and not the directory Hyprland reads, so both file routes below stop and say so
+        #: (`core.foreign_session_uid`).  It is asked with the socket this backend just connected to, because
+        #: that file's owner IS the session being driven -- `find_hypr_socket()` already checks that owner
+        #: against the runtime dir it found it in and then throws it away, while the seated-session scan
+        #: behind `session.session_uid()` can stop in a different uid's runtime dir entirely.  Read once,
+        #: beside the directory it disqualifies.
+        self.foreign_uid = core.foreign_session_uid(self.ipc.sockpath)
 
     @property
     def sockpath(self) -> str:
@@ -456,6 +483,12 @@ class HyprOutputs:
     def rules_path(self) -> str:
         return os.path.join(self.conf_dir, W11_CONF_NAME)
 
+    def _seated_rules_path(self) -> str:
+        """Where the rules file would be in the SEATED user's home -- named by the two notes below, written
+        by neither.  The file name is our own (`W11_CONF_NAME`); what the caller's environment decided, and
+        what is wrong on somebody else's session, is only the directory in front of it."""
+        return core._seated_config_path(self.foreign_uid, "hypr", W11_CONF_NAME)
+
     def read_rules(self) -> dict:
         """{output: the whole `monitor =` argument} our file already holds, in file order."""
         out = {}
@@ -592,7 +625,15 @@ class HyprOutputs:
         earlier run had moved with the live keyword alone goes back to what the config says along with the
         rest [R: that a reload resets `gaps_out` is measured, that it resets a live `keyword monitor` is
         the same sentence read twice and was not measured on its own -- the session it would have been
-        measured on was one where the keyword applied nothing]."""
+        measured on was one where the keyword applied nothing].
+
+        On a session this process does not own the layout is already on the screen from the keyword and the
+        file is the only half left, so it is skipped and named (`HYPR_PERSIST_OTHER_USER_NOTE`) rather than
+        written into the caller's own `~/.config/hypr`, which that Hyprland has never opened."""
+        if self.foreign_uid is not None:
+            core.warn(HYPR_PERSIST_OTHER_USER_NOTE
+                      % (self.foreign_uid, os.geteuid(), self._seated_rules_path(), self.foreign_uid))
+            return
         path = self.write_rules(lines)
         self._say_source(path, self.ensure_source(path))
         core.warn(PERSIST_CONF_NOTE % path)
@@ -608,7 +649,17 @@ class HyprOutputs:
 
         The note claiming the reload is printed after the reload has returned and the re-read has agreed,
         because until then there is no reload and no layout to claim -- and it is not printed at all on the
-        path where nothing sources our file, which is the path that sends no reload."""
+        path where nothing sources our file, which is the path that sends no reload.
+
+        The uid check is first, before a byte is read or written: this route IS the file, so on somebody
+        else's session there is no half of it that works.  Without it the run wrote the caller's own
+        `~/.config/hypr/w11-monitors.conf`, appended a `source =` to a hyprland.conf that session never
+        reads (or printed `NO_CONF_NOTE` about a file of root's), sent the reload and failed in
+        `_verify_applied` anyway -- the same rc 1, three writes further along.  Now nothing is written
+        anywhere and the refusal names the file it did not write and the uid that owns the home."""
+        if self.foreign_uid is not None:
+            raise Fatal(HYPR_RELOAD_OTHER_USER_NOTE
+                        % (self._seated_rules_path(), self.foreign_uid, os.geteuid()))
         before = self.read_rules()
         path = self.write_rules(lines)
         sourced = self.ensure_source(path)

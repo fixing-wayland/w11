@@ -399,6 +399,16 @@ class SwayIPC:
 
 # -- state file ---------------------------------------------------------------
 
+#: How long `State.save()` waits for the state lock before writing without it.  One second, because the wait
+#: is on a file another local user can own: with no `$XDG_RUNTIME_DIR` -- every `sudo` run, and cron -- the
+#: state lives in the private directory `session.runtime_dir()` makes or, when even that cannot be made ours,
+#: in shared /tmp under a guessable name (`_state_path`), and a plain blocking `flock` there ends when the
+#: holder says so, not when we do.  The file is a cache that is never load-bearing (`_read_state`), so
+#: `hacks/mirror/core.py`'s `state_lock` bounds its own wait exactly this way, with the sentence this one
+#: keeps: a lock we cannot get is not a reason to refuse.
+LOCK_TIMEOUT = 1.0
+
+
 def _state_path() -> str:
     """The state file in session.runtime_dir(). A layout cache is never worth failing a command for, so a
     runtime dir we cannot have degrades to the 0.2 name in shared /tmp -- where _read_state's checks below are
@@ -487,7 +497,24 @@ class State:
         lock_fd = None
         try:
             lock_fd = os.open(lockpath, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            st = os.fstat(lock_fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid():
+                # A lock file that is not ours is not a lock: the 0o600 above applies only to a file WE
+                # create, and in the /tmp fallback the name is guessable, so this can be another user's file,
+                # planted before ours -- the same thing `_read_state` refuses to believe about the state file
+                # itself.  Waiting on it would hand them the length of the wait.
+                os.close(lock_fd)
+                lock_fd = None
+            else:
+                deadline = time.monotonic() + LOCK_TIMEOUT
+                while True:
+                    try:
+                        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except OSError:
+                        if time.monotonic() >= deadline:
+                            break       # a lock we cannot get is not a reason to refuse
+                        time.sleep(0.05)
         except OSError:
             lock_fd = None  # locking unavailable: proceed best-effort
         try:
@@ -819,7 +846,7 @@ class WlrOutputs:
         compositor measured on THIS path that reaches the second send — sway 1.11 forced onto the wlr
         backend does not (tests/test_wxrandr_live.py test_41/test_42, and the one-apply counts the fake
         compositor keeps in tests/test_wxrandr_hostile.py).  Hyprland is not on this path at all: detection
-        sends it to `wxrandr/hypr.py`, whose `_verify_applied` is this read-back's analogue there.  A
+        sends it to `hacks/display/hypr.py`, whose `_verify_applied` is this read-back's analogue there.  A
         compositor that ignores the retry too gets the numbers in a sentence instead of a layout nobody
         asked for.
         """
@@ -893,7 +920,7 @@ class WlrOutputs:
         exactly where it was -- asked for 1920x1080 while sitting at 1280x1024, three times
         [M vm/live-smoke.d/hypr.sh display phase, resolute-hypr 2026-09-09].  A silent success that changed
         nothing is worse for a script than the timeout it replaced, and `xrandr` on X says `Configure crtc
-        failed` rather than nothing.  The sentences are `wxrandr/hypr.py:_first_mismatch`'s, with "the
+        failed` rather than nothing.  The sentences are `hacks/display/hypr.py:_first_mismatch`'s, with "the
         compositor" for the name this backend does not know."""
         by = {o.name: o for o in fresh}
         for t in targets:
@@ -1588,6 +1615,70 @@ SWAY_CREATED_BARE_NOTE = ("there was no user sway config and no %s either, so %s
                           "layout `include`; add your own sway settings there too\n")
 
 
+#: `--persistent`'s file half, said out loud on a session that is not the caller's: the layout is on the
+#: screen (the IPC apply crossed the uid boundary and landed) and the file is the half that did not happen.
+SWAY_PERSIST_OTHER_USER_NOTE = (
+    "--persistent: the layout was applied live and its file half was skipped: this sway session belongs to "
+    "uid %d and this command runs as uid %d, so the file would go into %s inside their home, which this "
+    "process does not write as root (a symlink planted there would be written through). Not yet; the route "
+    "is writing that half as the seated user (fork, setgid/setuid to uid %d, then the same write), at the "
+    "cost of a root-shell measurement on the rig. Until then run `wxrandr --persistent` as that user\n")
+
+
+def _socket_owner(path: "str | None") -> "int | None":
+    """`stat(2)`'s `st_uid` for a compositor IPC socket, or None when it cannot be asked.
+
+    Its own function so the two callers below share one answer and a test can patch it: a unit test's socket
+    lives in the test's own temp directory and is therefore owned by the test, which is precisely the uid the
+    cases about somebody ELSE's session need to move."""
+    if not path:
+        return None
+    try:
+        return os.stat(path).st_uid
+    except OSError:
+        return None
+
+
+def foreign_session_uid(sockpath: "str | None" = None) -> "int | None":
+    """The graphical session's uid when it is somebody ELSE's, else None.
+
+    Root over ssh and `sudo` are documented ways to drive these tools (docs/Technical.md section 12), and the
+    session scan in `w11common/session.py` finds the seated user's sway or Hyprland socket across uids -- so
+    the live apply lands on their session while `$HOME`, and with it `sway_config_dir()`, still names the
+    caller's.  The GNOME half of the same flag answers that by resolving the session owner's home
+    (`monitors_xml.default_path`, which takes a uid for this reason); the wlroots halves do not follow it
+    yet, because a plain write into another account's `~/.config` as root is written through whatever symlink
+    is waiting there -- the hazard `monitors_xml.keep_backup` had to close for the one such write we do make.
+    So this is the test that tells the two cases apart, and the callers say which half they skipped.
+
+    `sockpath` is the IPC socket the backend actually connected to, and when it is given it is the answer:
+    the owner of THAT file is by definition the session being driven.  `session.session_uid()` answers a
+    different question: it is `find_wayland_socket()` (w11common/session.py:392 and :218), the first
+    `wayland-*` in `runtime_dir_candidates()` order, while `find_sway_socket()` (:248) and
+    `find_hypr_socket()` (:290) walk those same candidates for a different file -- so the two can stop in
+    different uids' runtime dirs.  With uid 1000 seated on GNOME and uid 1001 running a headless sway, the
+    note would name 1000 and `~1000/.config/sway/w11-outputs.conf` for an apply landing on 1001's sway; the
+    mirror case, our own sway on a box somebody else is seated at, would skip a file half the caller was
+    entitled to write.
+    `session.session_uid()` stays as the fallback for when the socket cannot be stat'ed at all (it was
+    unlinked between connect and here, or a caller passed nothing), where a seated-session guess is still
+    better than none: the skip direction costs a note, never a cross-uid write."""
+    uid = _socket_owner(sockpath)
+    if uid is None:
+        uid = session.session_uid()
+    return uid if uid is not None and uid != os.geteuid() else None
+
+
+def _seated_config_path(uid: int, *parts) -> str:
+    """`~<uid>/.config/<parts>` -- the file the notes above NAME and do not write.
+
+    The home comes from the passwd database, not from the environment, which is the caller's; when there is
+    no passwd entry to ask (a minimal container) the note carries a `~<uid>` placeholder rather than a path
+    that would be wrong."""
+    from hacks.display.monitors_xml import home_of       # at call time: monitors_xml imports this module
+    return os.path.join(home_of(uid) or "~%d" % uid, ".config", *parts)
+
+
 def sway_config_dir() -> str:
     """Where sway looks for the user config: `$XDG_CONFIG_HOME/sway`, else `~/.config/sway`."""
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
@@ -1795,7 +1886,12 @@ class SwayBackend:
         `--persistent` writes the layout that just landed into `~/.config/sway/w11-outputs.conf` and makes
         sway's config `include` it, so it comes back at the next start (AGENTS.md route 2 -- see
         `persist_sway_layout`).  It is only about the next session: the running one already has the layout
-        from the two phases below, so no `swaymsg reload` is sent.
+        from the two phases below, so no `swaymsg reload` is sent.  On a session this process does not own --
+        root over ssh, or `sudo`, driving the seated user's sway, which the socket scan finds across uids --
+        that `~` is the caller's and not theirs, so the file half is skipped and named instead
+        (`SWAY_PERSIST_OTHER_USER_NOTE`); the live apply above has already landed either way.  Whose session
+        it is comes from the owner of the IPC socket these two phases were sent down, not from a second scan
+        that could stop at a different runtime dir -- see `foreign_session_uid`.
 
         On i3 nothing is sent at all: there is no `output` command to send it to, so the two phases could only
         produce i3's parse error twice over -- and the first phase would already have recorded the modes it
@@ -1805,7 +1901,12 @@ class SwayBackend:
             raise Fatal(I3_NO_APPLY)
         fresh = apply_sway(self.ipc, state, targets)
         if persistent:
-            persist_sway_layout(targets, fresh)
+            other = foreign_session_uid(self.ipc.sockpath)
+            if other is None:
+                persist_sway_layout(targets, fresh)
+            else:
+                warn(SWAY_PERSIST_OTHER_USER_NOTE
+                     % (other, os.geteuid(), _seated_config_path(other, "sway", SWAY_CONF_NAME), other))
         return fresh
 
     def close(self):

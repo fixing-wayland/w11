@@ -48,7 +48,7 @@ bus, never make a call, and cannot be affected by anything in this file.
 import math
 import time
 
-# org.gnome.Mutter.DisplayConfig.  `wxrandr/mutter.py` is the backend that speaks all
+# org.gnome.Mutter.DisplayConfig.  `hacks/display/mutter.py` is the backend that speaks all
 # of this API and it is NOT imported here: the single-file `wdotool` zipapp bundles
 # w11common and wdotool only (scripts/build-pyz.sh), so a wxrandr import would make this
 # work from the .deb and quietly not from the zipapp -- the worst shape a diagnostic can

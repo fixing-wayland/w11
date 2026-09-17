@@ -4,7 +4,7 @@ lying.
 wdotool's sway backend was hardened first (tests/test_wire_hardening.py:
 SwayWireGuards) and wxrandr's was not, although it speaks the same i3-ipc
 protocol on the same socket and is the one that applies layouts.  The two are
-separate code -- `wdotool/backend_sway.py` against `wxrandr/core.py`'s
+separate code -- `hacks/window/backend_sway.py` against `hacks/display/core.py`'s
 `SwayIPC` -- so nothing proved about one holds for the other, and this is the
 other.
 
@@ -49,7 +49,7 @@ import support
 from wxrandr import cli
 from hacks.display import core
 
-#: what `SwayIPC.__init__` arms the command socket with (wxrandr/core.py, a
+#: what `SwayIPC.__init__` arms the command socket with (hacks/display/core.py, a
 #: literal rather than a module constant -- wdotool's twin is
 #: `backend_sway.IPC_TIMEOUT` and is patchable).  A wedged sway is answered by
 #: this and by nothing else, so the tests below replace the class with one that

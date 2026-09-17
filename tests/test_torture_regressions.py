@@ -16,7 +16,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from w11common.errors import CmdError
 from support import RecorderDev
 from wdotool import cli, daemon, input_cmds
 from hacks.input import keymap, uinput
@@ -158,9 +157,14 @@ class TestKeyFailureExitCode(unittest.TestCase):
     xdo_send_keysequence_window)."""
 
     class _BadSeqDaemon:
-        def key(self, spec, direction, delay_ms, clearmods):
-            if "." in spec:
-                raise CmdError(f"Error: Invalid key sequence '{spec}'")
+        # The whole command is one `key_batch` request now, so a rejected sequence is an item in the
+        # reply rather than a raised CmdError: the daemon injects the sequences around it and the client
+        # still counts one failure per conversion pass.
+        def key_batch(self, specs, direction, delay_ms, repeat=1, repeat_delay_ms=0,
+                      clearmods=False):
+            return [{"spec": s, "error": f"Error: Invalid key sequence '{s}'"}
+                    if "." in s else {"spec": s, "warnings": []}
+                    for _ in range(repeat) for s in specs]
 
     def _ctx(self):
         ctx = Context()

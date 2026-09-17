@@ -44,7 +44,8 @@ wmirror --check               # can this session mirror at all, and what is miss
   corner. Use `wxrandr --query` to find output positions. `slurp` uses the same
   coordinate space but prints `x,y widthxheight`; convert that to the syntax above.
 
-* **`--scaling`** is passed straight through: `fit` letterboxes (default),
+* **`--scaling`** is passed straight through (the wl-mirror paths; the Cinnamon
+  path is placed 1:1, below): `fit` letterboxes (default),
   `cover` fills and crops the sides, and `exact` enlarges by whole-number factors
   (2×, 3×, …) or reduces by their reciprocals (½×, ⅓×, …), centering the result.
   Measured on a 1920x1080 → 1280x1024 pair, content box sampled from a
@@ -333,7 +334,19 @@ is not wired here, because muffin has no wlr output manager; the same watch
 would read `org.cinnamon.Muffin.DisplayConfig`. Start-time geometry is fully
 policed by `core.decide`; only the live re-check while it runs is owed. The
 in-compositor group is torn down by `--stop`, by `--replace`, and when the
-session bus goes away. *(Cinnamon measured on the rig, 2026-09-14.)*
+session bus goes away. And `--scaling`: the clone group is placed 1:1 at the
+target's origin and clipped to the region, so a mirror onto a differently-sized
+head is neither letterboxed nor filled; an explicit `--scaling`, `fit` included,
+is refused with the sentence `NO_SCALING` carries (`hacks/mirror/cinnamon.py`) —
+`cinnamon mirror: --scaling fit is not yet done on this path: the Clutter clone
+group is placed 1:1 at the target origin and clipped to the region, so fit, cover
+and exact are not applied here` — rather than accepted and not done. The route
+is rung 2 again — the same `Eval` program carrying a `set_scale` and a centring
+translation on the group — and the cost is a rig measurement
+(`resolute-cinnamon-wayland`, two different-sized heads, a screendump of the
+target) of what `clip_to_allocation` does under a scaled actor before it ships.
+`--list` prints `scaling 1:1` for such a mirror.
+*(Cinnamon measured on the rig, 2026-09-14.)*
 
 **X11**: `xrandr --output B --same-as A` mirrors whole outputs, and a region
 mirror is not written yet: it wants an X capture client of our own, XShm off

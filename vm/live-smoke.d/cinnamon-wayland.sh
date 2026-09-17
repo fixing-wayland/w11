@@ -198,7 +198,7 @@ cin_eval() {   # cin_eval <javascript> -- prints gdbus's `(true, '<json>')`
 # Is the window with stable sequence <n> shaded, as CINNAMON sees it?  The id is checked to be digits
 # before it goes anywhere near the script: the backend's own rule is that every interpolation into JS is
 # an integer formatted with %d and no string from the compositor or the user ever enters a program
-# (wdotool/cinnamon_js.py's landmine), and a helper here that broke it would be teaching the wrong thing.
+# (hacks/window/cinnamon_js.py's landmine), and a helper here that broke it would be teaching the wrong thing.
 cin_shaded() {   # cin_shaded <stable-sequence>
     case "$1" in ""|*[!0-9]*) echo "not-an-id"; return ;; esac
     cin_eval "String(global.display.list_windows(0).filter(w => w.get_stable_sequence() == $1)[0].is_shaded())" \
@@ -313,8 +313,8 @@ phase_wm() {
     # ...and the half that used to be missing.  Measured 2026-09-09 on this flavor: with is_shaded()
     # answering true, `wxprop -id 1 _NET_WM_STATE` printed `_NET_WM_STATE_FOCUSED` and nothing else,
     # while real xprop on a Cinnamon X11 session prints _NET_WM_STATE_SHADED there -- and X is the
-    # oracle.  The arm landed (wxprop/core.py's `shaded` key, the atom table and _NET_SUPPORTED;
-    # wdotool/backend_cinnamon.py reads the `shaded` field cinnamon_js.py:57 had been sending all
+    # oracle.  The arm landed (hacks/property/core.py's `shaded` key, the atom table and _NET_SUPPORTED;
+    # hacks/window/backend_cinnamon.py reads the `shaded` field cinnamon_js.py:57 had been sending all
     # along), and muffin's own set_net_wm_state puts SHADED FIRST, before SKIP_PAGER, which is where
     # this reads it.  The oracle has been read since, on this very flavor now that it has an X plane
     # (2026-09-12): an `xterm` shaded through `wwmctl` answers real `DISPLAY=:0 xprop -id 0x120000c
@@ -337,7 +337,7 @@ phase_wm() {
 
 # The layout half of phase_input.  Cinnamon keeps the live index in `org.cinnamon.desktop.input-sources`
 # `current` -- a plain 0-based index into `sources`, with no `mru-sources` head to reason about, which
-# is the difference from GNOME's reader -- and wdotool/xkbmap.py's CinnamonInputSources reads it through
+# is the difference from GNOME's reader -- and hacks/input/xkbmap.py's CinnamonInputSources reads it through
 # one Eval of Gio.Settings [recon2/cinnamon 2.2, 5].
 layout_phase() {
     # The original is recorded and put back at the end: `sources` is session state, the display, persistent
@@ -441,7 +441,7 @@ layout_phase() {
     local vk; vk=$(guest 'wdotool --vkbd on type -- x 2>&1' || true)
     want "--vkbd on says which protocol this compositor does not implement" \
          "does not implement zwp_virtual_keyboard_manager_v1" "$vk"
-    # wdotool/vkbd.py's parenthesis names Muffin on both sides now -- "(Mutter, KWin and Cinnamon's
+    # hacks/input/vkbd.py's parenthesis names Muffin on both sides now -- "(Mutter, KWin and Cinnamon's
     # Muffin 6.4 do not; sway, Hyprland, the wlroots family, COSMIC and Muffin 6.6+ do)" -- which is the
     # sentence a Cinnamon user needs: 6.4 has no zwp_virtual_keyboard_manager_v1 and 6.6 does.
     want "...and names Muffin in the clause that lists who does" "Muffin|Cinnamon" "$vk"
@@ -573,7 +573,7 @@ phase_persistent() {
     before=$(cmx_sum)
     note "cinnamon-monitors.xml before: ${before:-absent}"
     out=$(guest "wxrandr --output $second --below $first --persistent 2>&1") || st=$?
-    # Cinnamon's own sentence and not GNOME's: wxrandr/mutter.py:112 gives the MUFFIN flavour
+    # Cinnamon's own sentence and not GNOME's: hacks/display/mutter.py:112 gives the MUFFIN flavour
     # `keep_dialog="Keep these display settings?"`, quoted off usr/share/cinnamon/js/ui/windowManager.js,
     # where GNOME's is `Keep changes?`.  This line was gnome.sh's regex and it failed on the right answer
     # -- measured on the live session, 2026-09-09: `xrandr: Cinnamon will ask "Keep these display

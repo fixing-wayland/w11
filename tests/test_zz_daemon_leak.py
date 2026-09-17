@@ -36,7 +36,7 @@ from support import (compositor_pids, daemon_pids, daemon_runtime_dir,
 # not loaded, and it reaches every subprocess a test spawns.
 os.environ["W11_PASSTHROUGH"] = "never"
 
-#: the name `wxrandr/gamma.py` gives the anonymous file it ships the ramp in
+#: the name `hacks/display/gamma.py` gives the anonymous file it ships the ramp in
 #: (`os.memfd_create("wxrandr-gamma")`), which is what /proc/<pid>/fd calls it
 GAMMA_MEMFD = "memfd:wxrandr-gamma"
 
@@ -160,7 +160,7 @@ class NoDaemonIsLeftBehind(unittest.TestCase):
         itself (tests/test_wxrandr_gamma.py test_04, test_11).  Making the
         settled one visible needs a marker the scanner can read without an fd
         (a `WXRANDR_GAMMA_HOLDER=<output>` entry in the child's environ, or a
-        prctl name): that is a change to wxrandr/gamma.py, which no fix in this
+        prctl name): that is a change to hacks/display/gamma.py, which no fix in this
         batch's list covers, so it is proposed rather than made."""
         deadline = time.monotonic() + GRACE
         while True:

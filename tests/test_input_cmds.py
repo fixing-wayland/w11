@@ -65,9 +65,26 @@ class FakeDaemon:
         # What the daemon reports it was holding when clear_modifiers() is
         # called on its own -- the frozen API no command uses any more.
         self.held = list(held)
+        # The layout bounding box WITH its origin, and whether the daemon had to guess it. A test that
+        # cares about a non-zero/negative origin sets `box`; everything else gets the single 1920x1080 head
+        # the rest of this fake assumes.
+        self.box = (0, 0, 1920, 1080)
+        self.guessed = False
 
     def type_text(self, text, delay_ms, clearmods=False):
         self.calls.append(("type", text, delay_ms) + _cm(clearmods))
+
+    # The batch pair: one request per command, which is how the clear and the restore end up around the
+    # whole command instead of around its first piece. `key`/`type_text` above stay because the frozen
+    # API still has them and tests/test_layout_flag.py drives them.
+    def type_batch(self, texts, delay_ms, clearmods=False):
+        self.calls.append(("type_batch", list(texts), delay_ms) + _cm(clearmods))
+
+    def key_batch(self, specs, direction, delay_ms, repeat=1, repeat_delay_ms=0,
+                  clearmods=False):
+        self.calls.append(("key_batch", list(specs), direction, delay_ms, repeat,
+                           repeat_delay_ms, clearmods))
+        return [{"spec": s, "warnings": []} for _ in range(repeat) for s in specs]
 
     def clear_modifiers(self):
         self.calls.append(("clearmods",))
@@ -109,6 +126,9 @@ class FakeDaemon:
 
     def geometry_full(self):
         return (0, 0, 1920, 1080)
+
+    def geometry_box_status(self):
+        return self.box + (self.guessed,)
 
 
 
@@ -212,13 +232,14 @@ class TestKey(unittest.TestCase):
         ctx = make_ctx()
         n = input_cmds.cmd_key(ctx, ["ctrl+t"])
         self.assertEqual(n, 1)
-        self.assertEqual(ctx._daemon.calls, [("key", "ctrl+t", "press", 12, False)])
+        self.assertEqual(ctx._daemon.calls, [("key_batch", ["ctrl+t"], "press", 12, 1, 0, False)])
 
     def test_stops_at_next_command(self):
         ctx = make_ctx()
         n = input_cmds.cmd_key(ctx, ["ctrl+t", "BackSpace", "mousemove", "3", "4"])
         self.assertEqual(n, 2)
-        self.assertEqual([c[1] for c in ctx._daemon.calls], ["ctrl+t", "BackSpace"])
+        # one request, both sequences in it
+        self.assertEqual(ctx._daemon.calls[0][1], ["ctrl+t", "BackSpace"])
 
     def test_command_detection_case_insensitive(self):
         ctx = make_ctx()
@@ -229,20 +250,56 @@ class TestKey(unittest.TestCase):
         ctx = make_ctx()
         input_cmds.cmd_key(ctx, ["--clearmodifiers", "--delay", "5", "a", "b"])
         self.assertEqual(ctx._daemon.calls, [
-            ("key", "a", "press", 5, True),
-            ("key", "b", "press", 5, False),  # cleared once
+            # one clear around both sequences: cmd_key.c clears before the
+            # repeat loop and restores after it
+            ("key_batch", ["a", "b"], "press", 5, 1, 0, True),
         ])
 
     def test_repeat(self):
         ctx = make_ctx()
         n = input_cmds.cmd_key(ctx, ["--repeat", "3", "a"])
         self.assertEqual(n, 3)
-        self.assertEqual(len(ctx._daemon.calls), 3)
+        # the repeat count rides the one request, so the clear and the restore
+        # stay outside all three passes
+        self.assertEqual(len(ctx._daemon.calls), 1)
+        self.assertEqual(ctx._daemon.calls[0][4], 3)
+
+    def test_repeat_delay_travels_with_the_batch(self):
+        ctx = make_ctx()
+        input_cmds.cmd_key(ctx, ["--repeat", "2", "--repeat-delay", "7", "a"])
+        self.assertEqual(len(ctx._daemon.calls), 1)
+        self.assertEqual(ctx._daemon.calls[0][4], 2)
+        self.assertEqual(ctx._daemon.calls[0][5], 7)
 
     def test_invalid_repeat(self):
         ctx = make_ctx()
         with self.assertRaises(CmdError):
             input_cmds.cmd_key(ctx, ["--repeat", "0", "a"])
+
+    def test_a_negative_repeat_delay_is_clamped_rather_than_refused(self):
+        """`--repeat-delay` is a strtol both here and in cmd_key.c, so -5
+        parses; xdotool then guards its sleep with `repeat_delay > 0`, never
+        sleeps, and exits 0 (measured on Xvfb, 2026-09-16: `xdotool key
+        --repeat 1 --repeat-delay -5 a` prints nothing and exits 0). The value
+        crosses the socket now, and the daemon's [0, 300000] bound would turn
+        that into rc 1 with nothing injected, so the client sends the 0 the
+        old client's skipped sleep amounted to."""
+        ctx = make_ctx()
+        input_cmds.cmd_key(ctx, ["--repeat", "2", "--repeat-delay", "-5", "a"])
+        self.assertEqual(ctx._daemon.calls,
+                         [("key_batch", ["a"], "press", 12, 2, 0, False)])
+
+    def test_a_key_command_that_names_no_sequence_injects_nothing_and_succeeds(self):
+        """`wdotool key getdisplaygeometry`: the very next argument is a
+        command, so the key command has no sequences at all. Real xdotool
+        injects nothing, runs the next command and exits 0 (measured on Xvfb,
+        2026-09-16). The empty list must not reach the daemon, which answers a
+        batch naming nothing with {"ok": false} -- that would be rc 1 for a
+        command X accepts."""
+        ctx = make_ctx()
+        n = input_cmds.cmd_key(ctx, ["getdisplaygeometry"])
+        self.assertEqual(n, 0)
+        self.assertEqual(ctx._daemon.calls, [])
 
     def test_no_args(self):
         ctx = make_ctx()
@@ -253,7 +310,7 @@ class TestKey(unittest.TestCase):
         ctx = make_ctx([Window(id=42)])
         input_cmds.cmd_key(ctx, ["--window", "42", "a"])
         self.assertEqual(ctx._backend.activated, [42])
-        self.assertEqual(ctx._daemon.calls, [("key", "a", "press", 12, False)])
+        self.assertEqual(ctx._daemon.calls, [("key_batch", ["a"], "press", 12, 1, 0, False)])
 
     def test_stack_default_window(self):
         ctx = make_ctx([Window(id=7)])
@@ -270,10 +327,12 @@ class TestKey(unittest.TestCase):
     def test_invalid_sequence_aborts_chain(self):
         ctx = make_ctx()
 
-        def bad_key(spec, direction, delay_ms, clearmods):
-            raise CmdError(f"Error: Invalid key sequence '{spec}'")
+        def bad_key_batch(specs, direction, delay_ms, repeat=1, repeat_delay_ms=0,
+                          clearmods=False):
+            return [{"spec": s, "error": f"Error: Invalid key sequence '{s}'"}
+                    for _ in range(repeat) for s in specs]
 
-        ctx._daemon.key = bad_key
+        ctx._daemon.key_batch = bad_key_batch
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             with self.assertRaises(cli.ChainAbort) as cm:
@@ -294,10 +353,12 @@ class TestKey(unittest.TestCase):
     def test_invalid_sequence_keydown_single_pass(self):
         ctx = make_ctx()
 
-        def bad_key(spec, direction, delay_ms, clearmods):
-            raise CmdError(f"Error: Invalid key sequence '{spec}'")
+        def bad_key_batch(specs, direction, delay_ms, repeat=1, repeat_delay_ms=0,
+                          clearmods=False):
+            return [{"spec": s, "error": f"Error: Invalid key sequence '{s}'"}
+                    for _ in range(repeat) for s in specs]
 
-        ctx._daemon.key = bad_key
+        ctx._daemon.key_batch = bad_key_batch
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             with self.assertRaises(cli.ChainAbort) as cm:
@@ -310,6 +371,37 @@ class TestKey(unittest.TestCase):
             "xdo_send_keysequence_window reported an error for string 'ctrl-x'\n",
         )
 
+    def test_a_bad_item_prints_the_three_diagnostics_and_the_rest_are_still_sent(self):
+        """One rejected sequence in the middle of a command does not stop the
+        command: xdotool converts and injects each sequence in turn and only
+        sums the failures into the exit status at the end (B12). The batch is
+        still one request, so `a` and `c` were injected inside the same
+        clear/restore the bad one sat in."""
+        ctx = make_ctx()
+        real = ctx._daemon.key_batch
+
+        def one_bad(specs, direction, delay_ms, repeat=1, repeat_delay_ms=0,
+                    clearmods=False):
+            items = real(specs, direction, delay_ms, repeat, repeat_delay_ms, clearmods)
+            return [{"spec": it["spec"],
+                     "error": "Error: Invalid key sequence '%s'" % it["spec"]}
+                    if "." in it["spec"] else it
+                    for it in items]
+
+        ctx._daemon.key_batch = one_bad
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            with self.assertRaises(cli.ChainAbort) as cm:
+                input_cmds.cmd_key(ctx, ["a", "b.x", "c"])
+        self.assertEqual(cm.exception.code, 2)
+        self.assertEqual(ctx._daemon.calls,
+                         [("key_batch", ["a", "b.x", "c"], "press", 12, 1, 0, False)])
+        out = stderr.getvalue()
+        self.assertEqual(out.count("Error: Invalid key sequence 'b.x'"), 2)
+        self.assertEqual(out.count("Failure converting key sequence 'b.x' to keycodes"), 2)
+        self.assertEqual(
+            out.count("xdo_send_keysequence_window reported an error for string 'b.x'"), 1)
+
 
 
 class TestType(unittest.TestCase):
@@ -317,25 +409,25 @@ class TestType(unittest.TestCase):
         ctx = make_ctx()
         n = input_cmds.cmd_type(ctx, ["hello world"])
         self.assertEqual(n, 1)
-        self.assertEqual(ctx._daemon.calls, [("type", "hello world", 12)])
+        self.assertEqual(ctx._daemon.calls, [("type_batch", ["hello world"], 12)])
 
     def test_consumes_everything_even_command_names(self):
         ctx = make_ctx()
         n = input_cmds.cmd_type(ctx, ["hello", "key", "a"])
         self.assertEqual(n, 3)
-        self.assertEqual([c[1] for c in ctx._daemon.calls], ["hello", "key", "a"])
+        self.assertEqual(ctx._daemon.calls[0][1], ["hello", "key", "a"])
 
     def test_args_limit(self):
         ctx = make_ctx()
         n = input_cmds.cmd_type(ctx, ["--args", "1", "hello", "key", "a"])
         self.assertEqual(n, 3)  # 2 flag tokens + 1 typed arg
-        self.assertEqual([c[1] for c in ctx._daemon.calls], ["hello"])
+        self.assertEqual(ctx._daemon.calls[0][1], ["hello"])
 
     def test_terminator(self):
         ctx = make_ctx()
         n = input_cmds.cmd_type(ctx, ["--terminator", "END", "a", "b", "END", "key", "x"])
         self.assertEqual(n, 5)  # flags + a b + terminator
-        self.assertEqual([c[1] for c in ctx._daemon.calls], ["a", "b"])
+        self.assertEqual(ctx._daemon.calls[0][1], ["a", "b"])
 
     def test_args_and_terminator_conflict(self):
         ctx = make_ctx()
@@ -350,7 +442,7 @@ class TestType(unittest.TestCase):
         ctx = make_ctx()
         n = input_cmds.cmd_type(ctx, ["--file", path])
         self.assertEqual(n, 2)
-        self.assertEqual(ctx._daemon.calls, [("type", "line1\nline2\n", 12)])
+        self.assertEqual(ctx._daemon.calls, [("type_batch", ["line1\nline2\n"], 12)])
 
     def test_file_dash_reads_stdin(self):
         ctx = make_ctx()
@@ -361,7 +453,7 @@ class TestType(unittest.TestCase):
             sys.stdin = old
         self.assertEqual(n, 2)
         self.assertEqual(ctx._daemon.calls,
-                         [("type", "line1\nline2\n", 12)])
+                         [("type_batch", ["line1\nline2\n"], 12)])
 
     def test_file_dash_with_bytes_that_are_not_utf8(self):
         """`printf 'caf\\xe9' | wdotool type --file -` ended in a
@@ -376,7 +468,7 @@ class TestType(unittest.TestCase):
         finally:
             sys.stdin = old
         self.assertEqual(ctx._daemon.calls,
-                         [("type", "caf\ufffd \ufffd\n", 12)])
+                         [("type_batch", ["caf\ufffd \ufffd\n"], 12)])
 
     def test_file_dash_with_no_stdin_at_all(self):
         """`wdotool type --file - <&-`: fd 0 closed before the
@@ -388,12 +480,23 @@ class TestType(unittest.TestCase):
             input_cmds.cmd_type(ctx, ["--file", "-"])
         finally:
             sys.stdin = old
-        self.assertEqual(ctx._daemon.calls, [("type", "", 12)])
+        self.assertEqual(ctx._daemon.calls, [("type_batch", [""], 12)])
 
     def test_missing_file(self):
         ctx = make_ctx()
         with self.assertRaises(CmdError):
             input_cmds.cmd_type(ctx, ["--file", "/nonexistent/x"])
+
+    def test_a_type_command_that_collects_nothing_injects_nothing_and_succeeds(self):
+        """The terminator is the first argument, so the loop over `remaining`
+        breaks before appending anything. `xdotool type --terminator END END
+        getdisplaygeometry` types nothing, runs the next command and exits 0
+        (measured on Xvfb, 2026-09-16); sending the empty batch would get
+        `invalid texts: [] (expected a non-empty list)` and rc 1."""
+        ctx = make_ctx()
+        n = input_cmds.cmd_type(ctx, ["--terminator", "END", "END", "getdisplaygeometry"])
+        self.assertEqual(n, 3)   # `--terminator`, its value and the terminator itself; the command is next
+        self.assertEqual(ctx._daemon.calls, [])
 
     def test_no_args(self):
         ctx = make_ctx()
@@ -408,12 +511,12 @@ class TestType(unittest.TestCase):
         ctx = make_ctx(held=[29])
         input_cmds.cmd_type(ctx, ["--clearmodifiers", "hi"])
         self.assertEqual(ctx._daemon.calls,
-                         [("type", "hi", 12, "+clearmods")])
+                         [("type_batch", ["hi"], 12, "+clearmods")])
 
     def test_without_the_flag_nothing_is_cleared(self):
         ctx = make_ctx(held=[29])
         input_cmds.cmd_type(ctx, ["hi"])
-        self.assertEqual(ctx._daemon.calls, [("type", "hi", 12)])
+        self.assertEqual(ctx._daemon.calls, [("type_batch", ["hi"], 12)])
 
     def test_no_stack_default(self):
         # unlike `key`, `type` ignores the window stack (cmd_type.c)
@@ -442,6 +545,9 @@ class RealTypingDaemon:
     def type_text(self, text, delay_ms, clearmods=False):
         self.warnings += self.d.op_type(text, delay_ms, clearmods, None, None, "off")
 
+    def type_batch(self, texts, delay_ms, clearmods=False):
+        self.warnings += self.d.op_type_batch(list(texts), delay_ms, clearmods, None, None, "off")
+
     def pressed(self):
         return [code for kind, code, value in self.d.kb.events if kind == "KEY" and value == 1]
 
@@ -459,7 +565,7 @@ class KeybitProbe(uinput.UinputDevice):
 
 def kernel_keyboard_keybits():
     """The keycodes `wdotool`'s kernel keyboard registers. Every accepted code must be registered or the
-    kernel drops the event silently (wdotool/uinput.py:160, its own comment)."""
+    kernel drops the event silently (hacks/input/uinput.py:160, its own comment)."""
     real, uinput.UinputDevice = uinput.UinputDevice, KeybitProbe
     try:
         uinput.keyboard()
@@ -498,13 +604,13 @@ class TypingACharacterOnlyTheUploadedKeymapBinds(unittest.TestCase):
 
     def test_the_kernel_device_registers_every_code_the_character_table_can_ask_for(self):
         """`uinput.keyboard()` registers keybits 1..255 plus every code the uploaded keymap binds above them
-        (wdotool/uinput.py:160) and the kernel silently drops an event on a code that was not registered, so
-        PLUS-MINUS (118) arrives on this sink and EUR (435) does not: `wdotool type EUR` on a plain `us`
+        (hacks/input/uinput.py:160) and the kernel silently drops an event on a code that was not registered,
+        so PLUS-MINUS (118) arrives on this sink and EUR (435) does not: `wdotool type EUR` on a plain `us`
         session with /dev/uinput -- which is what `--vkbd auto`, the default, picks -- presses a key nobody
         is listening for. Route 4, the kernel device we already create: register the UPLOADED_EXTRA_KEYS
         codes too, at the cost of one UI_SET_KEYBIT each and one measurement nobody has made (evdev 435
         through /dev/uinput into a native window on a `us` session). Filed in goal2/requests-batch-2.md
-        against wdotool/uinput.py, which batch 2 does not own; when it lands this test passes unexpectedly
+        against hacks/input/uinput.py, which batch 2 does not own; when it lands this test passes unexpectedly
         and the decorator comes off."""
         bits = kernel_keyboard_keybits()
         self.assertIn(118, bits)
@@ -727,6 +833,38 @@ class TestBehaveScreenEdge(unittest.TestCase):
         with self.assertRaises(CmdError) as cm:
             input_cmds.cmd_behave_screen_edge(ctx, ["left"])
         self.assertIn("Invalid number of arguments", str(cm.exception))
+
+    def test_the_edge_box_keeps_the_layout_origin(self):
+        # The pointer samples the machine is fed are global layout coordinates, so the box has to be the
+        # daemon's whole bounding box, origin and all.  Two heads at (-1920,0) and (0,0): the right edge is
+        # x==1919 and the left one x==-1920, which an origin-less (0, 0, 3840, 1080) box gets wrong twice.
+        ctx = make_ctx()
+        ctx._daemon.box = (-1920, 0, 3840, 1080)
+        self.assertEqual(input_cmds._screen_box(ctx), (-1920, 0, 3840, 1080))
+
+    def test_a_guessed_geometry_asks_the_backend_at_origin_zero(self):
+        # The daemon answered with its built-in guess, so the rung below it is asked -- and `display_size()`
+        # is a size with no origin in it, so the box stays anchored at 0 rather than inventing one.
+        class SizedBackend(FakeBackend):
+            def display_size(self):
+                return (3840, 1080)
+
+        ctx = make_ctx()
+        ctx._daemon.box = (-1920, 0, 3840, 1080)
+        ctx._daemon.guessed = True
+        ctx._backend = SizedBackend()
+        self.assertEqual(input_cmds._screen_box(ctx), (0, 0, 3840, 1080))
+
+    def test_no_answer_anywhere_is_xdotools_1920x1080(self):
+        # No daemon and a backend that cannot say either: xdotool's last resort, and still no warning (an edge
+        # on the wrong box is still an edge).
+        class NoDaemon(FakeDaemon):
+            def geometry_box_status(self):
+                raise CmdError("no daemon")
+
+        ctx = make_ctx()
+        ctx._daemon = NoDaemon()
+        self.assertEqual(input_cmds._screen_box(ctx), (0, 0, 1920, 1080))
 
 
 
@@ -993,7 +1131,7 @@ class TestClearModifiersIsOneRequest(unittest.TestCase):
     across the restore."""
 
     CASES = [
-        ("cmd_type", ["--clearmodifiers", "hi"], ("type", "hi", 12, "+clearmods")),
+        ("cmd_type", ["--clearmodifiers", "hi"], ("type_batch", ["hi"], 12, "+clearmods")),
         ("cmd_click", ["--clearmodifiers", "1"], ("click", 1, 1, 100, "+clearmods")),
         ("cmd_mousedown", ["--clearmodifiers", "1"], ("button", 1, True, "+clearmods")),
         ("cmd_mouseup", ["--clearmodifiers", "1"], ("button", 1, False, "+clearmods")),

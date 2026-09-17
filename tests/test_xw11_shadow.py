@@ -401,7 +401,7 @@ class Diff(RegistryCase):
 
     def test_a_state_change_names_the_field_that_moved(self):
         """Batch 5 maps the field onto a property atom through wxprop's own
-        tables (`_NATIVE_EVENT_PROPS`, wxprop/core.py:1031)."""
+        tables (`_NATIVE_EVENT_PROPS`, hacks/property/core.py:1031)."""
         self.backend.views_[0] = fake_view(self.a, fullscreen=True)
         changes = self.shadows.refresh()
         self.assertEqual([c.kind for c in changes], [shadow_mod.PROPS])

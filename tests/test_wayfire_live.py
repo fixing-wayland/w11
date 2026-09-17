@@ -412,7 +412,7 @@ class WayfireLive(unittest.TestCase):
     # -- the keyboard layout ------------------------------------------------
 
     def test_50_the_layout_group_is_known_and_not_guessed(self):
-        """`WayfireLayouts` (wdotool/xkbmap.py, batch 10) is what makes this pass.
+        """`WayfireLayouts` (hacks/input/xkbmap.py, batch 10) is what makes this pass.
 
         Wayfire sends no `wl_keyboard.modifiers` before focus, so with `xkb_layout = us,de` the group is
         inferred -- `group= 1 known= False` [M recon2/wayfire.md §2.7]. Harmless on the virtual-keyboard path

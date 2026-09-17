@@ -159,9 +159,11 @@ minus four that stand behind that table rather than in it: the two `stonking-*` 
 `*-gnome-iso` ones, which are the default-install check rather than a desktop of their own. That
 leaves 21 images under the matrix, which is the number the README's own sentence carries.
 
-The 13 Fedora, Arch and NixOS flavors have no golden in CI yet: `scripts/ci-golden.sh` has no
-fetch rule for them, so every one of their jobs on run 34340513060 ended before the smoke
-started.
+The 13 Fedora, Arch and NixOS flavors had no golden in CI on run 34340513060 —
+`scripts/ci-golden.sh` had no fetch rule for them — so every one of their jobs on that run ended
+before the smoke started. The rules landed (ci-golden.sh fetches the Fedora and Arch cloud
+images and builds the NixOS golden with `vm/build-nixos-golden.sh`) and run 34688228778 ran all
+38.
 
 A flavor is one `vm/flavors/<flavor>.yaml`, a cloud-config whose comments carry the headers
 every rig script reads with the same `sed -n 's/^#[[:space:]]*vmctl-<key>:...` idiom:
@@ -1018,9 +1020,9 @@ stayed expected-failures:
 | `noble-kde-x11`, `noble-xfce`, `resolute-kde-x11`, `resolute-xfce` | 19 pass, 0 fail | 1 | 69–116 s |
 | `arch-hypr`, `arch-sway`, `fedora44-gnome`, `fedora44-sway`, `nixos-sway` | no smoke ran | — | — |
 
-The five that ran nothing are the five non-Ubuntu push flavors: `scripts/ci-golden.sh` has no
-fetch rule for a Fedora, Arch or NixOS golden yet, so every one of those jobs ended before the
-smoke started. That is the one thing this table is waiting on.
+The five that ran nothing on that run were the five non-Ubuntu push flavors, for the same
+missing fetch rule; run 34688228778 has since run every one of the 38, and the per-tool table
+below — `arch-river`, `arch-cosmic` and `fedora44-cosmic` among its rows — is what they do.
 
 **Three flavors were also measured by hand on this host on 2026-09-09**, over the working tree
 rather than the released package, and those numbers are here because two of the fixes they

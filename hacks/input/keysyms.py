@@ -5,13 +5,13 @@ include/X11/XF86keysym.h (XF86XK_Foo -> name 'XF86Foo'; _EVDEVK(v)
 keysyms are 0x10081000 + evdev keycode v).
 Regenerate with the script quoted below (network needed only then):
 
-    """Generate wdotool/keysyms.py from X11 keysym headers. Run:
+    """Generate hacks/input/keysyms.py from X11 keysym headers. Run:
 
         curl -fsSL -o keysymdef.h \
           'https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/raw/master/include/X11/keysymdef.h?inline=false'
         curl -fsSL -o XF86keysym.h \
           'https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/raw/master/include/X11/XF86keysym.h?inline=false'
-        python3 gen_keysyms.py keysymdef.h XF86keysym.h > wdotool/keysyms.py
+        python3 gen_keysyms.py keysymdef.h XF86keysym.h > hacks/input/keysyms.py
     """
 
     import re

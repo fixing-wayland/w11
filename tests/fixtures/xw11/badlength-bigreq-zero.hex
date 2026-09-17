@@ -1,0 +1,11 @@
+# Measured 2026-09-16 against Xvfb 2:21.1.22-1ubuntu1 on :95 from a raw socket
+# (scripts/xw11-probe-bigreq.py). Xwayland was NOT measured.
+# Same shape as its two siblings -- setup, QueryExtension, Enable, then the probe
+# as request 3 -- but line 1 is a big-form GetProperty claiming ZERO words, which
+# is block (b) of the probe's output.
+# There is no line 2, and that is the measurement: the server sent NOTHING and
+# closed the connection. The read came back zero bytes, no BadLength, no error
+# of any kind, and the four NoOperations and the GetInputFocus behind the probe
+# went nowhere. A zero there is the one big form the server will not answer for,
+# which is why xw11/wire.py answers BAD_LENGTH_CLOSE rather than BAD_LENGTH.
+1400000000000000

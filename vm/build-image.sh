@@ -1024,7 +1024,7 @@ plugins = autostart command cube expo fast-switcher fisheye grid idle invert mov
           wrot zoom ipc ipc-rules stipc
 xwayland = true
 
-# Two groups, so `wdotool/xkbmap.py:WayfireLayouts` (U07) is reachable at all.  With one
+# Two groups, so `hacks/input/xkbmap.py:WayfireLayouts` (U07) is reachable at all.  With one
 # xkb_layout the compositor's keymap has one group, `choose_group()` is CERTAIN and `fetch()`
 # never asks any desktop reader -- measured 2026-09-08 against wayfire 0.10.0-1, the package
 # this flavor installs: `wdotool keys explain --chars z` answered `layout: English (US) --

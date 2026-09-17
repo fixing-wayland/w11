@@ -168,7 +168,7 @@ class TheBannedSentences(unittest.TestCase):
         reload rewrite says "deliberately", which is the same fact in a word the
         grep never stops on.
 
-        It was eight until 2026-09-09: wxrandr/core.py's `_container` docstring
+        It was eight until 2026-09-09: hacks/display/core.py's `_container` docstring
         said the state file was "hand-editable by design", which is our own
         design and honest -- and still the one line of the eight that a reader
         grepping the tree for the banned phrase would have to stop and judge.

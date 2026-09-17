@@ -265,7 +265,7 @@ def motion_notify(event, root, child=0, root_x=0, root_y=0, event_x=0,
 
 #: A backend field name that moved -> the property names that changed with it,
 #: in the order the X plane would emit them. `wxprop`'s own tables
-#: (`_NATIVE_EVENT_PROPS`/`_VIEW_EVENT_PROPS`, wxprop/core.py:1031-1052) keyed
+#: (`_NATIVE_EVENT_PROPS`/`_VIEW_EVENT_PROPS`, hacks/property/core.py:1031-1052) keyed
 #: by the compositor's event vocabulary; `Shadows._update` hands over the FIELD
 #: names it diffed instead (`recon/seams.md 4`, requests-batch-2.md item 7), so
 #: the same mapping is written here against those. The `_NET_WM_STATE` crowd is

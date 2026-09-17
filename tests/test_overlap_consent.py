@@ -499,9 +499,9 @@ class ADifferentBuild(ConsentCase):
         of that changes" -- and withdrawing an agreement after acting on it is
         not stopping.
 
-        wxrandr/gnome_overlap.py:834-849 plus `_overlap_client` in
-        wxrandr/mutter.py is where the extra Probe goes; the same Probe is what
-        `--gnome-overlap-status` should be answering from.
+        `load_consent` in hacks/display/gnome_overlap.py plus `_overlap_client`
+        in hacks/display/mutter.py is where the extra Probe goes; the same Probe
+        is what `--gnome-overlap-status` should be answering from.
         """
         self.record(shell="50.1", libmutter=18, libmutter_build="a" * 40)
         self.mock.overlap.build_id = "b" * 40
@@ -773,11 +773,11 @@ class Quiet(ConsentCase):
 
         The reply is `FakeOverlap.saved_config_moved`, the shape
         extension.js:1100-1108 really produces: `applied: true`, `ok: false`, no
-        `check`, no `reason`.  Before wxrandr/mutter.py:851 grew `and not
-        reply.get("applied")` this went down the refusal path, so an agreed run
-        printed "refused (?): no reason given", skipped `applied_text()`
-        entirely and never reached `consent_drift()` -- an agreement left
-        standing for a build it had just stopped matching.
+        `check`, no `reason`.  Before `apply_overlap` in hacks/display/mutter.py
+        grew `and not reply.get("applied")` this went down the refusal path, so
+        an agreed run printed "refused (?): no reason given", skipped
+        `applied_text()` entirely and never reached `consent_drift()` -- an
+        agreement left standing for a build it had just stopped matching.
 
         The build the extension reports is the build that was agreed to, so the
         audit finds nothing and the agreement survives; that it *ran* is proved

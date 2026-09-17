@@ -1,12 +1,13 @@
 // w11-overlap -- put two GNOME monitors on top of each other.
 //
 // THIS IS NOT THE BRIDGE.  `w11-bridge@w11` is plain
-// feature-detected JavaScript against public APIs and works on six Shell
-// versions; it is what wdotool, wwmctl and wxprop need and it is safe to leave
-// installed for ever.  This extension is a different kind of thing: it ships a
-// compiled type description pinned to a *private* structure layout inside
-// libmutter, and it writes into gnome-shell's own heap.  A wrong layout is a
-// dead compositor, and on Wayland a dead compositor is the whole session.
+// feature-detected JavaScript against public APIs and works on every Shell
+// major its metadata.json lists; it is what wdotool, wwmctl and wxprop need and
+// it is safe to leave installed for ever.  This extension is a different kind
+// of thing: it ships a compiled type description pinned to a *private*
+// structure layout inside libmutter, and it writes into gnome-shell's own
+// heap.  A wrong layout is a dead compositor, and on Wayland a dead compositor
+// is the whole session.
 //
 // Three rules hold it together.  See docs/Technical.md section 6.
 //
@@ -807,7 +808,7 @@ class Guarded {
             found: this.found || null,
             // The size the struct-size check just read out of this build's GType
             // registry.  It is in the answer because the caller records an
-            // agreement against it (wxrandr/gnome_overlap.py): what was agreed to
+            // agreement against it (hacks/display/gnome_overlap.py): what was agreed to
             // has to be what was measured, not a number typed anywhere else.
             instance_size: this.instanceSize,
             // The build of libmutter every check above ran against, so that an

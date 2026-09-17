@@ -25,8 +25,8 @@ and the bytes are named wherever a number is.
   installing `w11`, since both own some of the same files. For Nix, replace the old
   flake input. The version remains 0.4.0.
 
-- **Hyprland gets a first-class backend on both sides.** `wdotool/backend_hypr.py` and
-  `wxrandr/hypr.py` speak Hyprland's own request socket, one connection per request,
+- **Hyprland gets a first-class backend on both sides.** `hacks/window/backend_hypr.py` and
+  `hacks/display/hypr.py` speak Hyprland's own request socket, one connection per request,
   where the generic wlroots backend had reported the whole output as every window's
   rectangle, pid 0 and desktop -1. Window ids are a hash of the compositor's `address`,
   so they no longer move when another window closes; `getwindowgeometry`, `windowmove`
@@ -52,7 +52,7 @@ and the bytes are named wherever a number is.
   `~/.config/cinnamon-monitors.xml` behind Cinnamon's own *Keep these display settings?*
   dialog, and that dialog has now been answered live over Eval.
 - **A COSMIC backend, and the generic wlroots backend made honest.** cosmic-comp publishes no
-  `zwlr_foreign_toplevel_manager_v1` at all, so `wdotool/backend_cosmic.py` drives the
+  `zwlr_foreign_toplevel_manager_v1` at all, so `hacks/window/backend_cosmic.py` drives the
   COSMIC toplevel protocols instead: real workspaces, ids minted from the 32-character
   `identifier`, and activate/close/maximize/minimize/fullscreen gated on the manager's
   own capability array. On the generic wlr backend the four geometry refusals stopped
@@ -224,7 +224,47 @@ and the bytes are named wherever a number is.
   not ship, and `wxrandr` itself needs no change. A native (non-XWayland) toplevel's real
   rectangle on the bare wlr floor stays the one surviving geometry **not yet**, route 1, a
   foreign-toplevel protocol that carries a rect — none exists yet.
-- **5578 tests**, up from 4146, the new ones being the four new window and display
+- **A review of the wave, and the thirteen things it changed under a user's hands.**
+  `--clearmodifiers` is cleared once around the whole `key`/`type` command and restored once
+  at the end, which is what xdotool's `cmd_key.c` and `cmd_type.c` do; repetitions 2..N of a
+  `--repeat` and every argument after the first used to arrive with the modifier back on.
+  Carrying a whole command in one request put the repeat loop in the daemon, where the
+  terminal's Ctrl-C does not reach it, so the batch asks the client's socket between items
+  and stops when the client has gone — `key --repeat 100 --repeat-delay 1000 a` interrupted
+  after a second no longer types for another 99 with the injection lock held, and the
+  modifiers still come back. `--repeat` therefore keeps xdotool's absence of any ceiling; a
+  negative `--repeat-delay` is clamped to the no-sleep `cmd_key.c` makes of it rather than
+  refused, and only the 300000 ms delay bound `--delay` has always had is a difference, now a
+  row in `docs/WDOTOOL.md`'s what-differs table. A `key` or `type` command that names nothing
+  to inject — `key getdisplaygeometry`, `type --terminator END END` — is the silent rc 0 it is
+  under X again, instead of the empty-batch refusal the new request shape briefly made it.
+  `U<hex>` keysym spellings resolve the way libX11's `XStringToKeysym` resolves them, and a
+  keycode written with non-ASCII digits is refused rather than read as a number. `wxprop
+  -root -spy` runs on the wlr, COSMIC and Cinnamon backends and not on sway alone. On
+  Hyprland, `remove` of the state that is *not* standing is a no-op: fullscreen and maximized
+  share one tri-state field there, so removing one used to clear the other and move focus for
+  what the caller asked to be nothing. The `monitors.xml` snapshot and its backup follow no
+  symlink out of the directory they are written in, the state lock waits a bounded 1.0 s and
+  checks the file it locked is the one it opened, and `wxrandr --persistent` run as root
+  against somebody else's sway or Hyprland session applies the layout live and says which
+  file half it skipped — writing inside another account's home is a **not yet** whose route is
+  dropping to the seated user's uid for that write, at the cost of a root-shell measurement on
+  the rig. `wmirror` on Cinnamon refuses an explicit `--scaling` instead of silently placing
+  the clone 1:1, a **not yet** whose route is a `set_scale` and a centring translation in the
+  same `org.Cinnamon.Eval` program (route 2), at the cost of one rig measurement of
+  `clip_to_allocation` under a scaled actor. `xw11` bounds a BIG-REQUESTS length by the
+  ceiling the server advertised rather than by the protocol maximum, and reproduces Xvfb's
+  own answers to the short and zero big forms (three fixtures, cut by
+  `scripts/xw11-probe-bigreq.py`); a `ChangeProperty` with a mode the protocol does not
+  define is dropped instead of forwarded. `wxrandr --scale-from 0x0` refuses with xrandr's
+  own line, `behave_screen_edge` fires on a layout whose origin is not 0,0, and warandr's
+  parser lost a branch that could never be reached. The documents caught up too: GNOME 49 is
+  in the overlap tables and prose, the repository URL is the one the tree moved to, the labwc
+  and COSMIC geometry rows carry the footnote that explains them, and 199 citations of the
+  pre-`hacks/` module layout across 96 files now name files that exist, with
+  `tests/test_cited_paths.py` standing over them so the next rename cannot do it again
+  quietly. The `.deb` in `release/` is rebuilt from all of it.
+- **5689 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and

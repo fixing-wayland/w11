@@ -139,7 +139,7 @@ class Lifetime(unittest.TestCase):
 
     def test_start_writes_a_kind_token_record_with_no_pid(self):
         recs = {}
-        err = cinnamon.start(recs, "A", "B", (0, 0, 800, 600), "fit", _Out("B", x=1280))
+        err = cinnamon.start(recs, "A", "B", (0, 0, 800, 600), _Out("B", x=1280))
         self.assertIsNone(err)
         rec = recs["B"]
         self.assertEqual(rec["kind"], "cinnamon")
@@ -148,17 +148,20 @@ class Lifetime(unittest.TestCase):
         self.assertEqual(rec["region"], [0, 0, 800, 600])
         self.assertNotIn("pid", rec)
         self.assertNotIn("helper_pid", rec)
+        # and no scaling mode: nothing on this path scales, so there is none to write down -- a `"scaling":
+        # "fit"` here is what made `--list` claim a letterbox the Clutter group never did.
+        self.assertNotIn("scaling", rec)
 
     def test_start_places_the_group_at_the_target_origin(self):
         recs = {}
-        cinnamon.start(recs, "A", "B", (0, 0, 800, 600), "fit", _Out("B", x=1280, y=40))
+        cinnamon.start(recs, "A", "B", (0, 0, 800, 600), _Out("B", x=1280, y=40))
         built = [s for s in FakeEval.scripts if "global.__w11m[tok]={grp" in s]
         self.assertEqual(len(built), 1)
         self.assertIn("TX=1280,TY=40", built[0])
 
     def test_alive_then_stop_then_not_alive(self):
         recs = {}
-        cinnamon.start(recs, "A", "B", (0, 0, 800, 600), "fit", _Out("B", x=1280))
+        cinnamon.start(recs, "A", "B", (0, 0, 800, 600), _Out("B", x=1280))
         rec = recs["B"]
         self.assertTrue(cinnamon.alive(rec))
         self.assertTrue(cinnamon.stop_record(rec))
@@ -167,8 +170,8 @@ class Lifetime(unittest.TestCase):
 
     def test_reap_drops_a_mirror_the_compositor_has_dropped(self):
         recs = {}
-        cinnamon.start(recs, "A", "B", (0, 0, 800, 600), "fit", _Out("B", x=1280))
-        cinnamon.start(recs, "A", "C", (0, 0, 800, 600), "fit", _Out("C", x=1280))
+        cinnamon.start(recs, "A", "B", (0, 0, 800, 600), _Out("B", x=1280))
+        cinnamon.start(recs, "A", "C", (0, 0, 800, 600), _Out("C", x=1280))
         FakeEval.live.discard(recs["B"]["token"])          # muffin dropped B (a restart, a closed head)
         self.assertTrue(cinnamon.reap(recs))
         self.assertNotIn("B", recs)
@@ -182,11 +185,17 @@ class Lifetime(unittest.TestCase):
             self.assertFalse(cinnamon.reap({"B": {"pid": 1, "helper_pid": 2}}))
 
     def test_fmt_record_names_the_route_and_token_not_a_pid(self):
+        # the `"scaling": "fit"` key is what a record written while this path still recorded a scaling mode
+        # looks like: it is ignored, not printed back, because the line has to say what the mirror does
+        # (1:1, clipped) and not what was once asked for. The column itself stays, so the line keeps the
+        # wl-mirror line's shape.
         rec = {"kind": "cinnamon", "source": "A", "region": [0, 0, 800, 600],
                "scaling": "fit", "token": 5, "route": cinnamon.ROUTE}
         line = cinnamon.fmt_record("B", rec)
         self.assertIn("B <- A", line)
         self.assertIn("region 800x600+0+0", line)
+        self.assertIn("scaling 1:1", line)
+        self.assertNotIn("scaling fit", line)
         self.assertIn("tok 5", line)
         self.assertIn("Eval", line)
         self.assertNotIn("wl-mirror", line)
@@ -264,6 +273,32 @@ class Cli(unittest.TestCase):
         self.assertEqual(rc, 0, e)
         self.assertIn("B <- A", o)
         self.assertIn("tok 1", o)
+
+    def test_an_explicit_scaling_is_refused_on_this_path(self):
+        """The Clutter group is placed 1:1 at the target origin and clipped, so fit/cover/exact are not
+        applied here. An explicit --scaling is refused with its route and its cost -- not recorded and then
+        quietly dropped, which is what made a `--list` line claim a letterbox that never happened."""
+        for mode in ("cover", "fit"):
+            with self.subTest(mode=mode):
+                FakeEval.live, FakeEval.seq, FakeEval.scripts = set(), 0, []
+                rc, o, e = self.run_cli(["A", "--to", "B", "--region", "800x600+0+0", "--scaling", mode])
+                self.assertEqual(rc, 1)
+                self.assertIn("--scaling %s" % mode, e)
+                self.assertIn("not yet done on this path", e)
+                self.assertIn("AGENTS.md route 2", e)
+                self.assertEqual(FakeEval.scripts, [])         # nothing was built inside muffin
+                self.assertEqual(FakeEval.live, set())
+                self.assertEqual(core.records(core.load_state()), {})
+                self.assertEqual(o, "")
+
+    def test_an_explicit_scaling_is_refused_before_the_dry_run_prints_a_program(self):
+        """--dry-run is not a way past it: the program it would print is the 1:1 one, so printing it under
+        `--scaling cover` would be the same claim in another voice."""
+        rc, o, e = self.run_cli(["A", "--to", "B", "--region", "800x600+0+0",
+                                 "--scaling", "cover", "--dry-run"])
+        self.assertEqual(rc, 1)
+        self.assertIn("not yet done on this path", e)
+        self.assertNotIn("org.Cinnamon.Eval:", o)
 
     def test_list_reaps_a_mirror_the_compositor_dropped(self):
         self.run_cli(["A", "--to", "B", "--region", "800x600+0+0"])

@@ -509,7 +509,7 @@ class ShadowPropertySet(ReadCase):
         self.assertEqual(self.atom("STRING"), 31)
 
     def test_wm_name_is_utf8_only_when_latin1_will_not_hold_it(self):
-        """wxprop's `_p_string` rule (wxprop/core.py:408): typing UTF-8 bytes
+        """wxprop's `_p_string` rule (hacks/property/core.py:408): typing UTF-8 bytes
         as STRING makes xprop print mojibake, and a title that fits latin-1
         stays STRING, which is what the Xwayland twin's real WM_NAME carries."""
         got = self.props_named(self.shadow())
@@ -781,7 +781,7 @@ class DesktopGeometryAndNames(ReadCase):
 
     def test_the_geometry_is_display_size(self):
         """`wwmctl -d` prints its `DG:` column from `display_size()`
-        (wwmctl/core.py:780) and the parity target is the clone's bytes."""
+        (hacks/window/wmctl.py:780) and the parity target is the clone's bytes."""
         pkt, body = self.get_property(self.root, "_NET_DESKTOP_GEOMETRY")
         self.assertEqual(pkt[1], 32)
         self.assertEqual(struct.unpack("<2I", bytes(body)[:8]), (1280, 720))
@@ -1217,7 +1217,7 @@ class ViewLessStates(ReadCase):
     carries -- and leaves `_NET_WM_STATE_FULLSCREEN` and `_STICKY` unbracketed,
     which is to say on every backend. The source for those two on a view-less
     backend is the tree node the registry already holds for the xid pairing
-    (`Shadows._read`), read the way `wxprop` reads it (wxprop/core.py:544,
+    (`Shadows._read`), read the way `wxprop` reads it (hacks/property/core.py:544,
     554). Without it the proxy printed `_NET_WM_STATE(ATOM) =` for a foot sway
     had fullscreened while `wxprop` printed `_NET_WM_STATE_FULLSCREEN` for the
     same window [M 2026-09-10, headless sway on this box].

@@ -6,7 +6,7 @@ underneath -- `dbus_mini.Bus.fileno()` and `WlConn.sock` -- but sway, Hyprland
 and Wayfire open a second socket *inside* the generator and close it on exit,
 and whether a `WlConn` survives a `select()` between `dispatch()` calls is
 untested [recon/seams.md 0.3, 10.1]. So the shape is the one `wxprop` already
-uses for exactly this (`spy_merged_root`, wxprop/core.py:1154): a daemon thread
+uses for exactly this (`spy_merged_root`, hacks/property/core.py:1154): a daemon thread
 steps the generator, puts a token on a deque under a lock and writes **one
 byte** to a pipe the loop is selecting on.
 

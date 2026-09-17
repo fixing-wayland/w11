@@ -8,8 +8,8 @@
 # other Ubuntu cloud flavor already uses -- and it is the only one where three things are
 # measured at all:
 #
-#   * the two Hyprland backends (wdotool/backend_hypr.py over the compositor's own IPC socket,
-#     wxrandr/hypr.py over `keyword monitor`) against the wlroots FLOOR they replaced.  On the
+#   * the two Hyprland backends (hacks/window/backend_hypr.py over the compositor's own IPC socket,
+#     hacks/display/hypr.py over `keyword monitor`) against the wlroots FLOOR they replaced.  On the
 #     floor, measured here on 0.53.3: `wwmctl -lGpx` printed the whole output as every window's
 #     geometry with pid 0 and desktop -1, `wwmctl -d` failed outright, ids moved when a window
 #     closed, and `windowminimize` was accepted and did nothing [recon2/hyprland 3];

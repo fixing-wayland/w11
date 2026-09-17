@@ -24,7 +24,7 @@ Two things the token list deliberately does *not* match, because our own
 code says them to claim the opposite and that claim should stay greppable:
 the bare word "portal" (`wmirror` names the portal in the message that
 explains why it refuses to mirror on GNOME and KDE) and the bare word
-"polkit" (`wdotool/backend_kwin.py` and `wxrandr/` note that KWin scripting
+"polkit" (`hacks/window/backend_kwin.py` and `wxrandr/` note that KWin scripting
 and `kde_output_management_v2` have no polkit action behind them).
 
 **One portal interface is exempt, by name, and only one.**
@@ -32,7 +32,7 @@ and `kde_output_management_v2` have no polkit action behind them).
 no consent step at all: it is what every GTK and Qt application calls at
 start-up for the colour scheme, it is answered without a permission check,
 and there is no allow/deny record for it in the portal's permission store.
-`wdotool/xkbmap.py` calls its `ReadAll` on GNOME to learn which keyboard
+`hacks/input/xkbmap.py` calls its `ReadAll` on GNOME to learn which keyboard
 layout is active, because Mutter will not tell an unfocused client and dconf
 publishes no read method on the bus (`ca.desrt.dconf` has `Init`, `Change`
 and `Notify` and nothing else). Measured on GNOME 46.0 and 50.1, with the
@@ -63,9 +63,9 @@ os.environ["W11_PASSTHROUGH"] = "never"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Everything that runs on a user's machine as one of our commands: the six
-# tools, and the package they all share.
+# tools, the proxy the four X wrappers start, and the packages they all share.
 PACKAGES = ("w11common", "wdotool", "wwmctl", "wxprop", "wxrandr", "warandr",
-            "wmirror", "hacks")
+            "wmirror", "hacks", "xw11")
 
 # The other half of what a user installs: the GNOME Shell extension and the
 # script that installs it and the udev rule. The extension runs inside
@@ -89,7 +89,7 @@ FORBIDDEN = (
 # under `org.freedesktop.portal` -- including a bare mention that names no
 # interface -- is a hit. (The interface names that prompt are caught by
 # that pattern where they are called; as bare words they are left alone,
-# like "portal" and "polkit" above -- `wxrandr/kwin.py` names screencast
+# like "portal" and "polkit" above -- `hacks/display/kwin.py` names screencast
 # in a comment about what KWin blacklists.)
 PORTAL = r"org\.freedesktop\.portal(?!\.(?:Settings|Desktop)\b)"
 

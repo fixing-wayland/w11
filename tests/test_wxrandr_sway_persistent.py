@@ -59,6 +59,13 @@ class Base(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.xdg, "HOME": self.home})
         patcher.start()
         self.addCleanup(patcher.stop)
+        # The session is ours unless a test below says otherwise.  `session_uid()` scans /run/user/* and
+        # logind, so on a host seated by a DIFFERENT account -- a builder, a shared machine, the rig's own
+        # session under a service user -- `SwayBackend.apply` would take the skip branch and every file
+        # assertion in this file would be about a file nothing wrote.
+        uidp = mock.patch.object(core.session, "session_uid", return_value=os.geteuid())
+        uidp.start()
+        self.addCleanup(uidp.stop)
 
     def persist(self, targets, fresh):
         """Run the file half and return its stderr (the warnings `warn()` emits)."""
@@ -227,6 +234,7 @@ class ThroughTheBackend(Base):
     def apply(self, persistent):
         srv = support.FakeSway("ok", outputs=self.OUTPUTS)
         self.addCleanup(srv.close)
+        self.srv = srv          # the request log, for the cases that ask what the compositor was sent
         ipc = core.SwayIPC(srv.path)
         backend = core.SwayBackend(ipc)
         self.addCleanup(backend.close)
@@ -248,6 +256,137 @@ class ThroughTheBackend(Base):
         self.apply(persistent=False)
         self.assertFalse(os.path.exists(self.rules), "no --persistent, no file")
         self.assertFalse(os.path.exists(self.conf), "and no include")
+
+
+class SomebodyElsesSession(Base):
+    """`sudo wxrandr --persistent` against the SEATED user's sway: the live apply lands and the file half
+    does not happen.
+
+    Root over ssh and `sudo` are documented ways to drive this tool (docs/Technical.md section 12) and
+    `w11common/session.py`'s socket scan finds sway across uids, so the IPC half crosses the boundary and
+    works.  `$HOME` does not cross it: it is still the caller's, so the file the old code wrote was
+    /root/.config/sway/w11-outputs.conf -- a file that sway, running as uid 1000, has never opened -- and
+    the run said the layout was saved.  Now the file half is skipped and the note names the path it would
+    have needed, whose uid owns it, and what writing it would take.
+
+    Writing into their `~/.config` as root is the deferred half: a plain write there follows a symlink
+    planted in it, which is the hazard `monitors_xml.keep_backup` closes for the one such write we do make.
+
+    Whose session it is is read off the owner of the IPC socket the apply was sent down, so what these cases
+    move is that owner and not `session_uid()`; `TheOwnerOfTheSocket` below is the same question without a
+    patched stat in the way.
+    """
+
+    #: the same double and the same one-output apply as `ThroughTheBackend`; what differs is who owns the
+    #: IPC socket the apply is sent down
+    OUTPUTS = ThroughTheBackend.OUTPUTS
+    apply = ThroughTheBackend.apply
+
+    def setUp(self):
+        super().setUp()
+        # Whose session it is comes from the owner of the sway IPC socket these phases were sent down
+        # (`core.foreign_session_uid`), and a unit test's socket sits in the test's own temp directory, so
+        # it is owned by the test and no non-root process can chown it elsewhere.  What moves instead is the
+        # stat, which `core._socket_owner` exists to be the single site of.  Base's `session_uid` patch is
+        # deliberately left in place saying `os.geteuid()`: every case below is then also the assertion that
+        # the socket outranks the seated-session scan, which is the whole of what changed here.
+        ownp = mock.patch.object(core, "_socket_owner", return_value=os.geteuid() + 1)
+        ownp.start()
+        self.addCleanup(ownp.stop)
+
+    def test_the_file_half_is_skipped_with_a_note(self):
+        err = self.apply(persistent=True)
+        self.assertFalse(os.path.exists(self.rules), "nothing is written into the caller's own home")
+        self.assertFalse(os.path.exists(self.conf), "and no config is created there either")
+        self.assertIn("belongs to uid %d and this command runs as uid %d" % (os.geteuid() + 1, os.geteuid()),
+                      err)
+        self.assertIn("/.config/sway/w11-outputs.conf", err)
+        self.assertIn("run `wxrandr --persistent` as that user", err)
+        self.assertNotIn("AGENTS", err, "the user is owed the route, not our own file names")
+
+    def test_the_live_apply_still_lands(self):
+        """The half that DOES cross the boundary is untouched: the same `output` command reaches sway."""
+        self.apply(persistent=True)
+        sent = [body for _mtype, body in self.srv.requests if body.startswith("output ")]
+        self.assertTrue(sent, "the layout was never applied")
+        self.assertTrue(any("Virtual-2" in body for body in sent), sent)
+
+    def test_without_persistent_there_is_no_note(self):
+        """The flag is what asks for the file; a run that did not ask is not told about one."""
+        err = self.apply(persistent=False)
+        self.assertNotIn("belongs to uid", err)
+        self.assertFalse(os.path.exists(self.rules))
+
+    def test_the_socket_owner_decides_it_and_not_the_seated_scan(self):
+        """The test the two branches hang off, both ways round -- and against a `session_uid()` that
+        disagrees, because the two are different searches over the same runtime dirs.
+
+        `session.session_uid()` (w11common/session.py:392) is `find_wayland_socket()` (:218), the first
+        `wayland-*` in `runtime_dir_candidates()` order; `find_sway_socket()` (:248) walks the very same
+        candidates for `sway-ipc.*.sock`.  With uid 1000 seated on GNOME and uid 1001 running a
+        headless sway they stop in different directories, so the scan would name 1000's home for a file half
+        belonging to 1001's sway -- and the mirror case, our own sway on a box somebody else is seated at,
+        would skip a write the caller was entitled to make."""
+        self.assertEqual(core.foreign_session_uid("/run/user/1001/sway-ipc.1001.42.sock"), os.geteuid() + 1,
+                         "Base's session_uid() says the session is ours; the socket says otherwise and wins")
+        with mock.patch.object(core, "_socket_owner", return_value=os.geteuid()):
+            with mock.patch.object(core.session, "session_uid", return_value=os.geteuid() + 1):
+                self.assertIsNone(core.foreign_session_uid("/run/user/1000/sway-ipc.1000.7.sock"),
+                                  "the sway we are driving is our own, so its file half is ours to write")
+
+    def test_the_seated_path_is_named_from_passwd(self):
+        """The path in the note comes from the passwd database, not from `$HOME` -- which is exactly the
+        variable that is wrong here -- and when there is no passwd entry to ask (a minimal container) it
+        degrades to `~<uid>` rather than to a path that would be a lie."""
+        with mock.patch("hacks.display.monitors_xml.home_of", return_value="/home/seated"):
+            self.assertEqual(core._seated_config_path(4242, "sway", "w11-outputs.conf"),
+                             "/home/seated/.config/sway/w11-outputs.conf")
+        with mock.patch("hacks.display.monitors_xml.home_of", return_value=None):
+            self.assertEqual(core._seated_config_path(4242, "sway", "w11-outputs.conf"),
+                             "~4242/.config/sway/w11-outputs.conf")
+
+
+class TheOwnerOfTheSocket(Base):
+    """`foreign_session_uid` against real files: the socket the backend connected to is the session.
+
+    No patched `os.stat` here -- the paths are files this process made, so the uid the code reads is the one
+    the kernel reports.  Only the direction that needs a uid we cannot create (somebody ELSE's socket) is
+    patched, and that lives in `SomebodyElsesSession` above."""
+
+    #: the same double and the same one-output apply as `ThroughTheBackend`, for the case that asks which
+    #: path the backend hands over
+    OUTPUTS = ThroughTheBackend.OUTPUTS
+    apply = ThroughTheBackend.apply
+
+    def test_a_socket_this_process_owns_is_not_a_foreign_session(self):
+        """Even when the seated-session scan points at another account: root running its own sway on a box
+        uid 1000 is seated at used to skip a file half it was entitled to write."""
+        path = os.path.join(self.home, "sway-ipc.%d.1.sock" % os.geteuid())
+        open(path, "wb").close()
+        self.assertEqual(core._socket_owner(path), os.geteuid())
+        with mock.patch.object(core.session, "session_uid", return_value=os.geteuid() + 1):
+            self.assertIsNone(core.foreign_session_uid(path))
+
+    def test_a_socket_that_cannot_be_stat_ed_falls_back_to_the_scan(self):
+        """The socket was unlinked between connect and here, or a caller passed nothing: a seated-session
+        guess is better than none, and its only cost in the wrong direction is a note nobody needed."""
+        gone = os.path.join(self.home, "sway-ipc.gone.sock")
+        self.assertIsNone(core._socket_owner(gone))
+        self.assertIsNone(core._socket_owner(None))
+        with mock.patch.object(core.session, "session_uid", return_value=os.geteuid() + 1):
+            self.assertEqual(core.foreign_session_uid(gone), os.geteuid() + 1)
+            self.assertEqual(core.foreign_session_uid(), os.geteuid() + 1, "no socket at all: same answer")
+        with mock.patch.object(core.session, "session_uid", return_value=None):
+            self.assertIsNone(core.foreign_session_uid(gone),
+                              "no graphical session found is not a foreign one")
+
+    def test_the_backend_asks_about_the_socket_it_is_driving(self):
+        """Not some other one: the argument `SwayBackend.apply` hands over is its own `ipc.sockpath`."""
+        seen = []
+        with mock.patch.object(core, "_socket_owner", side_effect=lambda p: seen.append(p)) as owner:
+            self.apply(persistent=True)
+        self.assertTrue(owner.called, "the socket was never consulted")
+        self.assertEqual(seen, [self.srv.path])
 
 
 if __name__ == "__main__":

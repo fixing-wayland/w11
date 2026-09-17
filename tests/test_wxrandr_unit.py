@@ -1051,27 +1051,27 @@ class StateFile(unittest.TestCase):
         self.assertEqual((done.returncode, done.stdout), (0, b"saved\n"))
         self.assertIn("HDMI-1", State("k", path=path).gamma())
 
-    @unittest.expectedFailure
     def test_save_is_bounded_when_another_process_holds_the_lock(self):
-        """T49; no fix number covers it, so it is written to fail.
+        """T49, now the fix: `State.save()` asks for the lock with `LOCK_NB`
+        and retries until `core.LOCK_TIMEOUT` (1 s) has passed, then writes
+        without it -- a lock we cannot get is not a reason to refuse, which is
+        the sentence `hacks/mirror/core.py`'s `state_lock` already carries for
+        the same file.
 
-        `State.save()` takes `LOCK_EX` on `<state>.lock` with a plain
-        `fcntl.flock`, which has no deadline: another process holding that lock
-        stops this one for as long as it holds it, with nothing printed and
-        nothing to interrupt but the command itself.  The lock is on a file in
-        the runtime directory, which with no `$XDG_RUNTIME_DIR` -- every `sudo`
-        run, and cron -- is a private directory or, failing that, shared /tmp
-        under a guessable name, so the holder need not be a wxrandr at all.
+        Before it, the plain `fcntl.flock(fd, LOCK_EX)` here had no deadline:
+        another process holding that lock stopped this one for as long as it
+        held it, with nothing printed and nothing to interrupt but the command
+        itself.  The lock is on a file in the runtime directory, which with no
+        `$XDG_RUNTIME_DIR` -- every `sudo` run, and cron -- is a private
+        directory or, failing that, shared /tmp under a guessable name, so the
+        holder need not be a wxrandr at all.  Every other wait in this tree is
+        bounded (sway IPC 10 s, Mutter's MonitorsChanged 5 s, KWin's apply
+        10 s, the gamma holder's start 10 s) and the state file is a cache that
+        is never load-bearing.
 
-        Every other wait in this tree is bounded (sway IPC 10 s, Mutter's
-        MonitorsChanged 5 s, KWin's apply 10 s, the gamma holder's start 10 s)
-        and the state file is a cache that is never load-bearing: the failure
-        this asks for is `LOCK_NB` with a retry and then carrying on without
-        the lock, exactly as an unopenable lock file is already handled two
-        lines further down.
-
-        The wait is 3 s and the saver is killed at the deadline, so this cannot
-        hang the suite -- it can only fail."""
+        The wait here is 3 s, which covers the 1 s bound plus an interpreter
+        start, and the saver is killed at the deadline, so this cannot hang the
+        suite."""
         path = self._tmp()
         self._lock_holder(path + ".lock")
         started = time.monotonic()
@@ -1081,6 +1081,33 @@ class StateFile(unittest.TestCase):
             self.fail("State.save() was still waiting for the lock after %.1fs"
                       % (time.monotonic() - started))
         self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_a_lock_file_that_is_not_ours_is_not_taken(self):
+        """The other half: the lock fd is `fstat`ed and believed only when it
+        is a regular file this euid owns -- the test `_read_state` already
+        applies to the state file itself.
+
+        The 0o600 on the `os.open` is the mode of a file WE create; an existing
+        one is opened with whatever mode and owner it already has, and in the
+        /tmp fallback the name is guessable, so the file another local user
+        planted there is the one that would be flocked -- and a wait on their
+        file ends when they say so.  Here the euid is made to differ from the
+        owner and the save goes ahead unlocked: `flock` is not called at all,
+        the holder below is never waited on, and the state is still written.
+        What is on disk is not read back here, because under the same patched
+        euid `_read_state` would refuse our own file and answer `{}`."""
+        path = self._tmp()
+        st = State("k", path=path)
+        st.gamma()["HDMI-1"] = {"pid": 1, "start": "?"}
+        self._lock_holder(path + ".lock")
+        with mock.patch("hacks.display.core.os.geteuid", return_value=os.geteuid() + 1), \
+                mock.patch("hacks.display.core.fcntl.flock") as flock:
+            started = time.monotonic()
+            st.save()
+            waited = time.monotonic() - started
+        self.assertLess(waited, 1.0, "the planted lock was waited on")
+        self.assertEqual(flock.mock_calls, [], "a lock file that is not ours was flocked")
+        self.assertTrue(os.path.exists(path), "the state was not written")
 
     def test_corrupt_custom_mode_returns_none(self):
         st = mk_state()

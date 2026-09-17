@@ -50,8 +50,11 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--region", metavar="WxH+X+Y",
                    help="capture WIDTHxHEIGHT+X+Y within SOURCE; X and Y are "
                         "measured from the desktop origin, as in wxrandr --query")
+    # default=None, not core.DEFAULT_SCALING: the wl-mirror path resolves it back to the default before it
+    # builds the argv or the record (nothing there changes), and the Cinnamon path needs to tell "the user
+    # asked for fit" from "the user asked for nothing", because it cannot scale at all -- cinnamon.NO_SCALING.
     p.add_argument("--scaling", choices=core.SCALINGS,
-                   default=core.DEFAULT_SCALING,
+                   default=None,
                    help="resize the captured image: fit "
                         "(letterbox, default), cover (fill and crop), exact "
                         "(enlarge by 2x, 3x, etc. or reduce to 1/2, 1/3, etc.)")
@@ -292,6 +295,14 @@ def _start_cinnamon_locked(args, source, target, region, outputs) -> int:
     # A whole-output mirror onto a differently-sized head is a clone of the source's full rectangle; a --region
     # is that rectangle. Either way the Clutter group is clipped to a layout rectangle.
     eff_region = region if region is not None else src.rect()
+    # Nothing on this path scales (the group is placed 1:1 at dst and clipped), so an explicit --scaling is
+    # refused with its route and its cost rather than stored and ignored. Before the dry run too: a --dry-run
+    # that printed the program would be printing a program that does not do what the flag asked for.
+    if args.scaling is not None:
+        if changed:
+            state.save()                  # the reap, if it found anything -- as on every other refusal here
+        _err(cinnamon.NO_SCALING % args.scaling)
+        return 1
     if args.dry_run:
         if changed:
             state.save()
@@ -300,7 +311,7 @@ def _start_cinnamon_locked(args, source, target, region, outputs) -> int:
     if target in recs:                       # --replace, and it is going
         _stop_any(recs.pop(target))
 
-    err = cinnamon.start(recs, source, target, eff_region, args.scaling, dst)
+    err = cinnamon.start(recs, source, target, eff_region, dst)
     state.save()
     if err:
         _err(err)
@@ -335,7 +346,10 @@ def _start_locked(args, source, target, region, outputs, helper) -> int:
         _err(decision.lines)
         return 0 if decision.verdict == core.DONE else 1
 
-    argv = core.build_argv(source, target, region, args.scaling, helper)
+    # the flag's default lives here now (see parser()); wl-mirror's argv and the record are byte-identical to
+    # what they were when argparse carried it.
+    scaling = args.scaling or core.DEFAULT_SCALING
+    argv = core.build_argv(source, target, region, scaling, helper)
     if args.dry_run:
         if changed:
             state.save()
@@ -348,7 +362,7 @@ def _start_locked(args, source, target, region, outputs, helper) -> int:
     src = core.by_name(outputs, source)
     try:
         err = supervise.start(recs, source, target, argv, region=region,
-                              scaling=args.scaling,
+                              scaling=scaling,
                               wayland_socket=hit[2] if hit else None,
                               src_rect=src.rect() if src else None)
     finally:

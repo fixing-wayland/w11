@@ -499,13 +499,38 @@ class TheImagesThemselves(unittest.TestCase):
 
     def test_every_image_takes_the_same_node(self):
         """tests/test_bridge_js.py runs the bridge's JavaScript under node, and
-        one version across three images is one behaviour to explain."""
-        versions = set()
+        one version across three images is one behaviour to explain.
+
+        One DIGEST across the three as well, checked before the tarball is
+        unpacked.  Everything else this tree downloads is pinned -- ci.yml's
+        `plan` step pins every base image by sha256 digest, vm/flavors/*.yaml
+        carry `# vmctl-base-sha256:` / `# vmctl-iso-sha256:` and
+        scripts/ci-golden.sh:108-115 verifies them, and ci-golden.sh even
+        fetches the Arch image's published `.SHA256` -- while node came out of
+        a `curl ... | tar -xJ -C /opt` as root with nothing verifying the
+        bytes, in the image that then runs the whole unit matrix, the deb build
+        and the release tests.  The pipe is the other half of the assertion:
+        with `| tar` there is no file to check a digest against, so the shape
+        has to be download, `sha256sum -c -`, then unpack."""
+        versions, digests = set(), set()
         for distro in DISTROS:
-            m = re.search(r"^ARG NODE=(\S+)$", dockerfile(distro), re.M)
+            text = dockerfile(distro)
+            m = re.search(r"^ARG NODE=(\S+)$", text, re.M)
             self.assertIsNotNone(m, distro)
             versions.add(m.group(1))
+            d = re.search(r"^ARG NODE_SHA256=([0-9a-f]{64})$", text, re.M)
+            self.assertIsNotNone(d, distro)
+            digests.add(d.group(1))
+            run = [ln for ln in text.splitlines()
+                   if ln.startswith("RUN ") and "nodejs.org/dist" in ln]
+            self.assertEqual(len(run), 1, distro)
+            stanza = text.split(run[0], 1)[1].split("\nRUN ", 1)[0]
+            with self.subTest(distro):
+                self.assertIn("sha256sum -c", stanza)
+                self.assertNotIn("| tar", run[0])
+                self.assertNotIn("|tar", run[0])
         self.assertEqual(len(versions), 1, versions)
+        self.assertEqual(len(digests), 1, digests)
 
     def test_the_two_foreign_images_can_sudo_as_ci(self):
         """scripts/build-rpm.sh dnf-installs what it is missing and makepkg

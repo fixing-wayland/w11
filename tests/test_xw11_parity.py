@@ -449,20 +449,20 @@ class NativeParity(unittest.TestCase):
         """Row 36, measured.
 
         `DG:` is `display_size()` on both sides -- the clone prints it from
-        `wwmctl/core.py:780` and the proxy publishes `_NET_DESKTOP_GEOMETRY`
+        `hacks/window/wmctl.py:780` and the proxy publishes `_NET_DESKTOP_GEOMETRY`
         from the same call, which is why that name is in the root set at all.
 
         * `VP:` AGREES, and the agreement is a property: the proxy publishes
           `_NET_DESKTOP_VIEWPORT` as one `0,0` pair per desktop
           (xw11/shadow.py:root_props) so real wmctrl's `[2i]` indexing prints
-          `0,0` on every row, and `wwmctl/core.py:803` prints `0,0` on every
+          `0,0` on every row, and `hacks/window/wmctl.py:803` prints `0,0` on every
           row when there is nothing to read -- both are what an X WM with
           viewports prints [M 2026-09-11, this box, headless sway with two
           workspaces; before the property existed the original printed
           `VP: N/A` on every row against the clone's `0,0` on the current one].
         * `WA:` is the one column that still differs from what X would print
           on both routes at once: both print `N/A`, because nobody publishes
-          `_NET_WORKAREA` and `wwmctl/core.py:800` has no workarea to print.
+          `_NET_WORKAREA` and `hacks/window/wmctl.py:800` has no workarea to print.
           Not yet: one more root property off the usable area the backend can
           name (rung 2 on sway, `get_workspaces`/`get_outputs` over the IPC
           socket the registry already holds, minus the layer-shell exclusive
@@ -532,7 +532,7 @@ class NativeParity(unittest.TestCase):
         no `views()` to read a state off at all.
 
         `wxprop` reads it off the tree node (`fullscreen_mode`,
-        wxprop/core.py:544) and so does the registry, through the same
+        hacks/property/core.py:544) and so does the registry, through the same
         `_nodes()` walk it pairs xids with. Measured before it did: the clone
         printed `_NET_WM_STATE(ATOM) = _NET_WM_STATE_FULLSCREEN` and the proxy
         printed `_NET_WM_STATE(ATOM) =` for the same fullscreened foot

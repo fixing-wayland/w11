@@ -34,7 +34,8 @@
 #                         download` -- how this is tested with no run in hand
 #   RIG_REC_OUT=<dir>     where the fixtures are written (default tests/fixtures/live)
 #   RIG_REC_NYR=<file>    the NOT-YET-RUN to edit (default tests/fixtures/live/NOT-YET-RUN)
-#   RIG_REC_WORK=<dir>    the scratch directory (default a mktemp -d)
+#   RIG_REC_WORK=<dir>    the scratch directory, which is then kept (the default is a
+#                         mktemp -d removed at exit; pass this one to read <flavor>.replay)
 #   RIG_REC_GH_REPO=o/r   the repository to download from (default: the origin remote)
 #
 # Exit status is 1 when ANY flavor had a problem and 0 when every one asked for was
@@ -52,7 +53,21 @@ RUN=$1; shift
 LIVEFIX=$REPO/tests/fixtures/live
 OUT=${RIG_REC_OUT:-$LIVEFIX}
 NYR=${RIG_REC_NYR:-$LIVEFIX/NOT-YET-RUN}
-WORK=${RIG_REC_WORK:-$(mktemp -d -t rig-recordings-XXXXXX)}
+# The scratch directory goes only when this script made it -- the same
+# only-what-we-created shape as `sway_rt_made` in scripts/parity-oracle.sh.  Each flavor
+# pulls a whole `live-smoke-<flavor>` artifact into $WORK (the log, the capture and every
+# per-phase screenshot of every head), and nothing ever removed it: a harvest over all 38
+# flavors left one /tmp/rig-recordings-XXXXXX per invocation, and ten of them, 2.1 GB,
+# were sitting on the author's box on 2026-09-16.  A harvest run to DEBUG is run with
+# RIG_REC_WORK=<dir>, which the trap leaves alone -- that is how `$WORK/<flavor>.replay`
+# and `<flavor>.misses` survive the run for reading afterwards.
+work_made=""
+if [ -n "${RIG_REC_WORK:-}" ]; then
+    WORK=$RIG_REC_WORK
+else
+    WORK=$(mktemp -d -t rig-recordings-XXXXXX); work_made=$WORK
+fi
+trap '[ -n "$work_made" ] && rm -rf "$work_made" || :' EXIT
 # `|| true`: a failed command substitution inside a ${X:-$(...)} default aborts
 # under `set -euo pipefail` even though the value would just be empty -- and the
 # nix sandbox copies the source with no .git, so `git config` here exits 128

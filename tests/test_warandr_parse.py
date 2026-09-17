@@ -198,6 +198,36 @@ class ScreenLine(unittest.TestCase):
                      "DP-1\n")
 
 
+class NoCurrentRate(unittest.TestCase):
+    """An active output whose mode table carries no ``*``.  Real xrandr always
+    stars the running mode (the repo's own Xvfb capture above prints
+    ``0.00*``), but a hand-written or truncated listing need not, and the
+    parser derives nothing from the header on its own: ``ParsedOutput.current``
+    (xrandr_parse.py:98) reads the ``*`` flag and nothing else.  The gap is
+    filled one level up, by ``Layout.from_screen`` (model.py:172-183), and
+    tests/test_warandr_model.py pins which mode it picks."""
+
+    TEXT = ("Screen 0: minimum 16 x 16, current 1280 x 720, "
+            "maximum 32767 x 32767\n"
+            "VGA-0 connected 1280x720+0+0 (normal left inverted right x axis "
+            "y axis) 338mm x 190mm\n"
+            "   1280x720      60.00\n")
+
+    def test_active_but_no_current_mode(self):
+        s = xp.parse(self.TEXT)
+        (o,) = s.outputs
+        self.assertTrue(o.connected and o.active)
+        self.assertEqual((o.w, o.h, o.x, o.y), (1280, 720, 0, 0))
+        self.assertEqual(o.current, (None, None))
+        (m,) = o.modes
+        self.assertEqual((m.name, m.w, m.h), ("1280x720", 1280, 720))
+        self.assertFalse(m.rates[0].current)
+
+    def test_the_model_still_lands_on_a_mode(self):
+        lay = Layout.from_screen(xp.parse(self.TEXT))
+        self.assertEqual(lay.get("VGA-0").mode.name, "1280x720")
+
+
 class XvfbCapture(unittest.TestCase):
     def test_query(self):
         s = xp.parse(XVFB_QUERY)

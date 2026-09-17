@@ -23,7 +23,7 @@ Four facts shape every line below, and all four are measured:
   as 0x010020ac])`, then `FakeInput KeyPress detail=8`, then two restores
   [M recon/tools/caps/plain.jsonl MARK 20-21; recon/seams.md 5.3's xtrace]. The
   daemon speaks the compositor's layout and `keymap.resolve_token("8")` is
-  evdev code 0, a key that does not exist [wdotool/keymap.py:345-354]. So the
+  evdev code 0, a key that does not exist [hacks/input/keymap.py:345-354]. So the
   keycode is resolved to a KEYSYM here, and the daemon is handed the keysym's
   NAME.
 * **names, not hex.** `resolve_token("0xffe3", None)` answers "key '0xffe3' is
@@ -101,7 +101,7 @@ DAEMON_LINGER = 60.0
 DAEMON_RETRY = 5.0
 
 #: The daemon's warning for a key the active layout cannot reach
-#: [wdotool/keymap.py:333, 344]. Matched as a substring, because the sentence
+#: [hacks/input/keymap.py:333, 344]. Matched as a substring, because the sentence
 #: names the token and the layout: "key '0x010020ac' is not reachable on the US
 #: layout. Ignoring it."
 UNREACHABLE = "is not reachable on the"
@@ -152,7 +152,7 @@ def spec_for(keysym: int) -> str:
 
     The NAME when there is one, because `resolve_token` sends a name through
     `keysym_to_key`, where `KEYSYM_KEYS` answers `Control_L`, `Return`, `F5`
-    and `KP_7` on every layout [wdotool/keymap.py:304-320], and the raw
+    and `KP_7` on every layout [hacks/input/keymap.py:304-320], and the raw
     `0x<hex>` path goes through `_keysym_value_to_key`, which has no row for
     any modifier keysym: measured on this box, `resolve_token("0xffe3", None)`
     is "not reachable" while `resolve_token("Control_L", None)` is `(29,
@@ -166,7 +166,7 @@ def spec_for(keysym: int) -> str:
 def codepoint(keysym: int):
     """The character a keysym names, or None. Latin-1 keysyms are their own
     codepoint and the `0x01000000 | codepoint` space is Unicode's
-    [wdotool/keymap.py:268-302]; those two are the shapes xdotool plants into a
+    [hacks/input/keymap.py:268-302]; those two are the shapes xdotool plants into a
     spare keycode [recon/tools.md 4.6]."""
     if 0x20 <= keysym <= 0xFF:
         return keysym
@@ -305,7 +305,7 @@ class ProxyDaemon(daemon_mod.DaemonClient):
         """One `key` op, answering the warnings it produced. The daemon returns
         them in the response and raises nothing for a key it could not reach --
         `parse_keyseq` warns and skips, which is xdotool's own behaviour
-        [wdotool/keymap.py:360] -- so the warning IS the answer."""
+        [hacks/input/keymap.py:360] -- so the warning IS the answer."""
         self.key(spec, direction, 0, False)
         return list(self.warnings)
 
@@ -906,7 +906,7 @@ def pointer_for(server, conn):
 def child_under(server, x, y) -> int:
     """The shadow under a point, over the merged list -- `backend.hit_test`,
     the one rule every backend and `getmouselocation` already share
-    (wdotool/backend.py:159). 0 when no native toplevel is there, which leaves
+    (hacks/window/backend.py:159). 0 when no native toplevel is there, which leaves
     an X window's own id in place on an EDIT."""
     shadows = server.shadows
     if shadows is None:

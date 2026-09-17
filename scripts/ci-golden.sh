@@ -178,7 +178,21 @@ fi
 say "built in $(( ($(date +%s) - t0) / 60 )) min"
 
 # -- flatten + compress, so the cached file stands alone ------------------------------
-tmp=$golden.standalone; qemu-img convert -c -O qcow2 "$golden" "$tmp" && mv "$tmp" "$golden"
+# The same `&&` trap fetch() documents at lines 145-151, and here it was worse: this is a
+# top-level statement, not a function's last command, so a failed convert did not even
+# reach `set -e` at a call site -- `set -eu; false && mv a b; echo REACHED` prints REACHED
+# and exits 0 (measured).  The `mv` was skipped, the unflattened golden was printed by the
+# `qemu-img info` below and pushed under this flavor's cache key, and every later run
+# pulled a qcow2 whose backing file is $VMIMAGES/<base> -- a path a fresh runner does not
+# have, because the base is downloaded only on a cache miss.  The half-written
+# `<flavor>.qcow2.standalone` stayed in $VMDATA/golden as well; nothing ever removed it.
+tmp=$golden.standalone
+qemu-img convert -c -O qcow2 "$golden" "$tmp" || {
+    rm -f "$tmp"
+    echo "ci-golden: flatten failed for $golden" >&2
+    exit 1
+}
+mv "$tmp" "$golden"
 qemu-img info "$golden" | sed 's/^/    /'
 
 if [ -n "$cacheable" ] && [ "${GOLDEN_PUSH:-1}" = 1 ] && command -v oras >/dev/null; then

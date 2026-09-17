@@ -190,8 +190,8 @@ class PrimaryWatchingBackend(FakeRandrBackend):
     """`FakeRandrBackend` plus the one field a real backend reads while it plans.
 
     Neither Mutter nor KWin takes a primary as an argument: `plan()` reads
-    `State.primary` and turns it into the verb (`wxrandr/mutter.py:623` puts the
-    flag on that connector's logical monitor, `wxrandr/kwin.py:1027` turns it
+    `State.primary` and turns it into the verb (`hacks/display/mutter.py:623` puts the
+    flag on that connector's logical monitor, `hacks/display/kwin.py:1027` turns it
     into `set_priority`). So WHEN the proxy writes it decides whether the
     request reaches the compositor at all, and what this records is exactly
     that: the value the backend would have planned with, sampled inside `verify`
@@ -1382,7 +1382,7 @@ class PrimaryDrivesTheBackendVerb(unittest.TestCase):
 
     So the claim here is the verb on the wire, which is per compositor: KWin's
     `set_priority(dev, 1..N)` with the named output first (`set_primary_output`
-    is accepted and ignored on 5.27 and 6.6 -- `wxrandr/kwin.py:212`), and
+    is accepted and ignored on 5.27 and 6.6 -- `hacks/display/kwin.py:212`), and
     Mutter's `ApplyMonitorsConfig` carrying the primary flag on that connector's
     logical monitor. The wlr floor, sway and Hyprland have no primary verb at
     all; there the request PASSes to Xwayland and `State` keeps our own copy,

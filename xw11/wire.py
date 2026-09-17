@@ -39,6 +39,20 @@ class WireError(Exception):
 #: and still counts the request in the sequence.
 BAD_LENGTH = "BAD_LENGTH"
 
+#: `split_request`'s fourth answer: a BIG-REQUESTS form whose 32-bit length word
+#: is ZERO. Measured against Xvfb 21.1.22 (tests/fixtures/xw11/badlength-bigreq-zero.hex,
+#: scripts/xw11-probe-bigreq.py, 2026-09-16): the server answers nothing at all
+#: and closes the connection -- the one big form it will not send an error for.
+BAD_LENGTH_CLOSE = "BAD_LENGTH_CLOSE"
+
+#: What both servers advertised in their `BigReqEnable` reply as the real
+#: maximum request length in 4-byte words -- 16777212 bytes (recon/wire.md 2,
+#: and Xvfb 2:21.1.22-1ubuntu1 again on 2026-09-16). It is the fallback only:
+#: the ceiling a connection is held to is the one ITS OWN Enable reply carried
+#: (`xw11/client.py`'s `big_ceiling`), because the number is the server's to
+#: name and a newer one may name another.
+BIGREQ_DEFAULT_CEILING = 4194303
+
 
 def pad4(b: bytes) -> bytes:
     """Pad to a 4-byte boundary, the protocol's only alignment rule."""
@@ -54,12 +68,20 @@ def padlen(n: int) -> int:
 # -- framing ------------------------------------------------------------------
 
 
-def split_request(buf, bigreq: bool):
+def split_request(buf, bigreq: bool, ceiling: int = BIGREQ_DEFAULT_CEILING):
     """One request off the head of `buf`.
 
     Returns `(nbytes, opcode, byte1)` when a whole request is there, `None`
     when more bytes are needed, `BAD_LENGTH` for the zero length a connection
-    that never enabled BIG-REQUESTS is not allowed to send.
+    that never enabled BIG-REQUESTS is not allowed to send -- and for the two
+    big forms a server refuses with an error -- and `BAD_LENGTH_CLOSE` for the
+    one it refuses by hanging up.
+
+    `ceiling` is that connection's maximum request length in words, as the
+    server named it in the `BigReqEnable` reply the proxy forwarded. A request
+    over it is refused here rather than buffered, which is what keeps one
+    client from making the proxy hold a gigabyte for a request no server would
+    have accepted.
 
     `nbytes` counts the header: 4 bytes for the ordinary form, 8 for the big
     one. `byte1` is the request-specific data byte for a core request and the
@@ -79,14 +101,28 @@ def split_request(buf, bigreq: bool):
     if len(buf) < 8:
         return None
     (big,) = struct.unpack_from("<I", buf, 4)
-    n = big * 4
-    if n < 8:
-        # A big form claiming less than its own 8-byte header. Not measured --
-        # R3 measured the no-BIG-REQUESTS case only -- but the two alternatives
-        # are a negative frame length and a stream that never advances, so it
-        # takes the same route as the measured one and the server's own answer
-        # stays the oracle when someone captures it.
+    # Measured 2026-09-16 against Xvfb 2:21.1.22-1ubuntu1 from a raw socket
+    # (scripts/xw11-probe-bigreq.py; Xwayland is NOT measured, and the fixtures
+    # say so). On a connection whose Enable reply had just advertised 4194303
+    # words, a big-form GetProperty as request 3 answered:
+    #   * 0 words        -- nothing at all, and the connection closed
+    #     [badlength-bigreq-zero.hex];
+    #   * 1 word         -- one 32-byte BadLength for seq 3 naming major 20, the
+    #     connection kept, and the four NoOperations behind it never framed, so
+    #     the server ate FOUR bytes and re-framed from the length word
+    #     [badlength-bigreq-short.hex];
+    #   * 2 words        -- that same BadLength, and then the GetInputFocus five
+    #     words later answered as seq 8: eight bytes framed, four requests after
+    #     it, which is the path this splitter already takes;
+    #   * ceiling + 1, and 0x0FFFFFFF -- the same BadLength as the 1-word form,
+    #     byte for byte, four bytes eaten, connection kept
+    #     [badlength-bigreq-over.hex];
+    #   * exactly the ceiling -- silence: the server waits for the 16 MiB.
+    if big == 0:
+        return BAD_LENGTH_CLOSE
+    if big < 2 or big > ceiling:
         return BAD_LENGTH
+    n = big * 4
     return (n, opcode, byte1) if len(buf) >= n else None
 
 

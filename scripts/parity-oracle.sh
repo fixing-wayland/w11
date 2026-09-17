@@ -274,23 +274,39 @@ out=$(WWMCTL_WMCTRL_GENERATION=1.07 python3 tests/test_wwmctl_cli.py 2>&1) ||
   { printf '%s\n' "$out"; die "test_wwmctl_cli failed against the nix wmctrl 1.07"; }
 printf '%s\n' "$out" | tail -3
 
-# The distro oracle is the other half of the pair, and it is only reachable by
-# taking the nix prefix back off: /usr/bin/wmctrl on Ubuntu 26.04 is
+# The distro oracle is the other half of the pair, and in the nix-prefix case it is
+# only reachable by taking that prefix back off: /usr/bin/wmctrl on Ubuntu 26.04 is
 # 1.07+git20240228, whose --help is the 7179-byte HELP_GIT.
+#
+# `${PATH#"$prefix":}` strips only the copy line 84 prepended -- it is a leading-prefix
+# strip, not a removal of the directory from PATH -- so when $prefix is a directory the
+# base PATH already carries, the stripped PATH resolves the SAME binary.  That is
+# exactly the parity-arch job (`W11_ORACLE_PATH=/usr/bin`, .github/workflows/ci.yml),
+# whose only wmctrl is the pacman one at /usr/bin: the block below used to re-run the
+# 1.07 pass byte for byte against the binary it had just used, and the `die` that is
+# supposed to catch an image with no second wmctrl could never fire there.  So the
+# resolved paths are compared, not the PATH string, and a host with one wmctrl says so
+# and moves on -- the second generation is a bonus where the image has it, not a
+# requirement of the run.
 say "tests/test_wwmctl_cli.py against the distro wmctrl"
 distro=$(PATH=${PATH#"$prefix":} command -v wmctrl || true)
-[ -n "$distro" ] || die "no second wmctrl outside $prefix to check the git generation against"
-dhelp=$("$distro" --help | wc -c)
-printf 'parity-oracle: %s --help is %s bytes\n' "$distro" "$dhelp"
-# 26.04 ships the git generation (7179 bytes); 24.04 the plain 1.07 (6801), the same
-# generation as the nix oracle, which is still a second binary worth the run.
-case $dhelp in
-    7179) gen=git ;;
-    6801) gen=1.07; printf 'parity-oracle: %s is the plain 1.07 generation (24.04 ships that one)\n' "$distro" ;;
-    *) die "$distro --help is $dhelp bytes, neither the 6801-byte 1.07 nor the 7179-byte git generation" ;;
-esac
-out=$(PATH=${PATH#"$prefix":} WWMCTL_WMCTRL_GENERATION=$gen python3 tests/test_wwmctl_cli.py 2>&1) ||
-  { printf '%s\n' "$out"; die "test_wwmctl_cli failed against the distro wmctrl $distro"; }
-printf '%s\n' "$out" | tail -3
+oracle=$(command -v wmctrl)
+if [ -z "$distro" ] || [ "$distro" = "$oracle" ]; then
+  say "only one wmctrl here ($oracle): the second generation has nothing to run against"
+else
+  dhelp=$("$distro" --help | wc -c)
+  printf 'parity-oracle: %s --help is %s bytes\n' "$distro" "$dhelp"
+  # 26.04 ships the git generation (7179 bytes); 24.04 the plain 1.07 (6801), the same
+  # generation as the nix oracle -- a different binary of the same generation, which is
+  # still a second binary worth the run.
+  case $dhelp in
+      7179) gen=git ;;
+      6801) gen=1.07; printf 'parity-oracle: %s is the plain 1.07 generation (24.04 ships that one)\n' "$distro" ;;
+      *) die "$distro --help is $dhelp bytes, neither the 6801-byte 1.07 nor the 7179-byte git generation" ;;
+  esac
+  out=$(PATH=${PATH#"$prefix":} WWMCTL_WMCTRL_GENERATION=$gen python3 tests/test_wwmctl_cli.py 2>&1) ||
+    { printf '%s\n' "$out"; die "test_wwmctl_cli failed against the distro wmctrl $distro"; }
+  printf '%s\n' "$out" | tail -3
+fi
 
 say "parity-oracle: all oracles ran"

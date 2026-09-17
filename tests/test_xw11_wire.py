@@ -184,6 +184,40 @@ class Splitter(unittest.TestCase):
         self.assertEqual(wire.split_request(struct.pack("<BBHI", 20, 0, 0, 1), True),
                          wire.BAD_LENGTH)
 
+    def test_a_zero_word_big_form_is_the_measured_close(self):
+        """The one big form the server answers nothing at all for
+        (tests/fixtures/xw11/badlength-bigreq-zero.hex, Xvfb 21.1.22, 2026-09-16):
+        no error, a zero-byte read, the door. It gets its own sentinel because
+        the caller's answer to it is a different answer."""
+        self.assertEqual(wire.split_request(struct.pack("<BBHI", 20, 0, 0, 0), True),
+                         wire.BAD_LENGTH_CLOSE)
+
+    def test_a_big_form_over_the_ceiling_is_a_bad_length(self):
+        """The bound the splitter grew so that a client cannot make the proxy
+        hold bytes no server would have accepted. The ceiling is the one the
+        connection's own `BigReqEnable` reply named; the default is what both
+        servers here advertise."""
+        ceiling = wire.BIGREQ_DEFAULT_CEILING
+        self.assertEqual(ceiling, 4194303)
+        over = struct.pack("<BBHI", 20, 0, 0, ceiling + 1)
+        self.assertEqual(wire.split_request(over, True), wire.BAD_LENGTH)
+        at = struct.pack("<BBHI", 20, 0, 0, ceiling)
+        self.assertIsNone(wire.split_request(at, True))       # waits for the 16 MiB
+        # And a connection whose server named a smaller one is held to that.
+        self.assertEqual(wire.split_request(struct.pack("<BBHI", 20, 0, 0, 101),
+                                            True, ceiling=100), wire.BAD_LENGTH)
+        self.assertIsNone(wire.split_request(struct.pack("<BBHI", 20, 0, 0, 100),
+                                             True, ceiling=100))
+
+    def test_the_header_only_big_form_still_frames(self):
+        """Two words is a whole big form with no body, and the same probe run
+        measured the server framing it: one BadLength for the request itself and
+        then the GetInputFocus five words behind it answered as seq 8, so the
+        four NoOperations between them were framed as requests. The proxy
+        forwards it and upstream writes that BadLength itself."""
+        self.assertEqual(wire.split_request(struct.pack("<BBHI", 20, 0, 0, 2), True),
+                         (8, 20, 0))
+
 
 class Framer(unittest.TestCase):
     """32 bytes, plus 4*u32le[4] when byte 0 is 1 or byte 0 & 0x7F is 35

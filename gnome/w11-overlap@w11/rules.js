@@ -2,7 +2,7 @@
 // no gi, no compositor, no memory.  Everything in this file is a pure function
 // of its arguments, which is why tests/test_gnome_overlap.py can run it under
 // plain node and check it against the Python that already implements the same
-// rules (wxrandr/monitors_xml.py), on a machine with no GNOME anywhere.
+// rules (hacks/display/monitors_xml.py), on a machine with no GNOME anywhere.
 //
 // extension.js does the parts that cannot be pure -- reading /proc/self/maps,
 // copying bounded byte ranges, writing the two words -- and asks this file
@@ -14,7 +14,7 @@
 // and it is read rather than restated here: extension.js loads it (at call
 // time, never at enable) and hands it to the functions below.  Adding a GNOME
 // release is one record there, one record in GENERATIONS in
-// wxrandr/gnome_overlap.py, and one run of gen-gir.py, which writes the .gir,
+// hacks/display/gnome_overlap.py, and one run of gen-gir.py, which writes the .gir,
 // the .typelib and metadata.json's shell-version out of the same file.  Tests
 // hold the two records together field for field.
 //
@@ -282,7 +282,7 @@ export function modalVerdict(modalCount) {
 //
 // It is still worth saying out loud, for two reasons.  The layout that applies
 // now is the old library's, and the next login runs the new one, where this may
-// refuse.  And the recorded agreement (wxrandr/gnome_overlap.py) names a build:
+// refuse.  And the recorded agreement (hacks/display/gnome_overlap.py) names a build:
 // a libmutter swapped under an unchanged GNOME Shell version string is exactly
 // the change `ShellVersion` cannot see, and it happens -- noble carried mutter
 // 46.2 under shell 46.0 for most of its life, and 46.0 -> 46.2 under one

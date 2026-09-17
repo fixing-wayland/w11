@@ -1513,7 +1513,7 @@ class HostileMutter(MutterCase):
 
     def test_an_accepted_apply_whose_signal_never_comes_still_renders(self):
         """`emit_signal=False`: Mutter applied the layout and said nothing about
-        it.  wxrandr waits MONITORS_CHANGED_TIMEOUT (5.0 in wxrandr/mutter.py,
+        it.  wxrandr waits MONITORS_CHANGED_TIMEOUT (5.0 in hacks/display/mutter.py,
         patched to 0.5 here) and re-reads anyway, so the run ends 0 with a
         rendered snapshot rather than hanging on a signal that is not coming."""
         self.svc.emit_signal = False
@@ -1663,6 +1663,39 @@ class SavedConfigurationFile(MutterCase):
         self.assertEqual(self.file_bytes(), self.good)
         self.assertEqual(self.config_dir(), ["monitors.xml"])
 
+    def test_a_refused_apply_leaves_no_descriptor_behind(self):
+        """The snapshot holds the config directory open -- that is how the copy lands in
+        the directory the bytes came from and not in whatever `~/.config` has become by
+        then (hacks/display/monitors_xml.py `Snapshot`) -- and it is `keep_backup()` that
+        closes it.  A refused apply never reaches `keep_backup()`, so `apply` closes it
+        on the way out instead.  One `wxrandr` run would not care; warandr drives the
+        same method over and over in one process, and a descriptor per refusal is a
+        process that runs out of them."""
+        self.put(self.good)
+        self.assertEqual(self.open_on_the_config_dir(), [])
+        for _ in range(5):
+            code, _out, err = self.run_cli("--persistent", "--output", "DP-1",
+                                           "--pos", "100x0")
+            self.assertEqual(code, 1)
+            self.assertIn("Logical monitors overlap", err)      # it got as far as the apply
+        # the descriptors this counts are the ones open on the config directory itself,
+        # and not every descriptor the process holds: a run opens and closes plenty of
+        # other things, and a count of all of them is a test that fails on a garbage
+        # collection (measured: it does, about one run in ten).
+        self.assertEqual(self.open_on_the_config_dir(), [])
+        self.assertEqual(self.config_dir(), ["monitors.xml"])
+
+    def open_on_the_config_dir(self):
+        """Every descriptor this process holds on `$XDG_CONFIG_HOME`, by fd number."""
+        out = []
+        for fd in os.listdir("/proc/self/fd"):
+            try:
+                if os.readlink("/proc/self/fd/" + fd) == self.tmp:
+                    out.append(fd)
+            except OSError:         # it was ours, listing it, and is gone again
+                pass
+        return sorted(out)
+
     def test_every_layout_mutter_refuses_leaves_the_file_untouched(self):
         for argv, refusal in (
                 (("--output", "DP-1", "--pos", "100x0"),
@@ -1805,8 +1838,22 @@ class SavedConfigurationFileAsAnotherUid(MutterCase):
 
     @contextlib.contextmanager
     def session_of(self, uid):
-        """That uid owns the graphical session, and its home is `tmp/sessionuser`."""
+        """That uid owns the graphical session, its home is `tmp/sessionuser` -- and the
+        directory and the file in it belong to it too.
+
+        The last part is what `_fowner` is patched for.  `snapshot()` opens the config
+        directory and refuses one that is not the session account's before it reads
+        anything (hacks/display/monitors_xml.py: a directory symlink planted at
+        `~/.config` is otherwise a way to send root's read and root's copy into any
+        directory it can traverse), and it takes the uid the copy is chowned to off the
+        descriptor of the file it read rather than off a second stat of the name.  A
+        runner that is not root cannot make either of them really belong to another
+        account, and must not be able to: patching the one function both answers come
+        through is how the test says "these are theirs", the same trick and for the same
+        reason as the recorded `os.fchown` below."""
+        gid = self.other_gid if uid != os.geteuid() else os.getegid()
         with mock.patch("w11common.session.session_uid", return_value=uid), \
+                mock.patch.object(monitors_xml, "_fowner", lambda fd: (uid, gid)), \
                 mock.patch.object(monitors_xml.pwd, "getpwuid",
                                   lambda u: _Pw(self.user_home) if u == self.other
                                   else (_ for _ in ()).throw(KeyError(u))):
@@ -1828,8 +1875,16 @@ class SavedConfigurationFileAsAnotherUid(MutterCase):
         apply makes Mutter rewrite that file whole, so the copy beside it --
         `monitors.xml.wxrandr-backup` -- is the only remaining record of the
         other layouts the user had saved.  Written to the wrong home it records
-        root's file and protects nothing."""
-        with self.session_of(self.other):
+        root's file and protects nothing.
+
+        `os.fchown` is recorded rather than made: the file is the session
+        account's (that is what `session_of` says), so the copy is chowned to
+        them, and as root it would be -- this runner is not root and a test that
+        could really chown would be a test that could change a file outside its
+        own directory.  The two tests below are the same call gone the other two
+        ways."""
+        with self.session_of(self.other), \
+                mock.patch.object(monitors_xml.os, "fchown", lambda fd, u, g: None):
             code, _out, err = self.run_cli("--persistent", "--output", "HDMI-1",
                                            "--mode", "1024x768")
         self.assertEqual(code, 0)
@@ -1852,12 +1907,13 @@ class SavedConfigurationFileAsAnotherUid(MutterCase):
     def test_a_copy_that_cannot_be_given_to_them_is_not_left_behind(self):
         """The other half of the same problem: a copy root can write and they
         cannot replace is a file in their config directory that their own next
-        `--persistent` will fail to overwrite.  `_owner` is patched rather than
-        the file really being theirs, because a test runner that is not root
-        cannot chown one -- and cannot be allowed to chown one either."""
+        `--persistent` will fail to overwrite.  The ownership is patched rather
+        than real (`session_of`) and the `os.fchown` here refuses the way it
+        would refuse for real, because a test runner that is not root cannot
+        chown one -- and cannot be allowed to chown one either."""
         with self.session_of(self.other), \
-                mock.patch.object(monitors_xml, "_owner",
-                                  lambda p: (self.other, self.other_gid)):
+                mock.patch.object(monitors_xml.os, "fchown",
+                                  side_effect=PermissionError(1, "Operation not permitted")):
             code, _out, err = self.run_cli("--persistent", "--output", "HDMI-1",
                                            "--mode", "1024x768")
         self.assertEqual(code, 0)                    # never a reason to fail the apply
@@ -1875,27 +1931,50 @@ class SavedConfigurationFileAsAnotherUid(MutterCase):
         as `them:root` in their `~/.config`: readable, and not the ownership of
         the file it was copied from -- which is what the copy is for, since it
         is what they will have to move back over `monitors.xml` themselves.
-        `os.chown` is recorded rather than made: this runner is not root, and a
+        `os.fchown` is recorded rather than made: this runner is not root, and a
         test that could really chown would be a test that could change a file
-        outside its own directory."""
+        outside its own directory.  What is recorded is a descriptor and not a
+        name, and that is the point of the call: the temp's name sits in the
+        session user's own directory, so it is a name they could have made a
+        symlink, which is why the chown no longer takes a path at all (see
+        hacks/display/monitors_xml.py `keep_backup`)."""
         chowns = []
         with self.session_of(self.other), \
-                mock.patch.object(monitors_xml, "_owner",
-                                  lambda p: (self.other, self.other_gid)), \
-                mock.patch.object(monitors_xml.os, "chown",
-                                  lambda p, u, g: chowns.append((p, u, g))):
+                mock.patch.object(monitors_xml.os, "fchown",
+                                  lambda fd, u, g: chowns.append((fd, u, g))):
             code, _out, err = self.run_cli("--persistent", "--output", "HDMI-1",
                                            "--mode", "1024x768")
         self.assertEqual(code, 0)
         self.assertEqual(len(chowns), 1, chowns)
-        path, uid, gid = chowns[0]
+        fd, uid, gid = chowns[0]
         self.assertEqual((uid, gid), (self.other, self.other_gid))
-        self.assertEqual(path, self.user_path + ".wxrandr-backup.tmp")
+        self.assertIsInstance(fd, int)               # the open descriptor, never the name
         # and, the chown having "worked", the copy is kept and said so
         self.assertIn("kept in %s.wxrandr-backup" % self.user_path, err)
         self.assertNotIn("no copy of", err)
         self.assertEqual(self.read(self.user_path + ".wxrandr-backup"),
                          self.user_bytes)
+
+    def test_a_config_directory_that_is_not_the_session_accounts_is_left_alone(self):
+        """`<pw_dir>/.config` is a name the session account owns: a symlink there, at a
+        directory they do not own, aims root's read and root's copy at a `monitors.xml`
+        somewhere else entirely, and the leaf checks -- `O_NOFOLLOW` on a file that
+        really is a file -- have nothing to say about it.  `snapshot()` opens the
+        directory first and refuses it, so the run reads nothing, judges nothing and
+        copies nothing; the apply itself is unaffected, because a backup is a courtesy
+        and never a reason to fail one Mutter has already accepted."""
+        stranger = (self.other + 5, self.other_gid + 5)
+        with self.session_of(self.other), \
+                mock.patch.object(monitors_xml, "_fowner", lambda fd: stranger):
+            code, _out, err = self.run_cli("--persistent", "--output", "HDMI-1",
+                                           "--mode", "1024x768")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.applied()[-1][1], 2)              # the layout still went out
+        self.assertEqual(self.config_dir(self.user_cfg), ["monitors.xml"])
+        self.assertEqual(self.config_dir(self.root_cfg), ["monitors.xml"])
+        self.assertEqual(self.read(self.user_path), self.user_bytes)
+        self.assertNotIn("GNOME has already discarded", err)    # their file was never read
+        self.assertNotIn("kept in", err)
 
     def test_our_own_session_still_reads_the_environment(self):
         """Nothing changes for the ordinary run, which is every run but these:

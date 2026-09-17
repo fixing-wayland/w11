@@ -212,10 +212,10 @@ class TheKeysTheUploadedKeymapAdds(unittest.TestCase):
         The resolution is all this pins, and it is sink-independent -- the daemon resolves before it picks a
         device. Whether the keystroke then reaches a window is not: on the virtual-keyboard sink it does
         (measured live on sway, test_vkbd.py), and on the kernel device it does **not yet**, because
-        `uinput.keyboard()` registers keybits 1..255 (wdotool/uinput.py:160) and the kernel drops 435 without
-        a word. `--vkbd auto` picks that device wherever /dev/uinput is usable, so an XTEST EuroSign through
-        the proxy is closed on the sway golden only once the uinput request in goal2/requests-batch-2.md
-        lands and somebody runs it there."""
+        `uinput.keyboard()` registers keybits 1..255 (hacks/input/uinput.py:160) and the kernel drops 435
+        without a word. `--vkbd auto` picks that device wherever /dev/uinput is usable, so an XTEST EuroSign
+        through the proxy is closed on the sway golden only once the uinput request in
+        goal2/requests-batch-2.md lands and somebody runs it there."""
         for spelling in ("EuroSign", "0x20ac", "0x010020ac"):
             self.assertEqual(keymap.resolve_token(spelling), (435, False), spelling)
         self.assertEqual(keymap.keysym_to_key("EuroSign"), (435, False))
@@ -387,6 +387,78 @@ class TypingUnderALiveGermanGroup(unittest.TestCase):
             code, shifted = keymap.char_to_key(ch)
             want = [(code, self.xkbmap.MOD_SHIFT if shifted else 0)]
             self.assertEqual(self.us.lookup_char(ch), want, ch)
+
+
+class TestUnicodeKeysymSpelling(unittest.TestCase):
+    """The `U<hex>` half of XStringToKeysym, which `resolve_token` only had the `0x<hex>` half of.
+
+    The answers are libX11's, read out of libX11.so.6 with ctypes on 2026-09-16 and cross-checked against
+    xdotool 3.20160805.1 on a scratch Xvfb: U41/U0041/U000041 -> 0x41, U20AC -> 0x10020ac, U7e -> 0x7e,
+    U10FFFF -> 0x110ffff; U7f, U1f, U9f, U0000, U110000, Uzz and the lowercase u0041 are all NoSymbol,
+    which is xdotool's "(symbol) No such key name" diagnostic. `xdotool key U20AC` presses the key and
+    exits 0 with an empty stderr, so the old refusal was a silent no-op against a real keypress.
+    """
+
+    def test_any_number_of_hex_digits(self):
+        # Not xkbmap.py's `U([0-9A-Fa-f]{4,6})`: libX11 takes one hex digit as happily as six.
+        self.assertEqual(keymap.resolve_token("U0041"), (30, True))
+        self.assertEqual(keymap.resolve_token("U41"), (30, True))
+        self.assertEqual(keymap.resolve_token("U000041"), (30, True))
+
+    def test_above_latin1_goes_through_the_unicode_keysym(self):
+        # cp >= 0x100 becomes 0x01000000 | cp, which is the EuroSign key of the uploaded keymap.
+        self.assertEqual(keymap.resolve_token("U20AC"), keymap.resolve_token("EuroSign"))
+
+    def test_the_boundary_libx11_leaves_open(self):
+        # 0x7e is allowed; it is 0x7f that starts the refused range.
+        self.assertEqual(keymap.resolve_token("U7e"), keymap.resolve_token("asciitilde"))
+
+    def test_refusals_fall_through_to_no_such_key_name(self):
+        for tok in ("U7f", "U1f", "U9f", "U0000", "U110000", "Uzz", "u0041"):
+            self.assertEqual(
+                keymap.resolve_token(tok),
+                f"(symbol) No such key name '{tok}'. Ignoring it.",
+                tok,
+            )
+
+    def test_a_bare_u_is_still_the_latin1_name(self):
+        # XStringToKeysym("U") is 0x55, the name of the letter, not an empty Unicode escape.
+        self.assertEqual(keymap.resolve_token("U"), keymap.keysym_to_key("U"))
+        self.assertIsInstance(keymap.resolve_token("U"), tuple)
+
+    def test_inside_a_keysequence(self):
+        self.assertEqual(keymap.parse_keyseq("ctrl+U0041"), ([(29, False), (30, True)], []))
+
+
+class TestNumericKeycodesAreAsciiOnly(unittest.TestCase):
+    """The numeric-keycode branch is gated on C `isdigit()`, so Arabic-Indic digits are not keycodes.
+
+    libxdo reaches this branch through `__ctype_b_loc()` on the first byte and then `strtol(tok, NULL, 10)`;
+    measured, `DISPLAY=:91 xdotool key '<U+0664><U+0662>'` presses nothing and prints "(symbol) No such key
+    name" twice (B12's two passes), where we used to press KEY_G (X keycode 42) silently. Same rule as
+    wdotool/cnum.py, whose docstring already spelled it out for every other number the tools parse.
+    """
+
+    def test_a_non_ascii_number_is_not_a_keycode(self):
+        for tok in ("٤٢", "٣"):
+            self.assertEqual(
+                keymap.resolve_token(tok),
+                f"(symbol) No such key name '{tok}'. Ignoring it.",
+                tok,
+            )
+
+    def test_inside_a_keysequence(self):
+        keys, warns = keymap.parse_keyseq("ctrl+٤٢")
+        self.assertEqual(keys, [(29, False)])
+        self.assertEqual(warns, ["(symbol) No such key name '٤٢'. Ignoring it."])
+
+    def test_ascii_keycodes_are_untouched(self):
+        self.assertEqual(keymap.resolve_token("38"), (30, False))
+
+    def test_the_accumulator_stops_where_strtol_does(self):
+        # strtol("38<U+0662>", NULL, 10) is 38, the same keycode as the plain token.
+        self.assertEqual(keymap.resolve_token("38٢"), (30, False))
+        self.assertEqual(keymap.resolve_token("38٢"), keymap.resolve_token("38"))
 
 
 class TestModifierTable(unittest.TestCase):

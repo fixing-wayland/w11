@@ -14,7 +14,7 @@ What the file is defending:
 * `_NET_WM_STATE`'s two axes fold into one `set_state` call wherever the
   backend names the pair (GNOME), and into two where it does not (sway, KWin)
   -- `backend.state_steps`, because sending the axes one after the other
-  corrupts a Mutter window's saved rectangle (wdotool/backend.py:100);
+  corrupts a Mutter window's saved rectangle (hacks/window/backend.py:100);
 * the dual-plane rule: a routed type on a REAL X id passes when upstream's own
   `_NET_SUPPORTED` names it and is routed through that window's compositor
   handle when it does not. wlroots' Xwayland has no `_NET_WM_DESKTOP`, no
@@ -214,7 +214,7 @@ class TheMeasuredMessages(EwmhCase):
 
 
 class MaximizePairFolded(EwmhCase):
-    """`backend.state_steps` (wdotool/backend.py:100): two maximize axes in one
+    """`backend.state_steps` (hacks/window/backend.py:100): two maximize axes in one
     message are ONE call on a backend that names the pair and two on one that
     does not."""
 
@@ -519,7 +519,7 @@ class RefusalConsumed(EwmhCase):
     def test_an_unsupported_set_num_desktops_still_yields_a_noop(self):
         """`wmctrl -n 4`: most backends have no verb for creating a workspace
         that holds no window, and `_unsupported` raises a `CmdError` with
-        `.unsupported` (wdotool/backend.py:280)."""
+        `.unsupported` (hacks/window/backend.py:280)."""
         err = CmdError("set_num_desktops is not supported by this compositor")
         err.unsupported = True
         self.backend.raise_on("set_num_desktops", err)
@@ -540,7 +540,7 @@ class RefusalConsumed(EwmhCase):
     def test_a_state_the_compositor_accepted_and_ignored_is_logged(self):
         """`set_state` answers a one-line REASON when the compositor accepted
         the request and did not apply it -- KWin does that for a window rule
-        (wdotool/backend.py:350). The clone prints it and succeeds; so does
+        (hacks/window/backend.py:350). The clone prints it and succeeds; so does
         this, in the log."""
         self.backend.set_state = lambda wid, state, action: "a window rule says no"
         self.send_message("_NET_WM_STATE", self.shadow(),

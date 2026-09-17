@@ -14,12 +14,13 @@ the package is configured.
 What is installed where
 -----------------------
 
-  /usr/bin/{wdotool,wwmctl,wxprop,wxrandr,warandr,wmirror}
-        the six commands.  Under their own names only: no file of xdotool,
-        wmctrl, x11-utils or x11-xserver-utils is touched or replaced, which
-        is what keeps the X11 handover working.
-  /usr/lib/python3/dist-packages/{w11common,wdotool,wwmctl,wxprop,wxrandr,
-                                 warandr,wmirror}/
+  /usr/bin/{wdotool,wwmctl,wxprop,wxrandr,warandr,wmirror,xw11}
+        the six tools -- seven commands, counting xw11, the X11 proxy the four
+        wrappers start for themselves.  Under their own names only: no file of
+        xdotool, wmctrl, x11-utils or x11-xserver-utils is touched or replaced,
+        which is what keeps the X11 handover working.
+  /usr/lib/python3/dist-packages/{w11common,hacks,wdotool,wwmctl,wxprop,
+                                 wxrandr,warandr,wmirror,xw11}/
         the code.
   /usr/share/gnome-shell/extensions/w11-bridge@w11/
         the GNOME Shell bridge extension, system-wide.

@@ -178,6 +178,22 @@ class WrapCase(unittest.TestCase):
             self.addCleanup(p.stop)
 
     def seam_exec(self):
+        # `passthrough.exec_real()` resets SIGPIPE and SIGXFSZ to SIG_DFL in the
+        # breath before `execve`, because an ignored disposition survives the
+        # exec and the original has to die of the signal the way it always did.
+        # The real call never returns, so nothing there puts them back; this
+        # seam does return, into a runner that keeps going with SIGPIPE now
+        # fatal, and the next test anywhere in the process that writes down a
+        # closed pipe kills the run outright (status 141, no summary).  One
+        # process per file hides it; `python3 -m unittest discover -s tests`
+        # does not -- measured at test_xw11_write.RefusalIsSilent.  Same leak,
+        # same cure as tests/test_passthrough.py `stub_execve` (146-149), which
+        # carries the long version of this.
+        for name in ("SIGPIPE", "SIGXFSZ"):
+            sig = getattr(signal, name, None)
+            if sig is not None:
+                self.addCleanup(signal.signal, sig, signal.getsignal(sig))
+
         def fake(path, argv, env):
             raise ExecCalled(path, argv, env)
         p = mock.patch("os.execve", fake)

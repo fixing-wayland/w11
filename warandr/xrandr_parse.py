@@ -322,9 +322,6 @@ def _parse_hv(mode, s):
 
 def _finish(o):
     """Derive what the header alone can't say."""
-    if o.active and o.current[0] is None and o.modes:
-        # Xvfb-style single mode lines carry no '*': the first mode is it
-        pass
     if not o.rotations:
         o.rotations = {"normal"}
     del o._matrix

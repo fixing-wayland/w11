@@ -116,7 +116,7 @@ class Opts:
         self.dpi = None             # float or output name
         self.noprimary = False
         self.persistent = False     # --persistent (Mutter: write monitors.xml)
-        self.overlap = False        # --unsafe-gnome-overlap (see wxrandr/gnome_overlap.py)
+        self.overlap = False        # --unsafe-gnome-overlap (see hacks/display/gnome_overlap.py)
         #: --unsafe-gnome-overlap-unmeasured MAJOR: {"shell_major": N}, or None.
         #: None is the only default there is or can be -- nothing else in this
         #: class, no environment variable and no file sets it, and it is a usage
@@ -352,7 +352,14 @@ def parse(argv: list) -> Opts:
             if not m:
                 raise ArgErr("failed to parse '%s' as a scale-from size\n" % v)
             w, h = int(m.group(1)), int(m.group(2))
-            if w < 0 or h < 0:
+            if w <= 0 or h <= 0:
+                # `<=`, not `<`, although the message says "nonnegative": the mismatch is xrandr's own and
+                # xrandr.c is the oracle -- `if (w <= 0 || h <= 0) argerr("--scale-from dimensions must be
+                # nonnegative\n")`. Re-measured 2026-09-16 with xrandr 1.5.3 against Xvfb: `0x0`, `0x100`,
+                # `100x0` and `-1x5` all print `xrandr: --scale-from dimensions must be nonnegative` and then
+                # the Try line, rc 1. Nothing is lost by refusing here: a zero dimension has no scale to
+                # compute, so `build_targets` in hacks/display/core.py (the `fw > 0 and fh > 0` guard) used to
+                # drop it with no message at all -- the run exited 0, said nothing, and still applied.
                 raise ArgErr("--scale-from dimensions must be nonnegative\n")
             cur.scale_from = (w, h)
         elif a == "--transform":
@@ -429,7 +436,7 @@ def parse(argv: list) -> Opts:
             # wxrandr extension, off by default, and the one flag in this tree
             # that can end a session.  It does nothing unless the layout being
             # applied is one GNOME's own validator refuses; see
-            # wxrandr/gnome_overlap.py for what it then does and why there is no
+            # hacks/display/gnome_overlap.py for what it then does and why there is no
             # confirmation prompt.
             if o.persistent:
                 raise ArgErr(_PERSIST_CONFLICT)
@@ -440,7 +447,7 @@ def parse(argv: list) -> Opts:
             # it (see the check after the loop), it takes the GNOME Shell major
             # that is running as a required argument so that a line copied from
             # a forum is refused on anybody else's machine, and it is off unless
-            # it is typed.  wxrandr/gnome_overlap.py says what it skips.
+            # it is typed.  hacks/display/gnome_overlap.py says what it skips.
             try:
                 o.overlap_force = gnome_overlap.parse_force(need())
             except ValueError as e:
@@ -874,8 +881,8 @@ def _wlr_name(ifaces, env) -> str:
 
 
 def _probe_hypr(verbose=False):
-    """Hyprland's own IPC. The socket is checked here rather than in wxrandr/hypr.py so that a session without
-    one costs no import and no connection, exactly as _probe_sway does."""
+    """Hyprland's own IPC. The socket is checked here rather than in hacks/display/hypr.py so that a session
+    without one costs no import and no connection, exactly as _probe_sway does."""
     from w11common import session as wsession
     sock = wsession.find_hypr_socket()
     if not sock:
@@ -1036,7 +1043,7 @@ def _do_backend_info(opts) -> int:
 # the paragraph `--unsafe-gnome-overlap` prints is right the first time and
 # noise the fiftieth, and a warning that is noise is not read.  What they do
 # *not* do is skip anything: the agreement is consulted for what to print, never
-# for whether to check, and wxrandr/gnome_overlap.py says so at more length.
+# for whether to check, and hacks/display/gnome_overlap.py says so at more length.
 
 
 def _do_overlap_forget() -> int:

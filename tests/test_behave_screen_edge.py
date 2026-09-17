@@ -48,6 +48,24 @@ class InEdgeTest(unittest.TestCase):
     def test_an_empty_box_is_never_an_edge(self):
         self.assertFalse(in_edge("left", (0, 0, 0, 0), 0, 0))
 
+    def test_a_negative_origin_moves_the_edges_with_the_box(self):
+        # Two heads laid out as Virtual-1 at (-1920,0) and Virtual-2 at (0,0), the shape the wlroots rig
+        # runs (tests/test_vptr.py's BBOX).  The box's own origin is where `left` is, and x==1919 -- the last
+        # column that exists -- is `right`; x==3839 is off the layout entirely.  `_screen_box` in
+        # wdotool/input_cmds.py is what hands this function the origin.
+        box = (-1920, 0, 3840, 1080)
+        self.assertTrue(in_edge("right", box, 1919, 10))
+        self.assertFalse(in_edge("right", box, 1918, 10))
+        self.assertTrue(in_edge("left", box, -1920, 10))
+        self.assertFalse(in_edge("left", box, 0, 10))
+        self.assertTrue(in_edge("top-left", box, -1920, 0))
+        # And the same samples against the origin-less box the command used to build: the right edge moves to
+        # x==3839, a column this layout does not have, so it never fires, while `left` swallows every x <= 0,
+        # i.e. the whole left-hand head.  (x==3839 is still "right" of the shifted box above: `>=` is
+        # deliberate in edges.py, for a pointer query that reports the boundary pixel itself.)
+        self.assertFalse(in_edge("right", (0, 0, 3840, 1080), 1919, 10))
+        self.assertTrue(in_edge("left", (0, 0, 3840, 1080), 0, 10))
+
 
 class EdgeMachineTest(unittest.TestCase):
     def test_a_bare_entry_fires_at_once(self):
