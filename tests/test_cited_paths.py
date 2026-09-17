@@ -68,15 +68,37 @@ CITATION = re.compile(
 CHANGELOG_CUT = "## Version"
 
 
+#: What a walk of the tree must step over to give `git ls-files`'s answer: the
+#: build droppings (dist/, debian/w11/, a nix `result` link), the bytecode a
+#: test run leaves behind, and git's own store.
+UNTRACKED_DIRS = ("dist", "debian/w11", ".git", "__pycache__")
+
+
 def tracked_files():
     """`git ls-files`, filtered to the text this check can read.
 
     The file list comes from git rather than a walk so that dist/, debian/w11
     and the __pycache__ directories a test run leaves behind are never read.
+    The nix sandbox check (nix/checks/tools.nix) runs this file from a source
+    copy that is not a checkout -- no .git, no git on PATH -- so when git
+    cannot answer, the same list is produced by walking the tree and stepping
+    over what git would not have tracked.
     """
-    out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, check=True,
-                         stdout=subprocess.PIPE).stdout.decode("utf-8")
-    rels = [r for r in out.split("\0") if r]
+    try:
+        out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, check=True,
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+                             ).stdout.decode("utf-8")
+        rels = [r for r in out.split("\0") if r]
+    except (OSError, subprocess.CalledProcessError):
+        rels = []
+        for dirpath, dirnames, filenames in os.walk(ROOT):
+            rel_dir = os.path.relpath(dirpath, ROOT)
+            rel_dir = "" if rel_dir == "." else rel_dir
+            dirnames[:] = sorted(
+                d for d in dirnames
+                if os.path.join(rel_dir, d) not in UNTRACKED_DIRS
+                and d != "__pycache__" and not d.startswith("result"))
+            rels.extend(os.path.join(rel_dir, f) for f in sorted(filenames))
     return [r for r in rels
             if r.endswith(SUFFIXES) and not r.startswith(SKIP_PREFIXES)]
 
