@@ -206,13 +206,15 @@ class BadLengthNoBigreq(unittest.TestCase):
 
 class BadLengthBigreq(unittest.TestCase):
     """The three big forms a server refuses, cut off Xvfb 2:21.1.22-1ubuntu1 on
-    2026-09-16 with scripts/xw11-probe-bigreq.py.
+    2026-09-16 and matched on Xwayland 24.1.10 on 2026-09-17, with
+    scripts/xw11-probe-bigreq.py.
 
     Each probe ran on its own connection: setup, `QueryExtension`, the
     extension's `Enable` -- whose reply advertised 4194303 words -- and the
     malformed request as seq 3, with four `NoOperation`s and a `GetInputFocus`
-    behind it so the answer says how many bytes the server ate. Xwayland was NOT
-    measured; the fixture comments say so.
+    behind it so the answer says how many bytes the server ate. Xwayland 24.1.10
+    under sway 1.11 answered the same bytes on 2026-09-17; the fixture comments
+    carry both runs.
     """
 
     def armed(self):

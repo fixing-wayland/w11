@@ -19,6 +19,7 @@ import contextlib
 import io
 import json
 import os
+import pwd
 import re
 import shutil
 import sys
@@ -38,7 +39,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import support
-from w11common import session
+from w11common import asuser, session
 from hacks.window.hypr_ipc import HyprIPC
 from wxrandr import cli
 from hacks.display import core, hypr
@@ -947,17 +948,22 @@ class TheTwoClients(Base):
 
 
 class SomebodyElsesSession(Base):
-    """`sudo wxrandr` against the SEATED user's Hyprland: neither file route writes into the caller's home.
+    """`sudo wxrandr` against the SEATED user's Hyprland: both file routes run in a child that IS them.
 
     `w11common/session.py` finds the Hyprland socket across uids, so the live `keyword monitor` crosses the
-    boundary and lands; `$HOME` does not cross it, so `hypr_config_dir()` is the caller's own and the file
-    Hyprland actually sources is one this process cannot name from the environment.  The two routes differ in
-    what that costs: on the fast path the layout is already on the screen and only `--persistent`'s file half
-    is lost, so the run says so and succeeds; on the route-2 path the file IS the apply, so it refuses before
-    writing anything at all.
+    boundary and lands; `$HOME` does not cross it, so `hypr_config_dir()` in this process is the caller's own
+    and the file Hyprland actually sources is one the environment cannot name.  So the write is forked off to
+    a child that drops to the seated uid (`w11common/asuser.run_as_uid`), which rewrites `HOME` from the
+    passwd entry and drops `XDG_CONFIG_HOME`; the child recomputes `conf_dir` there and writes into the
+    `~/.config/hypr` Hyprland really reads, owned by them, with every open checked against their
+    permissions.  The reload route goes whole into that child -- write, `source =`, `reload`, re-read and
+    the restore on failure -- because it can drive the socket: it is now its owner.
 
-    Writing into their `~/.config` as root is the deferred half -- a plain write there is written through a
-    symlink planted in it, the hazard `monitors_xml.keep_backup` closes for the one such write we do make.
+    Neither the drop nor the passwd entry is real here: `asuser._drop` is a no-op and `pwd.getpwuid` is
+    patched on the `pwd` module object, so the child, `monitors_xml.home_of` and `core._seated_config_path`
+    all read one temp directory as the seated home.  The fork, the environment rewrite, the writes, the IPC
+    from inside the child and the stderr relay are real.  The drop itself, and a symlink planted in that
+    home, are tests/test_asuser_root.py's, under sudo.
 
     Whose session it is is read off the owner of `.socket.sock` -- the socket `HyprIPC` connected to, which
     is the one `find_hypr_socket()` chose and whose owner it already checked against the runtime dir it
@@ -972,9 +978,11 @@ class SomebodyElsesSession(Base):
         # site of it, `core._socket_owner`, which `HyprOutputs.__init__` reaches through
         # `core.foreign_session_uid(self.ipc.sockpath)`.  Base's `session_uid` patch stays, saying
         # `os.geteuid()`: each case below is then also the assertion that the socket outranks it.
-        ownp = mock.patch.object(core, "_socket_owner", return_value=os.geteuid() + 1)
+        self.other = os.geteuid() + 1
+        ownp = mock.patch.object(core, "_socket_owner", return_value=self.other)
         ownp.start()
         self.addCleanup(ownp.stop)
+        # The caller's own `~/.config/hypr`, which is the one nothing here may write into.
         self.root = tempfile.mkdtemp(prefix="wxr-hypr-other-")
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         self.conf = os.path.join(self.root, "hypr")
@@ -983,48 +991,100 @@ class SomebodyElsesSession(Base):
         self.rules = os.path.join(self.conf, "w11-monitors.conf")
         with open(self.hyprconf, "w", encoding="utf-8") as fh:
             fh.write("monitor = , preferred, auto, 1\nmonitor = Virtual-1,preferred,0x0,1\n")
+        # The seated home, and the passwd entry every lookup shares: the child's `HOME`, the directory
+        # `hypr_config_dir()` recomputes to inside it, and the path `_seated_rules_path()` prints, all out
+        # of the one entry -- which is what keeps a failure note from naming a file the write would not have
+        # made.  `$HOME/.config/hypr` is where Hyprland looks (hypr.py:239), so that is what is planted.
+        self.seat = tempfile.mkdtemp(prefix="wxr-hypr-seat-")
+        self.addCleanup(shutil.rmtree, self.seat, ignore_errors=True)
+        self.seatconf = os.path.join(self.seat, ".config", "hypr")
+        os.makedirs(self.seatconf)
+        self.seathyprconf = os.path.join(self.seatconf, "hyprland.conf")
+        self.seatrules = os.path.join(self.seatconf, "w11-monitors.conf")
+        with open(self.seathyprconf, "w", encoding="utf-8") as fh:
+            fh.write("monitor = , preferred, auto, 1\nmonitor = Virtual-1,preferred,0x0,1\n")
+        ent = pwd.struct_passwd(("seat", "x", self.other, os.getgid(), "", self.seat, "/bin/sh"))
+        real = pwd.getpwuid
+        pwp = mock.patch.object(pwd, "getpwuid",
+                                side_effect=lambda uid: ent if uid == self.other else real(uid))
+        pwp.start()
+        self.addCleanup(pwp.stop)
+        # No privileges in CI: the fork, the environment rewrite and the writes are real, the setuid is not.
+        dropp = mock.patch.object(asuser, "_drop", lambda uid, ent_: None)
+        dropp.start()
+        self.addCleanup(dropp.stop)
 
-    def test_persistent_on_the_fast_path_skips_the_file(self):
-        """The keyword landed, so the layout is on the screen and the flag's file half is the only thing
-        missing: rc 0, nothing written under the caller's `~/.config/hypr`, and a line naming the file the
-        seated user's home would have needed."""
-        self.plant(self.hypr(conf_dir=self.conf))
+    def seat_rule_lines(self) -> list:
+        with open(self.seatrules, encoding="utf-8") as fh:
+            return [ln for ln in fh.read().splitlines() if ln.startswith("monitor =")]
+
+    def test_persistent_on_the_fast_path_writes_as_the_seated_user(self):
+        """The keyword landed, so the layout is on the screen and the flag's file half goes where the next
+        session will read it: their `~/.config/hypr`, and not a byte under the caller's."""
+        self.plant(self.hypr(conf_dir=self.seatconf))
         code, _out, err = self.run_cli("--persistent", "--output", "Virtual-1", "--mode", "1280x1024",
                                        XDG_CONFIG_HOME=self.root)
         self.assertEqual(code, 0, err)
+        self.assertEqual(self.seat_rule_lines(), ["monitor = Virtual-1,1280x1024@60.02,0x0,1"])
+        with open(self.seathyprconf, encoding="utf-8") as fh:
+            self.assertIn("source = %s" % self.seatrules, fh.read())
         self.assertFalse(os.path.exists(self.rules), "nothing is written into the caller's own home")
-        self.assertIn("belongs to uid %d and this command runs as uid %d" % (os.geteuid() + 1, os.geteuid()),
-                      err)
-        self.assertIn("/.config/hypr/w11-monitors.conf", err)
-        self.assertIn("run `wxrandr --persistent` as that user", err)
+        with open(self.hyprconf, encoding="utf-8") as fh:
+            self.assertNotIn("source =", fh.read(), "the caller's hyprland.conf is left alone too")
+        self.assertIn("written as seat (uid %d), the owner of this Hyprland session" % self.other, err)
+        self.assertIn("rather than uid %d's" % os.geteuid(), err)
+        # the child's own notes came up the pipe first, naming the files it really wrote
+        self.assertIn("added a `source = %s` line" % self.seatrules, err)
+        self.assertLess(err.index("added a `source = %s` line" % self.seatrules),
+                        err.index("written as seat (uid %d)" % self.other))
 
-    def test_the_reload_route_refuses_before_writing(self):
-        """The deaf compositor: the keyword answered `ok` and changed nothing, so the apply would go to the
-        file -- which here is the wrong home.  The refusal comes before `read_rules`, so no rules file, no
-        `source =` appended to a hyprland.conf that session never reads, and no reload sent; what the old
-        code did instead was all three of those and then failed on the re-read anyway.  The one live try is
-        still made, because it is the only half that can work."""
-        srv = self.plant(self.hypr(deaf=True, conf_dir=self.conf))
+    def test_the_reload_route_runs_inside_the_child(self):
+        """The deaf compositor: the keyword answered `ok` and changed nothing, so the apply IS the file --
+        and the whole route, reload included, happens as the seated user.  The child can send it because
+        the socket is now its own."""
+        srv = self.plant(self.hypr(deaf=True, conf_dir=self.seatconf))
+        code, _out, err = self.run_cli("--output", "Virtual-1", "--mode", "1280x1024",
+                                       XDG_CONFIG_HOME=self.root)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(srv.reloads, 1)
+        self.assertEqual(self.seat_rule_lines(), ["monitor = Virtual-1,1280x1024@60.02,0x0,1"])
+        self.assertEqual(srv.payloads["monitors"][0]["width"], 1280, "the reload really applied it")
+        self.assertFalse(os.path.exists(self.rules))
+        self.assertIn("written, sourced and reloaded as seat (uid %d), the owner of this Hyprland session"
+                      % self.other, err)
+
+    def test_the_reload_route_restores_the_file_inside_the_child_on_failure(self):
+        """A compositor whose config this run cannot see: the reload lands nothing and the re-read refuses.
+        The `finally` that puts the file back ran in the CHILD -- the parent has no `before` map and could
+        not drop a second time to use one -- and its `Fatal` comes back as its own sentence, quoted by the
+        note that names the file and the uid."""
+        srv = self.plant(self.hypr(deaf=True, conf_dir=None))
         code, _out, err = self.run_cli("--output", "Virtual-1", "--mode", "1280x1024",
                                        XDG_CONFIG_HOME=self.root)
         self.assertEqual(code, 1)
-        self.assertIn("uid %d" % (os.geteuid() + 1), err)
-        self.assertIn("does not do as root", err)
+        self.assertEqual(srv.reloads, 1)
+        self.assertIn("run as uid %d (the owner of this Hyprland session) into %s, failed: "
+                      "Hyprland accepted the mode 1280x1024 for Virtual-1 and did not apply it "
+                      "(it reports 1920x1080)" % (self.other, self.seatrules), err)
+        self.assertEqual(self.seat_rule_lines(), [], "the child's restore ran before its refusal crossed")
         self.assertFalse(os.path.exists(self.rules))
-        self.assertEqual(srv.reloads, 0)
-        self.assertEqual(srv.keywords, ["Virtual-1,1280x1024@60.02,0x0,1"])
-        with open(self.hyprconf, encoding="utf-8") as fh:
-            self.assertNotIn("source =", fh.read(), "the caller's hyprland.conf is left alone too")
 
     def test_the_socket_it_connected_to_is_the_one_asked_about(self):
         """`HyprOutputs` reads the uid once, at construction, from its own `ipc.sockpath` -- the planted
         `.socket.sock`, which is the file `find_hypr_socket()` returned -- and not from a second scan."""
         seen = []
-        srv = self.plant(self.hypr(conf_dir=self.conf))
+        srv = self.plant(self.hypr(conf_dir=self.seatconf))
         with mock.patch.object(core, "_socket_owner", side_effect=lambda p: seen.append(p)):
             out = hypr.HyprOutputs(ipc=HyprIPC(srv.path))
         self.assertEqual(seen, [srv.path])
         self.assertIsNone(out.foreign_uid, "the fallback is Base's session_uid(), which is our own uid")
+
+    def test_the_seated_rules_path_is_the_one_the_child_writes(self):
+        """The failure note's path and the child's write come out of the same passwd entry, which is the
+        whole reason `_seated_rules_path()` asks the database rather than the environment."""
+        out = hypr.HyprOutputs(ipc=HyprIPC(self.hypr(conf_dir=self.seatconf).path))
+        self.assertEqual(out.foreign_uid, self.other)
+        self.assertEqual(out._seated_rules_path(), self.seatrules)
 
 
 class TheOwnerOfTheSocket(Base):

@@ -134,7 +134,12 @@ class Recording(ConsentCase):
         with open(self.path()) as fh:
             rec = json.load(fh)
         self.assertEqual(rec["shell"], "46.0")
-        self.assertEqual(rec["libmutter"], 14)
+        # A string, because that is what the extension answers: rules.js
+        # sonameToken() pulls the token out of a file name and file names are
+        # strings.  A record written when the double said 14 still matches it
+        # -- consent_drift() str()s both sides (gnome_overlap.py:924-930) --
+        # and the records below that carry the number as an int prove it.
+        self.assertEqual(rec["libmutter"], "14")
         self.assertEqual(rec["struct_size"], 72)
         self.assertEqual(rec["format"], gnome_overlap.CONSENT_FORMAT)
         self.assertEqual(rec["how"], "wxrandr " + ALLOW)

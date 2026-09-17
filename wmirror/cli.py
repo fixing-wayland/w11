@@ -50,9 +50,9 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--region", metavar="WxH+X+Y",
                    help="capture WIDTHxHEIGHT+X+Y within SOURCE; X and Y are "
                         "measured from the desktop origin, as in wxrandr --query")
-    # default=None, not core.DEFAULT_SCALING: the wl-mirror path resolves it back to the default before it
-    # builds the argv or the record (nothing there changes), and the Cinnamon path needs to tell "the user
-    # asked for fit" from "the user asked for nothing", because it cannot scale at all -- cinnamon.NO_SCALING.
+    # default=None, not core.DEFAULT_SCALING: both paths resolve the default themselves and write the resolved
+    # mode into the record, so `--list` prints the mode the mirror is drawing rather than the flag the user
+    # happened to type.
     p.add_argument("--scaling", choices=core.SCALINGS,
                    default=None,
                    help="resize the captured image: fit "
@@ -293,25 +293,22 @@ def _start_cinnamon_locked(args, source, target, region, outputs) -> int:
     src = core.by_name(outputs, source)
     dst = core.by_name(outputs, target)
     # A whole-output mirror onto a differently-sized head is a clone of the source's full rectangle; a --region
-    # is that rectangle. Either way the Clutter group is clipped to a layout rectangle.
+    # is that rectangle. Either way it is a layout rectangle, scaled into the viewport that covers the target.
     eff_region = region if region is not None else src.rect()
-    # Nothing on this path scales (the group is placed 1:1 at dst and clipped), so an explicit --scaling is
-    # refused with its route and its cost rather than stored and ignored. Before the dry run too: a --dry-run
-    # that printed the program would be printing a program that does not do what the flag asked for.
-    if args.scaling is not None:
-        if changed:
-            state.save()                  # the reap, if it found anything -- as on every other refusal here
-        _err(cinnamon.NO_SCALING % args.scaling)
-        return 1
+    # The mode the program is built with and the mode the record carries are the same string, resolved here
+    # exactly as the wl-mirror path resolves it -- the parser leaves `--scaling` at None, and `fit` is the
+    # default here as everywhere -- so the start line and `--list` say what the mirror is drawing rather than
+    # what was typed.
+    scaling = args.scaling or core.DEFAULT_SCALING
     if args.dry_run:
         if changed:
             state.save()
-        _out("org.Cinnamon.Eval: " + cinnamon.build_program(eff_region, dst.x, dst.y))
+        _out("org.Cinnamon.Eval: " + cinnamon.build_scaled_program(eff_region, dst.rect(), scaling))
         return 0
     if target in recs:                       # --replace, and it is going
         _stop_any(recs.pop(target))
 
-    err = cinnamon.start(recs, source, target, eff_region, dst)
+    err = cinnamon.start(recs, source, target, eff_region, dst, scaling=scaling)
     state.save()
     if err:
         _err(err)

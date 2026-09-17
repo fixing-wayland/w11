@@ -12,20 +12,26 @@ ungated arbitrary JS inside the shell (see hacks/window/backend_cinnamon.py). Th
 **The picture, and why it does not need to capture anything.** A mirror on wlroots reads the source's pixels
 back with a capture protocol and paints them into a client window. Cinnamon needs neither: the compositor is
 already holding every actor's texture, so a `Clutter.Clone` of an on-screen actor draws that actor's live
-content wherever the clone is placed, tracking it frame for frame with no readback. So `build_program` puts a
-clipped `Clutter.Actor` on `global.stage` at the TARGET output's origin, sized to the region, and fills it with
-one `Clutter.Clone` per on-screen actor found by walking `global.window_group` and `global.top_window_group`
-(every `Meta.WindowActor` and `Meta.BackgroundActor`) plus `Main.uiGroup`'s `panel`, each clone offset by the
-region's layout origin. This is Cinnamon's own expo / scale / magnifier pattern.
+content wherever the clone is placed, tracking it frame for frame with no readback. So `build_scaled_program`
+puts a black, clipped viewport the size of the TARGET output on `global.stage` at its origin and, inside it, a
+clone group scaled by `--scaling`'s exact ratio and centred, filled with one `Clutter.Clone` per on-screen
+actor found by walking `global.window_group` and `global.top_window_group` (every `Meta.WindowActor` and
+`Meta.BackgroundActor`) plus `Main.uiGroup`'s `panel`, each clone offset by the region's layout origin. This is
+Cinnamon's own expo / scale / magnifier pattern.
 
-Measured on `resolute-cinnamon-wayland` (two heads, monitor 0 = 1280x800+0+0, monitor 1 = 1920x1080+1280+0),
-2026-09-14: mirroring region `1000x700+0+0` of monitor 0 onto monitor 1's origin, a QMP `screendump` of head 1
-cropped to the region compares against the same crop of head 0 at **`compare -metric AE` 0, RMSE 0** -- byte
-identical -- over a native Wayland window (gnome-terminal), the XWayland desktop/wallpaper actors and the panel.
-It stays 0 after the source's content changes (the terminal's clock ticked; source-vs-source AE 3350, mirror-
-vs-source AE 0), because a `Clone` tracks its source, and 0 again after a second window opens, because the
-`restacked` / `window-created` handlers re-walk the tree. `destroy_program` removes the actor and disconnects
-the handlers; head 1 then shows its own content again (AE 700000).
+Measured on the 1:1-at-origin program this file shipped until 2026-09-17, on `resolute-cinnamon-wayland` (two
+heads, monitor 0 = 1280x800+0+0, monitor 1 = 1920x1080+1280+0), 2026-09-14: mirroring region `1000x700+0+0` of
+monitor 0 onto monitor 1's origin, a QMP `screendump` of head 1 cropped to the region compares against the same
+crop of head 0 at **`compare -metric AE` 0, RMSE 0** -- byte identical -- over a native Wayland window
+(gnome-terminal), the XWayland desktop/wallpaper actors and the panel. It stays 0 after the source's content
+changes (the terminal's clock ticked; source-vs-source AE 3350, mirror-vs-source AE 0), because a `Clone`
+tracks its source, and 0 again after a second window opens, because the `restacked` / `window-created` handlers
+re-walk the tree. `destroy_program` removes the actor and disconnects the handlers; head 1 then shows its own
+content again (AE 700000). That program is gone -- fit is the default here as on every other path -- but what
+it proved holds for the clone walk the scaled group still does: a `Clone` tracks its source, the `restacked` /
+`window-created` handlers re-walk, `destroy_program` tears it down. The same 1:1 picture is `--scaling exact`
+on a region that fits, centred rather than at the origin, and its AE against head 0's crop was 0 again on
+2026-09-17 (below).
 
 **The shortcut that does NOT work**, recorded so nobody retries it: a single `Clutter.Clone` of `Main.uiGroup`
 (what `magnifier.js` clones) does not mirror across heads -- on the same golden its crop mismatched head 0 at
@@ -34,9 +40,11 @@ black, because a clone of the whole UI group is drawn once for its own monitor a
 leaves the other head's actors unpainted. The per-actor walk is the working pattern.
 
 THE INTERPOLATION RULE, exactly hacks/window/cinnamon_js.py's: **only integers are ever interpolated, always
-with `%d`.** The region and the target origin are the only inputs, and they are numbers; the actor names
-(`panel`) and signal names (`restacked`, `window-created`) are literals in the program text, never arguments.
-`eval()` runs whatever arrives, so a string reaching a program would be arbitrary code in the user's shell.
+with `%d`.** Ten integers go in -- the region, the target rectangle, and the scale as the ratio SN/SD -- and
+they are numbers; the actor names (`panel`) and signal names (`restacked`, `window-created`) are literals in
+the program text, never arguments. The scale and the centring offsets are computed in JS from those ten, so no
+float ever reaches the program. `eval()` runs whatever arrives, so a string reaching a program would be
+arbitrary code in the user's shell.
 
 What is NOT here yet, named so the gap is a gap and not a silence: the in-compositor group is torn down by
 `wmirror --stop`, by `--replace`, and when the session bus goes away, but a supervisor that watches the OUTPUT
@@ -44,10 +52,23 @@ layout and drops the mirror when the two heads come to share pixels or the targe
 hacks/mirror/supervise.py does for wl-mirror over `zwlr_output_manager_v1` -- is not wired for this path
 (muffin has no wlr output manager; the same watch would read `org.cinnamon.Muffin.DisplayConfig`, AGENTS.md
 route 2). Start-time geometry is fully policed by `core.decide`; only the live re-check while it runs is owed.
-The second gap is `--scaling`: the group is placed 1:1 at the target's origin and clipped, so `fit`, `cover` and
-`exact` are not applied on this path and an explicit `--scaling` is refused (`NO_SCALING`) rather than accepted
-and quietly dropped. The route is this same program (rung 2) carrying a `set_scale` and a centring translation,
-and the cost is one rig measurement of what `clip_to_allocation` does under a scaled actor before it ships.
+Two more, both of them things wl-mirror has: the cursor (wl-mirror mirrors it by default; the clone walk
+clones no cursor sprite -- route 2 again, one more `Clutter.Clone` of `Meta.CursorTracker`'s sprite, at the
+cost of a rig measurement of its position under scale) and the `linear|nearest` filter half of wl-mirror's own
+`--scaling` flag, which no path exposes yet (route 1 for wl-mirror, route 2 here: Clutter has
+`minification-filter` / `magnification-filter`).
+
+`--scaling` itself IS applied here, and measured: on `resolute-cinnamon-wayland`, 2026-09-17, Virtual-1
+1920x1080+0+0 and Virtual-2 1280x1024+1920+0 (`wxrandr --output Virtual-2 --mode 1280x1024`), region
+`1000x700+0+0` of Virtual-1 with a terminal at its top-left, one QMP `screendump` of each head per mode:
+`fit` drew **1280x896+0+64** -- the prediction exactly, s = 32/25, RMSE 0.0016 against head 0's crop
+resized with a triangle filter -- `cover` filled the head with no black pixel anywhere (s = 256/175, 91 px
+cut each side, RMSE 0.020) and `exact` drew **1000x700+140+162** at **AE 0, RMSE 0**: byte identical, the
+2026-09-14 picture centred instead of at the origin. The question the program could not settle offline --
+what `clip_to_allocation` does under a scaled actor -- was settled by an upscale: region `640x480+0+0` at
+`fit` (s = 2) drew **1280x960+0+32**, the prediction exactly, so `clip_to_allocation` on the scaled group
+clips in the group's own scaled coordinates and nothing is cut at 640x480 device pixels -- the program
+ships without a `set_offscreen_redirect`.
 """
 
 import json
@@ -69,49 +90,53 @@ ROUTE = "org.Cinnamon.Eval Clutter clone (AGENTS.md route 2)"
 _GONE = ("cinnamon mirror: %s is no longer owned on the session bus "
          "(cinnamon restarting, or the session ended)" % BUS_NAME)
 
-#: why an explicit `--scaling` is refused here instead of recorded and not done -- see the docstring above and
-#: the "What is not yet on this path" paragraph of docs/WMIRROR.md. `%s` is the mode the caller asked for.
-NO_SCALING = ("cinnamon mirror: --scaling %s is not yet done on this path: the Clutter clone group is placed "
-              "1:1 at the target origin and clipped to the region, so fit, cover and exact are not applied "
-              "here. The route is the same org.Cinnamon.Eval program (AGENTS.md route 2) with a set_scale and "
-              "a centring translation on the group, at the cost of one rig measurement of how "
-              "clip_to_allocation behaves under a scaled actor before it ships")
-
 
 # -- the JS programs ----------------------------------------------------------
 #
-# One shared registry, `global.__w11m`, keyed by an integer token from `__seq`. A record holds the group actor
-# and the two signal-handler ids so `destroy_program` can disconnect them. The programs are compact one-liners
+# One shared registry, `global.__w11m`, keyed by an integer token from `__seq`. A record holds the VIEWPORT
+# actor under the key `grp` -- destroying it destroys the scaled clone group inside it, so `destroy_program`
+# and `status_program` are the same two programs they were when the group was placed 1:1 and was the only
+# actor -- and the two signal-handler ids so they can be disconnected. The programs are compact one-liners
 # on purpose: they cross the bus on every start/stop/status, and tests/test_wmirror_cinnamon.py records each one
 # and fails if the shape drifts.
 
-def build_program(region, tx: int, ty: int) -> str:
+def build_scaled_program(region, dst_rect, mode=core.DEFAULT_SCALING) -> str:
     """The program that builds one mirror and returns its integer token.
 
     `region` is `(x, y, w, h)` in LAYOUT coordinates (what `--region` parses and `wxrandr --query` prints);
-    `tx, ty` is the target output's layout origin, so the clipped group lands on the target head and each clone
-    is offset by the region origin. Stays live: `restacked` (fires on any stacking change -- open, close, raise)
-    and `window-created` re-walk the tree, and the group is kept on top."""
+    `dst_rect` is the target output's layout rectangle `(x, y, w, h)`, so the black viewport covers the target
+    head exactly and the scaled clone group is centred inside it. `mode` is one of `core.SCALINGS` and reaches
+    the program only as the two integers `core.scale_plan` computes from the two rectangles -- ten integers in
+    all, never a float (the module docstring's interpolation rule). Default pivot is (0, 0), so a child at
+    `(OX, OY)` scaled by `s` paints exactly [OX, OX + RW*s] x [OY, OY + RH*s] in the viewport's coordinates.
+    Stays live: `restacked` (fires on any stacking change -- open, close, raise) and `window-created` re-walk
+    the tree, and the viewport is kept on top."""
     x, y, w, h = region
+    tx, ty, tw, th = dst_rect
+    sn, sd = core.scale_plan(w, h, tw, th, mode)
     return (
         "(function(){"
         "const C=imports.gi.Clutter;const M=imports.gi.Meta;"
         "if(!global.__w11m)global.__w11m={__seq:0};"
-        "var RX=%d,RY=%d,RW=%d,RH=%d,TX=%d,TY=%d;"
+        "var RX=%d,RY=%d,RW=%d,RH=%d,TX=%d,TY=%d,TW=%d,TH=%d,SN=%d,SD=%d;"
+        "var s=SN/SD,OX=(TW*SD-RW*SN)/(2*SD),OY=(TH*SD-RH*SN)/(2*SD);"
         "var tok=(global.__w11m.__seq=global.__w11m.__seq+1);"
-        "var grp=new C.Actor({x:TX,y:TY,width:RW,height:RH,clip_to_allocation:true,reactive:false});"
+        "var vp=new C.Actor({x:TX,y:TY,width:TW,height:TH,clip_to_allocation:true,reactive:false,"
+        "background_color:new C.Color({red:0,green:0,blue:0,alpha:255})});"
+        "var grp=new C.Actor({x:OX,y:OY,width:RW,height:RH,clip_to_allocation:true,reactive:false});"
+        "grp.set_pivot_point(0,0);grp.set_scale(s,s);"
         "function place(a){var p=a.get_transformed_position();"
         "grp.add_child(new C.Clone({source:a,x:p[0]-RX,y:p[1]-RY}));}"
         "function walk(a){if(a instanceof M.BackgroundActor||a instanceof M.WindowActor){place(a);return;}"
         "var ch=a.get_children();for(var i=0;i<ch.length;i++)walk(ch[i]);}"
         "function sync(){grp.remove_all_children();walk(global.window_group);walk(global.top_window_group);"
         "var uc=Main.uiGroup.get_children();for(var i=0;i<uc.length;i++)if(uc[i].name==='panel')place(uc[i]);}"
-        "sync();global.stage.add_child(grp);global.stage.set_child_above_sibling(grp,null);"
+        "sync();vp.add_child(grp);global.stage.add_child(vp);global.stage.set_child_above_sibling(vp,null);"
         "var h1=global.display.connect('restacked',function(){sync();"
-        "var pr=grp.get_parent();if(pr)pr.set_child_above_sibling(grp,null);});"
+        "var pr=vp.get_parent();if(pr)pr.set_child_above_sibling(vp,null);});"
         "var h2=global.display.connect('window-created',function(){sync();});"
-        "global.__w11m[tok]={grp:grp,h1:h1,h2:h2};return tok;})()"
-        % (int(x), int(y), int(w), int(h), int(tx), int(ty)))
+        "global.__w11m[tok]={grp:vp,h1:h1,h2:h2};return tok;})()"
+        % (int(x), int(y), int(w), int(h), int(tx), int(ty), int(tw), int(th), int(sn), int(sd)))
 
 
 def destroy_program(token: int) -> str:
@@ -181,21 +206,20 @@ def available(bus: Bus | None = None) -> bool:
 # in a process we forked. `supervise.reap` skips it (its `if rec.get("kind")` guard) and this module's `reap`
 # owns its liveness instead, over Eval.
 
-def start(recs: dict, source: str, target: str, region, dst, bus: Bus | None = None):
+def start(recs: dict, source: str, target: str, region, dst, bus: Bus | None = None,
+          scaling: str = core.DEFAULT_SCALING):
     """Build the mirror over Eval and write its record. Returns None on success, else the lines to print.
 
-    `dst` is the target output (a wxcore.OutputState): its layout origin is where the group is placed, in the
-    same coordinates as `region`. A region that covers the whole source is a valid mirror too, so `region` is
-    never None here -- `core.decide` has already refused the cases the layout expresses on its own.
-
-    No `scaling`: the group is placed 1:1 and clipped, so there is no mode to record. The record carries no
-    `scaling` key and `fmt_record` prints `scaling 1:1`, because a record that carried `fit` would have `--list`
-    claiming a letterbox that never happened -- wmirror/cli.py refuses an explicit `--scaling` here instead."""
+    `dst` is the target output (a wxcore.OutputState): its rectangle is where the viewport is placed and what
+    the clone group is scaled to fit, in the same coordinates as `region`. A region that covers the whole
+    source is a valid mirror too, so `region` is never None here -- `core.decide` has already refused the cases
+    the layout expresses on its own. `scaling` is resolved by the caller (wmirror/cli.py) and written into the
+    record, so `--list` says which of the three modes the mirror is actually drawing."""
     try:
         ev = Eval(bus)
     except DBusError as e:
         return ["cinnamon mirror: %s" % e]
-    prog = build_program(region, dst.x, dst.y)
+    prog = build_scaled_program(region, dst.rect(), scaling)
     try:
         token = ev.eval(prog)
     except CmdError as e:
@@ -203,7 +227,7 @@ def start(recs: dict, source: str, target: str, region, dst, bus: Bus | None = N
     if not isinstance(token, int):
         return ["cinnamon mirror: the build program did not return a token (got %r)" % (token,)]
     recs[target] = {"kind": KIND, "source": source, "target": target,
-                    "region": list(region), "token": token,
+                    "region": list(region), "scaling": scaling, "token": token,
                     "route": ROUTE}
     return None
 
@@ -269,8 +293,9 @@ def fmt_record(target: str, rec: dict) -> str:
     region = rec.get("region")
     if region:
         bits.append("region %s" % core.fmt_region(region))
-    # 1:1, not `rec.get("scaling")`: nothing on this path scales, and a record written before that was said
-    # out loud may still carry a stale mode -- the line says what the mirror does, not what was asked for.
-    bits.append("scaling 1:1")
+    # A record with no `scaling` key was written by a tree that placed the clone group 1:1 at the target
+    # origin, before this path could scale at all; the line says what THAT mirror does, not what the flag would
+    # mean today. A record that carries a mode is drawing it.
+    bits.append("scaling %s" % (rec.get("scaling") or "1:1"))
     bits.append("%s tok %s" % (rec.get("route") or ROUTE, rec.get("token", "?")))
     return "  ".join(bits)

@@ -18,6 +18,7 @@ through `SwayBackend.apply` over a `support.FakeSway`.
 """
 import io
 import os
+import pwd
 import sys
 import tempfile
 import unittest
@@ -31,6 +32,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import support  # noqa: E402
+from w11common import asuser  # noqa: E402
 from hacks.display import core  # noqa: E402
 
 
@@ -259,18 +261,24 @@ class ThroughTheBackend(Base):
 
 
 class SomebodyElsesSession(Base):
-    """`sudo wxrandr --persistent` against the SEATED user's sway: the live apply lands and the file half
-    does not happen.
+    """`sudo wxrandr --persistent` against the SEATED user's sway: the live apply lands and the file half is
+    written as them.
 
     Root over ssh and `sudo` are documented ways to drive this tool (docs/Technical.md section 12) and
     `w11common/session.py`'s socket scan finds sway across uids, so the IPC half crosses the boundary and
     works.  `$HOME` does not cross it: it is still the caller's, so the file the old code wrote was
     /root/.config/sway/w11-outputs.conf -- a file that sway, running as uid 1000, has never opened -- and
-    the run said the layout was saved.  Now the file half is skipped and the note names the path it would
-    have needed, whose uid owns it, and what writing it would take.
+    the run said the layout was saved.  Now the write runs inside a forked child that IS that uid
+    (`w11common/asuser.run_as_uid`), which rewrites `HOME` from the passwd entry and drops
+    `XDG_CONFIG_HOME`, so `sway_config_dir()` recomputes in the child to the very path
+    `_seated_config_path()` prints -- and every open the write makes is checked against their permissions,
+    so a symlink planted in their config directory reaches only what they could already write.  The drop
+    itself, and that symlink, are tests/test_asuser_root.py's, under sudo.
 
-    Writing into their `~/.config` as root is the deferred half: a plain write there follows a symlink
-    planted in it, which is the hazard `monitors_xml.keep_backup` closes for the one such write we do make.
+    Neither the drop nor the passwd entry is real here: `asuser._drop` is a no-op and `pwd.getpwuid` is
+    patched on the `pwd` module object, so the child, `monitors_xml.home_of` and `_seated_config_path` all
+    read one temp directory as the seated home.  The fork, the environment rewrite, the write and the
+    stderr relay are real.
 
     Whose session it is is read off the owner of the IPC socket the apply was sent down, so what these cases
     move is that owner and not `session_uid()`; `TheOwnerOfTheSocket` below is the same question without a
@@ -290,19 +298,54 @@ class SomebodyElsesSession(Base):
         # stat, which `core._socket_owner` exists to be the single site of.  Base's `session_uid` patch is
         # deliberately left in place saying `os.geteuid()`: every case below is then also the assertion that
         # the socket outranks the seated-session scan, which is the whole of what changed here.
-        ownp = mock.patch.object(core, "_socket_owner", return_value=os.geteuid() + 1)
+        self.other = os.geteuid() + 1
+        ownp = mock.patch.object(core, "_socket_owner", return_value=self.other)
         ownp.start()
         self.addCleanup(ownp.stop)
+        # The seated account: one temp home, and a passwd entry for it that every lookup shares.  Patched on
+        # the `pwd` module object rather than on a name inside `asuser`, because `monitors_xml.home_of` --
+        # which is what `_seated_config_path` asks, and therefore what the failure note prints -- has its own
+        # import of it.  One entry, so the path the note names and the path the child writes cannot differ.
+        self.seat = tempfile.mkdtemp(prefix="wxr-sway-seat-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.seat, ignore_errors=True))
+        self.seatdir = os.path.join(self.seat, ".config", "sway")
+        self.seatrules = os.path.join(self.seatdir, "w11-outputs.conf")
+        self.seatconf = os.path.join(self.seatdir, "config")
+        ent = pwd.struct_passwd(("seat", "x", self.other, os.getgid(), "", self.seat, "/bin/sh"))
+        real = pwd.getpwuid
+        pwp = mock.patch.object(pwd, "getpwuid",
+                                side_effect=lambda uid: ent if uid == self.other else real(uid))
+        pwp.start()
+        self.addCleanup(pwp.stop)
+        # No privileges in CI: the fork, the environment rewrite and the write are real, the setuid is not.
+        dropp = mock.patch.object(asuser, "_drop", lambda uid, ent_: None)
+        dropp.start()
+        self.addCleanup(dropp.stop)
 
-    def test_the_file_half_is_skipped_with_a_note(self):
+    def test_the_file_half_is_written_in_the_seated_home(self):
+        """Their `~/.config/sway`, not the caller's: the rules file, the config the child had to create for
+        the `include` (sway ships no per-user config, so there was none of theirs to append to), and not a
+        byte under the `XDG_CONFIG_HOME` this process runs with."""
         err = self.apply(persistent=True)
+        self.assertTrue(os.path.exists(self.seatrules), err)
+        self.assertEqual([ln for ln in self.read(self.seatrules).splitlines()
+                          if ln.startswith("output ")],
+                         ["output Virtual-2 mode 1280x1024@60.000Hz position 0 0"])
+        self.assertIn("include %s" % self.seatrules, self.read(self.seatconf))
         self.assertFalse(os.path.exists(self.rules), "nothing is written into the caller's own home")
         self.assertFalse(os.path.exists(self.conf), "and no config is created there either")
-        self.assertIn("belongs to uid %d and this command runs as uid %d" % (os.geteuid() + 1, os.geteuid()),
-                      err)
-        self.assertIn("/.config/sway/w11-outputs.conf", err)
-        self.assertIn("run `wxrandr --persistent` as that user", err)
-        self.assertNotIn("AGENTS", err, "the user is owed the route, not our own file names")
+        self.assertIn("written as seat (uid %d), the owner of this sway session" % self.other, err)
+        self.assertIn("rather than uid %d's" % os.geteuid(), err)
+
+    def test_the_childs_own_notes_arrive_first_and_name_the_seated_paths(self):
+        """`core.warn()` writes to `sys.stderr`, which in the child is a copy of this test's StringIO and
+        dies with `os._exit` -- so the child captures its own and the parent relays it before adding its
+        line.  The order is the order things happened in, and the paths are the ones really written."""
+        err = self.apply(persistent=True)
+        self.assertIn("the layout is in %s" % self.seatrules, err)
+        self.assertLess(err.index("the layout is in %s" % self.seatrules),
+                        err.index("written as seat (uid %d)" % self.other),
+                        "the parent's summary belongs after the notes it is summarising")
 
     def test_the_live_apply_still_lands(self):
         """The half that DOES cross the boundary is untouched: the same `output` command reaches sway."""
@@ -314,7 +357,33 @@ class SomebodyElsesSession(Base):
     def test_without_persistent_there_is_no_note(self):
         """The flag is what asks for the file; a run that did not ask is not told about one."""
         err = self.apply(persistent=False)
-        self.assertNotIn("belongs to uid", err)
+        self.assertNotIn("written as", err)
+        self.assertFalse(os.path.exists(self.rules))
+        self.assertFalse(os.path.exists(self.seatrules))
+
+    def test_a_failed_drop_is_a_note_and_rc_0(self):
+        """A caller who is not root at all: `initgroups` refuses, nothing is written anywhere, and the run
+        still succeeded -- the layout is on the screen from the live apply, and what the note owes the user
+        is the file it could not write, the uid that owns the home and the kernel's own reason."""
+        with mock.patch.object(asuser, "_drop",
+                               side_effect=PermissionError("[Errno 1] Operation not permitted")):
+            err = self.apply(persistent=True)
+        self.assertIn("could not be written as uid %d, the owner of this sway session" % self.other, err)
+        self.assertIn("its file half, %s," % self.seatrules, err)
+        self.assertIn("(PermissionError: [Errno 1] Operation not permitted)", err)
+        self.assertIn("run `wxrandr --persistent` as that user", err)
+        self.assertFalse(os.path.exists(self.seatrules))
+        self.assertFalse(os.path.exists(self.rules))
+
+    def test_no_passwd_entry_is_the_same_note_with_no_fork(self):
+        """A uid the passwd database does not know (a container with no accounts in it): there is nothing to
+        drop to, so no fork is made, and the path the note prints degrades to `~<uid>` rather than to a path
+        that would be a lie -- both halves come from the same absent entry."""
+        with mock.patch.object(pwd, "getpwuid", side_effect=KeyError(self.other)):
+            with mock.patch.object(asuser.os, "fork", side_effect=AssertionError("forked anyway")):
+                err = self.apply(persistent=True)
+        self.assertIn("uid %d has no passwd entry" % self.other, err)
+        self.assertIn("~%d/.config/sway/w11-outputs.conf" % self.other, err)
         self.assertFalse(os.path.exists(self.rules))
 
     def test_the_socket_owner_decides_it_and_not_the_seated_scan(self):
@@ -326,24 +395,27 @@ class SomebodyElsesSession(Base):
         candidates for `sway-ipc.*.sock`.  With uid 1000 seated on GNOME and uid 1001 running a
         headless sway they stop in different directories, so the scan would name 1000's home for a file half
         belonging to 1001's sway -- and the mirror case, our own sway on a box somebody else is seated at,
-        would skip a write the caller was entitled to make."""
-        self.assertEqual(core.foreign_session_uid("/run/user/1001/sway-ipc.1001.42.sock"), os.geteuid() + 1,
+        would write into a home the caller has no business in."""
+        self.assertEqual(core.foreign_session_uid("/run/user/1001/sway-ipc.1001.42.sock"), self.other,
                          "Base's session_uid() says the session is ours; the socket says otherwise and wins")
         with mock.patch.object(core, "_socket_owner", return_value=os.geteuid()):
-            with mock.patch.object(core.session, "session_uid", return_value=os.geteuid() + 1):
+            with mock.patch.object(core.session, "session_uid", return_value=self.other):
                 self.assertIsNone(core.foreign_session_uid("/run/user/1000/sway-ipc.1000.7.sock"),
                                   "the sway we are driving is our own, so its file half is ours to write")
 
     def test_the_seated_path_is_named_from_passwd(self):
         """The path in the note comes from the passwd database, not from `$HOME` -- which is exactly the
         variable that is wrong here -- and when there is no passwd entry to ask (a minimal container) it
-        degrades to `~<uid>` rather than to a path that would be a lie."""
+        degrades to `~<uid>` rather than to a path that would be a lie.  It is the same database
+        `asuser.run_as_uid` rewrites the child's `HOME` out of, which is what keeps the two in step."""
         with mock.patch("hacks.display.monitors_xml.home_of", return_value="/home/seated"):
             self.assertEqual(core._seated_config_path(4242, "sway", "w11-outputs.conf"),
                              "/home/seated/.config/sway/w11-outputs.conf")
         with mock.patch("hacks.display.monitors_xml.home_of", return_value=None):
             self.assertEqual(core._seated_config_path(4242, "sway", "w11-outputs.conf"),
                              "~4242/.config/sway/w11-outputs.conf")
+        self.assertEqual(core._seated_config_path(self.other, "sway", "w11-outputs.conf"), self.seatrules,
+                         "and with this file's own entry it is the path the child really writes")
 
 
 class TheOwnerOfTheSocket(Base):

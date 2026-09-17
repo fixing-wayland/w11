@@ -41,6 +41,10 @@ from support import FakeHypr, FakeWayfire, RecorderDev, env, fixture_json
 from test_dbus_mini import MockBus
 from wdotool import cli, daemon, keys_cmds
 from hacks.input import keymap, xkbmap
+# Read out of the keymaps here since this file was written, and out of
+# `hacks/input/xkbmap.py` since fix 37 made it the GNOME reader's first route:
+# the tests below and the reader now read the same section name the same way.
+from hacks.input.xkbmap import symbols_groups
 
 # The suite never hands a tool over to the real X11 one: see
 # tests/conftest.py (which covers pytest) and tests/test_passthrough.py.
@@ -1729,6 +1733,10 @@ def fake_wayland(name, group=None, mods=False):
 # takes it, so these are the built-in table's keycodes) and group 2 is `de`.
 US_TAPS = [(21, 1), (21, 0), (44, 1), (44, 0), (42, 1), (3, 1), (3, 0), (42, 0)]
 DE_TAPS = [(44, 1), (44, 0), (21, 1), (21, 0), (100, 1), (16, 1), (16, 0), (100, 0)]
+# The same string on Spanish, which is where the GNOME 50.5 regression landed:
+# Spanish is QWERTY, so `y` and `z` are the US keys and only `@` moves -- onto
+# AltGr+2, where US has Shift+2 and German has AltGr+Q.
+ES_TAPS = [(21, 1), (21, 0), (44, 1), (44, 0), (100, 1), (3, 1), (3, 0), (100, 0)]
 
 
 class TestTheActiveGroupFromKwin(unittest.TestCase):
@@ -2003,19 +2011,6 @@ class PortalService(_FakeService):
         return "a{sa{sv}}", ({self.NS: self.values()},)
 
 
-def symbols_groups(body: str) -> list:
-    """The layout codes an `xkb_symbols` section name lists, in group order.
-
-    libxkbcommon writes the whole configured set into that one name:
-    `pc_us_de_2_fr_3_gr_4_inet(evdev)` is us,de,fr,gr and
-    `pc_ru_es_2_us_3_inet(evdev)` is ru,es,us -- the bare digits are the
-    group numbers of everything after the first. `pc` and the trailing
-    `inet(evdev)` are the model and the compat section, not layouts."""
-    line = re.search(r'xkb_symbols\s+"([^"]+)"', body).group(1)
-    return [tok for tok in line.split("_")
-            if tok != "pc" and not tok.isdigit() and "(" not in tok]
-
-
 class ShellName(_FakeService):
     """`org.gnome.Shell` owning its name and nothing else. The reader checks
     it before it asks the portal anything, so that a KDE or sway box is one
@@ -2162,9 +2157,14 @@ class TestTheActiveGroupFromGnome(unittest.TestCase):
         ru,es,us, around the one in use. The live 51.beta session was
         us,de,fr,gr,es. Spanish is index 4 in both, so both take the second
         chunk and 4 % 3 + 1 = 2 either way, and es really is group 2 of that
-        keymap's three: the arithmetic and the symbols name agree here. That
-        is the whole point -- the chunk rule stays the primary route and any
-        name-based cross-check is a guard, not a replacement."""
+        keymap's three -- the arithmetic and the section name agree on this
+        shape, one by counting and the other by reading es off second.
+
+        That agreement is the whole point. It is why the arithmetic survives
+        as the fallback behind the name (fix 37) rather than being deleted
+        with the shapes it got wrong, and why this shape stays pinned: the
+        name-first reader must keep answering 2 on `five_es.xkb`, not only 4
+        and 1 on the two 50.5 shapes it was added for."""
         self.assertEqual(symbols_groups(text("five_es")), ["ru", "es", "us"])
         five = [("xkb", n) for n in ("de", "fr", "gr", "ru", "es")]
         svc = self.portal(sources=five)
@@ -2172,19 +2172,18 @@ class TestTheActiveGroupFromGnome(unittest.TestCase):
         self.assertEqual(xkbmap.gnome_group(text("five_es")), 2)
         self.assertEqual(symbols_groups(text("five_es"))[1], "es")
 
-    @unittest.expectedFailure
     def test_the_fourth_source_is_the_fourth_group(self):
-        """DEFERRED: fix 37 (xkbmap.py:1399 -- cross-check `i % 3 + 1`
-        against the `xkb_symbols` section name's group list and prefer the
-        name where it resolves the mru head to a different group), F3.0.
+        """Fix 37, F3.0, and the first of the two shapes that failed live on
+        GNOME 50.5 (CI run 35201590455, `rig arch-gnome`).
 
         Four sources fit one keymap, so Mutter does not chunk: `us,de,fr,gr`
         compiles as four groups in that order and Greek is group 4. The
         arithmetic says 3 % 3 + 1 = 1 -- English (US) -- and, because the
         setting answered, says it with `group_known` true and no notice. So
-        `wdotool type a` on a Greek desktop presses <AC01> and types a Latin
-        `a` that the layout cannot produce, silently. The right answer is
-        group 4, where `a` is unreachable and says so."""
+        `wdotool type a` on a Greek desktop pressed <AC01> and typed a Latin
+        `a` that the layout cannot produce, silently. The answer is group 4,
+        where `a` is unreachable and says so, and it comes from the keymap's
+        own `xkb_symbols "pc_us_de_2_fr_3_gr_4_inet(evdev)"`."""
         four = [("xkb", n) for n in ("us", "de", "fr", "gr")]
         svc = self.portal(sources=four)
         svc.switch_to(3)                                   # gr
@@ -2193,31 +2192,31 @@ class TestTheActiveGroupFromGnome(unittest.TestCase):
         self.assertEqual(taps(d.kb), [])
         self.assertIn("not on the Greek layout", " ".join(warns))
 
-    @unittest.expectedFailure
     def test_a_five_source_chunk_that_starts_at_the_head(self):
-        """DEFERRED: fix 37, F3.0. `us,de,fr,gr,ru` with Russian picked
-        compiles `ru,us` -- two groups, Russian first -- so Russian is group
-        1. The arithmetic says 4 % 3 + 1 = 2, which fits the keymap (it has
-        two groups) and so is not clamped away: the answer is English (US)
-        with `group_known` true, and nothing warns. The keymap's own
+        """Fix 37, F3.0. `us,de,fr,gr,ru` with Russian picked compiles
+        `ru,us` -- two groups, Russian first -- so Russian is group 1. The
+        arithmetic says 4 % 3 + 1 = 2, which fits the keymap (it has two
+        groups) and so is not clamped away: the answer was English (US) with
+        `group_known` true, and nothing warned. The keymap's own
         `xkb_symbols "pc_ru_us_2_inet(evdev)"` names `ru` first and settles
-        it."""
+        it. This is the shape the live `es` iteration hit on 50.5, where the
+        chunk was `es,us`; `es_us_50_5.xkb` is that one, below."""
         five = [("xkb", n) for n in ("us", "de", "fr", "gr", "ru")]
         svc = self.portal(sources=five)
         svc.switch_to(4)                                   # ru
         self.assertEqual(symbols_groups(text("ru_us")), ["ru", "us"])
         self.assertEqual(xkbmap.gnome_group(text("ru_us")), 1)
 
-    @unittest.expectedFailure
     def test_the_answer_never_names_a_layout_the_head_is_not(self):
-        """DEFERRED: fix 37, F3.0. The guard the fix is worth having for,
-        stated over every fixture whose `xkb_symbols` name lists its groups:
-        whatever the arithmetic says, the group the reader hands back must be
-        the position of the mru head's own layout in that list. It holds for
-        every capture here today except the four-source one, which is the
-        finding."""
+        """Fix 37, F3.0, as a guard rather than a case: over every fixture
+        whose `xkb_symbols` name lists its groups, the group the reader hands
+        back is the position of the mru head's own layout in that list,
+        whatever the arithmetic would have said. It held for every capture
+        here except the four-source one, which was the finding, and it is
+        what the two 50.5 shapes are added to keep holding."""
         svc = self.portal()
-        for name in ("us_de", "de_fr", "five_es", "ru_us", "four_us_de_fr_gr"):
+        for name in ("us_de", "de_fr", "five_es", "ru_us", "four_us_de_fr_gr",
+                     "us_de_fr_gr_50_5", "es_us_50_5"):
             groups = symbols_groups(text(name))
             for i, layout in enumerate(groups):
                 if layout == "us" and i == len(groups) - 1:
@@ -2226,6 +2225,55 @@ class TestTheActiveGroupFromGnome(unittest.TestCase):
                 svc.switch_to(i)
                 self.assertEqual(xkbmap.gnome_group(text(name)), i + 1,
                                  (name, layout))
+
+    def test_the_50_5_chunk_is_read_off_the_keymap_rather_than_counted(self):
+        """The live regression whole, both halves, from CI run 35201590455
+        (GNOME Shell 50.5, `rig arch-gnome`): five sources us,de,fr,gr,es,
+        each picked with the Super+Space gesture.
+
+        50.5 compiles a chunk four sources wide and stops appending its own
+        `us` to a chunk that already has one, so Greek is group 4 of the four
+        groups `us,de,fr,gr` and Spanish is group 1 of the two groups
+        `es,us`. The arithmetic answers 1 and 2; both fit those keymaps and
+        so survive the clamp in `group()`, `group_known` stays true and no
+        notice is printed -- which is why the live log's `gr warned:` line was
+        empty while `yz@` went in as the US recipe. The section names
+        `pc_us_de_2_fr_3_gr_4_inet(evdev)` and `pc_es_us_2_inet(evdev)` are
+        what settle both, and 50.4's own shapes above are unchanged by it."""
+        five = [("xkb", n) for n in ("us", "de", "fr", "gr", "es")]
+        svc = self.portal(sources=five)
+        svc.switch_to(3)                                   # gr, index 3
+        self.assertEqual(xkbmap._group_of_sources(
+            {"sources": five, "mru-sources": [five[3]]}), 1)   # what it used to answer
+        self.assertEqual(xkbmap.gnome_group(text("us_de_fr_gr_50_5")), 4)
+        snap = self.snapshot("us_de_fr_gr_50_5")
+        self.assertEqual((snap.group, snap.group_known), (4, True))
+        self.assertEqual(xkbmap.build(snap.text, snap.group).name, "Greek")
+        svc.switch_to(4)                                   # es, index 4
+        self.assertEqual(xkbmap._group_of_sources(
+            {"sources": five, "mru-sources": [five[4]]}), 2)   # and here
+        self.assertEqual(xkbmap.gnome_group(text("es_us_50_5")), 1)
+        snap = self.snapshot("es_us_50_5")
+        self.assertEqual((snap.group, snap.group_known), (1, True))
+        self.assertEqual(xkbmap.build(snap.text, snap.group).name, "Spanish")
+
+    def test_yz_at_on_a_spanish_group_is_the_altgr_recipe(self):
+        """The byte-level oracle the live rig checks, in the suite: `wdotool
+        type 'yz@'` under a Spanish group is AltGr+2 and never Shift+2.
+
+        On 50.5 the reader answered group 2 of `es,us` -- English (US) -- so
+        `@` went in as Shift+2, which on the live Spanish group is `"`: the
+        rig's editor really held `yz"`, and every later read-back in that
+        phase was that same unsaved file, which is why fr, de and us reported
+        it too while naming their own layout correctly. With the group read
+        off the keymap's own name the keystrokes are the Spanish ones and
+        nothing is warned about."""
+        svc = self.portal(sources=[("xkb", n) for n in ("us", "de", "fr", "gr", "es")])
+        svc.switch_to(4)                                   # es
+        d, warns = self.typed("es_us_50_5")
+        self.assertEqual(taps(d.kb), ES_TAPS)
+        self.assertEqual(warns, [])
+        self.assertNotIn((42, 1), taps(d.kb))              # the US recipe's Shift, never
 
     def test_the_measured_defect(self):
         """`us, de` switched to German with Super+Space, `wdotool type 'yz@'`.

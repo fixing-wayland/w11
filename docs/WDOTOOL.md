@@ -250,16 +250,28 @@ else, and neither is visible next to the rest of a `wdotool type`. It is `Settin
 step, the same call every GTK application makes for the colour scheme, so
 [No authorization dialog](../README.md#no-authorization-dialog) still holds, measured.
 
-The index of that source is the keymap group, with Mutter's own two habits folded in.
-It **appends its own `us` group** after your sources, so one German source is the
+That source's position in the keymap is the group, and the keymap says where that is.
+libxkbcommon writes the configured layouts into the `xkb_symbols` section name in
+group order -- `pc_us_de_2_fr_3_gr_4_inet(evdev)` is us,de,fr,gr -- so wdotool reads
+the name and takes the first position of the live source's layout in it. Mutter
+**appends its own `us` group** after your sources, so one German source is the
 two-group keymap `pc_de_us_2_inet` and one Greek source is `pc_gr_us_2_inet`, from
 the keymap alone a session with one layout and a session with two are the same thing,
 which is exactly why the notice used to fire on every command of every non-US GNOME
 desktop. The setting tells them apart, so **a one-layout GNOME session now says
-nothing at all**. And beyond three sources Mutter compiles the keymap in chunks of
-three around the one in use: with `de, fr, gr, ru, es` the keymap is `de, fr, gr, us`
-until Spanish is picked and then it is `ru, es, us`, so the group is the source's index
-*within its chunk*, and Spanish is group 2. (The guess said group 1 there, Russian, and `type` typed nothing at all.)
+nothing at all**.
+
+Where the name says nothing -- a keymap compiled without a layout list, which is what
+`"(unnamed)"` means -- the fallback is the chunk arithmetic: beyond three sources
+Mutter compiles the keymap around the one in use, with `de, fr, gr, ru, es` the keymap
+is `de, fr, gr, us` until Spanish is picked and then it is `ru, es, us`, so the group
+is the source's index *within its chunk of three*, and Spanish is group 2. (The guess
+said group 1 there, Russian, and `type` typed nothing at all.) That arithmetic is
+measured on 46, 50.4 and 51.beta and is wrong on 50.5, where the chunk is four sources
+wide and no `us` is appended to a chunk that already holds one: there Greek in
+`us,de,fr,gr,es` is group 4 of 4 and Spanish is group 1 of 2, both of which the
+arithmetic gets wrong with answers that still fit the keymap. Which is why the name
+comes first.
 
 Two GNOME states are refused rather than answered, and there the guess and its notice
 stand exactly as they did: **per-window layouts** (Settings ▸ Keyboard ▸ *Let each
@@ -1324,9 +1336,16 @@ Daemon notes:
     portal if nothing has yet. `mru-sources[0]` is the live source (`current` is deprecated
     and ignored, the shell writes only `mru-sources`, on every switch, and
     `dconf watch` across a session of switching shows nothing else), and its
-    index maps onto the group: Mutter appends its own `us` group after the
-    user's sources and compiles them in chunks of three, so the group is
-    `index % 3 + 1`, clamped against `group_count`. `NameHasOwner` on
+    layout's first position in the keymap's own `xkb_symbols` section name
+    (`xkbmap.symbols_groups`, `pc_us_de_2_fr_3_gr_4_inet(evdev)`) is the
+    group, clamped against `group_count`. Where that name cannot say --
+    `"(unnamed)"`, or a name that does not list the live layout -- the
+    fallback is the arithmetic that came first: Mutter appends its own `us`
+    group after the user's sources and compiles them in chunks of three, so
+    the group is `index % 3 + 1`. The name is primary because the chunk shape
+    moved under us between GNOME 50.4 and 50.5 (four-wide chunks, no appended
+    `us` where the chunk has one), while the name has said the same thing on
+    every generation measured. `NameHasOwner` on
     `org.gnome.Shell` first, for the same reason KDE's does it, and the same
     remembered no; the same one reconnect and ten-second backoff; the same
     None for every failure. dconf itself is not an option: `ca.desrt.dconf`

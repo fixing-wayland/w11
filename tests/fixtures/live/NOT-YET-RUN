@@ -19,6 +19,9 @@
 # phase has been run; the run that records one deletes its own line in the same
 # commit that adds the recording.  resolute-sway was the first, on 2026-09-11:
 # 27 pass, 0 fail, recorded as resolute-sway-1.11-windows-wm-proxy-replay.txt.
-# resolute-cinnamon-wayland's step file gained gap-F2 display/mirror commands on
-# 2026-09-14; the committed recording predated them and is retired until CI's
-# --record run of the new step file is harvested by scripts/rig-recordings.sh.
+# resolute-cinnamon-wayland's step file gained the --scaling block on
+# 2026-09-17; its recording of 2026-09-14 predates it and is retired until CI's
+# --record run is harvested.
+
+cinnamon-wayland
+proxy:resolute-cinnamon-wayland

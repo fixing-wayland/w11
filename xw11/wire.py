@@ -40,17 +40,18 @@ class WireError(Exception):
 BAD_LENGTH = "BAD_LENGTH"
 
 #: `split_request`'s fourth answer: a BIG-REQUESTS form whose 32-bit length word
-#: is ZERO. Measured against Xvfb 21.1.22 (tests/fixtures/xw11/badlength-bigreq-zero.hex,
-#: scripts/xw11-probe-bigreq.py, 2026-09-16): the server answers nothing at all
-#: and closes the connection -- the one big form it will not send an error for.
+#: is ZERO. Measured against Xvfb 21.1.22 and Xwayland 24.1.10
+#: (tests/fixtures/xw11/badlength-bigreq-zero.hex, scripts/xw11-probe-bigreq.py,
+#: 2026-09-16 and 2026-09-17): the server answers nothing at all and closes the
+#: connection -- the one big form it will not send an error for.
 BAD_LENGTH_CLOSE = "BAD_LENGTH_CLOSE"
 
 #: What both servers advertised in their `BigReqEnable` reply as the real
 #: maximum request length in 4-byte words -- 16777212 bytes (recon/wire.md 2,
-#: and Xvfb 2:21.1.22-1ubuntu1 again on 2026-09-16). It is the fallback only:
-#: the ceiling a connection is held to is the one ITS OWN Enable reply carried
-#: (`xw11/client.py`'s `big_ceiling`), because the number is the server's to
-#: name and a newer one may name another.
+#: Xvfb 2:21.1.22-1ubuntu1 again on 2026-09-16, and Xwayland 24.1.10 on
+#: 2026-09-17). It is the fallback only: the ceiling a connection is held to is
+#: the one ITS OWN Enable reply carried (`xw11/client.py`'s `big_ceiling`),
+#: because the number is the server's to name and a newer one may name another.
 BIGREQ_DEFAULT_CEILING = 4194303
 
 
@@ -101,10 +102,12 @@ def split_request(buf, bigreq: bool, ceiling: int = BIGREQ_DEFAULT_CEILING):
     if len(buf) < 8:
         return None
     (big,) = struct.unpack_from("<I", buf, 4)
-    # Measured 2026-09-16 against Xvfb 2:21.1.22-1ubuntu1 from a raw socket
-    # (scripts/xw11-probe-bigreq.py; Xwayland is NOT measured, and the fixtures
-    # say so). On a connection whose Enable reply had just advertised 4194303
-    # words, a big-form GetProperty as request 3 answered:
+    # Measured 2026-09-16 against Xvfb 2:21.1.22-1ubuntu1 and 2026-09-17 against
+    # Xwayland 24.1.10 under headless sway 1.11, from a raw socket
+    # (scripts/xw11-probe-bigreq.py); the two servers answered all six blocks
+    # byte for byte the same, and the fixtures carry both runs. On a connection
+    # whose Enable reply had just advertised 4194303 words, a big-form
+    # GetProperty as request 3 answered:
     #   * 0 words        -- nothing at all, and the connection closed
     #     [badlength-bigreq-zero.hex];
     #   * 1 word         -- one 32-byte BadLength for seq 3 naming major 20, the

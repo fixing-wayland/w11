@@ -186,7 +186,8 @@ class Splitter(unittest.TestCase):
 
     def test_a_zero_word_big_form_is_the_measured_close(self):
         """The one big form the server answers nothing at all for
-        (tests/fixtures/xw11/badlength-bigreq-zero.hex, Xvfb 21.1.22, 2026-09-16):
+        (tests/fixtures/xw11/badlength-bigreq-zero.hex; Xvfb 21.1.22 on
+        2026-09-16 and Xwayland 24.1.10 on 2026-09-17):
         no error, a zero-byte read, the door. It gets its own sentinel because
         the caller's answer to it is a different answer."""
         self.assertEqual(wire.split_request(struct.pack("<BBHI", 20, 0, 0, 0), True),

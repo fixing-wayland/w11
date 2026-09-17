@@ -245,26 +245,57 @@ and the bytes are named wherever a number is.
   share one tri-state field there, so removing one used to clear the other and move focus for
   what the caller asked to be nothing. The `monitors.xml` snapshot and its backup follow no
   symlink out of the directory they are written in, the state lock waits a bounded 1.0 s and
-  checks the file it locked is the one it opened, and `wxrandr --persistent` run as root
-  against somebody else's sway or Hyprland session applies the layout live and says which
-  file half it skipped — writing inside another account's home is a **not yet** whose route is
-  dropping to the seated user's uid for that write, at the cost of a root-shell measurement on
-  the rig. `wmirror` on Cinnamon refuses an explicit `--scaling` instead of silently placing
-  the clone 1:1, a **not yet** whose route is a `set_scale` and a centring translation in the
-  same `org.Cinnamon.Eval` program (route 2), at the cost of one rig measurement of
-  `clip_to_allocation` under a scaled actor. `xw11` bounds a BIG-REQUESTS length by the
-  ceiling the server advertised rather than by the protocol maximum, and reproduces Xvfb's
-  own answers to the short and zero big forms (three fixtures, cut by
-  `scripts/xw11-probe-bigreq.py`); a `ChangeProperty` with a mode the protocol does not
-  define is dropped instead of forwarded. `wxrandr --scale-from 0x0` refuses with xrandr's
-  own line, `behave_screen_edge` fires on a layout whose origin is not 0,0, and warandr's
-  parser lost a branch that could never be reached. The documents caught up too: GNOME 49 is
-  in the overlap tables and prose, the repository URL is the one the tree moved to, the labwc
-  and COSMIC geometry rows carry the footnote that explains them, and 199 citations of the
-  pre-`hacks/` module layout across 96 files now name files that exist, with
-  `tests/test_cited_paths.py` standing over them so the next rename cannot do it again
-  quietly. The `.deb` in `release/` is rebuilt from all of it.
-- **5689 tests**, up from 4146, the new ones being the four new window and display
+  checks the file it locked is the one it opened, and `wxrandr --persistent` run as root against
+  somebody else's sway or Hyprland session applies the layout live and writes the file half as
+  the seated user, in a forked child that drops to their uid (`w11common/asuser.py`), so the file
+  lands in their home owned by them and a symlink planted there reaches only what they could
+  already write (measured 2026-09-17 with a throwaway account and pinned by
+  `tests/test_asuser_root.py` under sudo); on Hyprland the reload route runs whole inside that
+  child. The seated session's own `$XDG_CONFIG_HOME` is the remaining **not yet** there (rung 4:
+  `SO_PEERCRED`, then `/proc/<pid>/environ`). `wmirror` on Cinnamon applies `fit`, `cover` and
+  `exact` the way the wl-mirror paths do — an exact-ratio `set_scale` on the clone group inside a
+  black viewport clipped to the target, the nine boxes wl-mirror 0.18.5 draws pinned as the unit
+  table (`hacks/mirror/core.scale_plan`), and measured on `resolute-cinnamon-wayland` with two
+  heads of different sizes (2026-09-17: fit 1280x896+0+64, cover fills, exact 1000x700+140+162,
+  an upscale uncut). `fit` is the default there as everywhere. `xw11` bounds a BIG-REQUESTS
+  length by the ceiling the server advertised rather than by the protocol maximum, and reproduces
+  the answers to the short, zero and over-the-ceiling big forms that Xvfb 21.1.22 and Xwayland
+  24.1.10 give alike, byte for byte (three fixtures, cut by `scripts/xw11-probe-bigreq.py` on
+  both servers); a `ChangeProperty` with a mode the protocol does not define is dropped instead
+  of forwarded. `wxrandr --scale-from 0x0` refuses with xrandr's own line, `behave_screen_edge`
+  fires on a layout whose origin is not 0,0, and warandr's parser lost a branch that could never
+  be reached. The documents caught up too: GNOME 49 is in the overlap tables and prose, the
+  repository URL is the one the tree moved to, the labwc and COSMIC geometry rows carry the
+  footnote that explains them, and 199 citations of the pre-`hacks/` module layout across 96
+  files now name files that exist, with `tests/test_cited_paths.py` standing over them so the
+  next rename cannot do it again quietly. The `.deb` in `release/` is rebuilt from all of it.
+- **The active keyboard group on GNOME is read out of the keymap, not counted off it.**
+  libxkbcommon writes the configured layouts into the keymap's own `xkb_symbols` section name in
+  group order — `pc_us_de_2_fr_3_gr_4_inet(evdev)` — so that name is now the primary route
+  `wdotool` takes from the live input source to its group, with the old `index % 3 + 1`
+  arithmetic behind it for the keymaps whose name says nothing (`"(unnamed)"`, which is what the
+  libxkbcommon 1.6 generation writes: GNOME 46's `noble_de.xkb`, Plasma 5.27's `kde5_de.xkb` and
+  the compiled `neo.xkb` here, while sway's and Plasma 6.6's carry a name of their own). GNOME
+  Shell 50.5 is why: it compiles a chunk four sources wide and appends no `us` where `us` is
+  already a source, so with `us,de,fr,gr,es` configured the arithmetic put Greek and Spanish on
+  groups the keymap did have and the user did not — `wdotool type 'yz@'` typed `yz"` on the
+  Spanish group and silent Latin on the Greek one (CI runs 35198901211 and 35201590455, `rig
+  arch-gnome`). Both are right now, and 46, 50.4 and 51.beta answer exactly what they answered
+  before, which is pinned rather than assumed. A variant whose XKB name carries an underscore
+  (`ru(phonetic_winkeys)`) is the one shape the name route cannot parse yet: the reader falls
+  back to the arithmetic there, which is the answer it always gave, and a paren-aware split of
+  that name is the fix still owed.
+- **The overlap extension is executed, not only read.** `tests/test_gnome_overlap_js.py` runs
+  `gnome/w11-overlap@w11/extension.js`, the shipped file at its own path, under node through the
+  same `gi://` stubs `tests/test_bridge_js.py` uses: every refusal of the guard chain
+  (`version()`, `typelib()`, `sentinel()`, `noPendingDialog()`, `read()`) pinned whole, the nine
+  ways an apply ends with the scripted heap read back to prove the rollback, `FakeOverlap` held
+  to the real replies field for field — which found the double drifting in seven places, now
+  fixed — and `hacks/display/gnome_overlap.py`'s text contract exercised against replies the
+  extension emitted. `Gio.File.read()` joined the stubs, so the libmutter build id is read out of
+  a real ELF note instead of coming back null. The offsets themselves stay the rig's measurement;
+  this proves their use.
+- **5778 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and

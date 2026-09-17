@@ -726,6 +726,49 @@ class GjsStubs(unittest.TestCase):
             "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881")
         self.assertEqual(got["joined"], "a/b/c")
 
+    def test_gio_file_read_serves_the_elf_a_case_plants(self):
+        """`Gio.setElf()` builds a real ELF64, because elfBuildId()
+        (extension.js:163-213) reads one: e_phoff/e_phentsize/e_phnum, then the
+        program headers for a PT_NOTE, then the notes inside it for type 3
+        named `GNU`.  A double that answered the hex string back would have
+        proved nothing about that walk -- so what is checked here is the bytes,
+        at the offsets the reader uses, and that a path nobody planted throws
+        (which is the branch answering null rather than refusing).
+
+        The build id is FakeOverlap's own (tests/test_gnome_overlap.py:129), so
+        the double and the extension can be held to one number."""
+        build = "0f3a1b2c3d4e5f60718293a4b5c6d7e8f9012345"
+        got = self.case("""
+            import Gio from 'gi://Gio';
+            const [p, hex] = JSON.parse(process.argv[2]);
+            Gio.setElf(p, hex);
+            const u8 = Gio.File.new_for_path(p).read(null).read_bytes(8192, null).get_data();
+            const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+            let desc = '';
+            for (let i = 0; i < 20; i++)
+                desc += u8[0x1010 + i].toString(16).padStart(2, '0');
+            let missing = false;
+            try {
+                Gio.File.new_for_path('/nowhere').read(null);
+            } catch (e) {
+                missing = true;
+            }
+            console.log(JSON.stringify({
+                magic: [...u8.slice(0, 4)],
+                ptype: dv.getUint32(64, true),
+                note: [dv.getUint32(0x1000, true), dv.getUint32(0x1004, true),
+                       dv.getUint32(0x1008, true)],
+                name: String.fromCharCode(...u8.slice(0x100c, 0x100f)),
+                desc, missing,
+            }));
+        """, ["/usr/lib/libmutter-18.so.0", build])
+        self.assertEqual(got["magic"], [0x7f, 0x45, 0x4c, 0x46])
+        self.assertEqual(got["ptype"], 4)                    # PT_NOTE
+        self.assertEqual(got["note"], [4, 20, 3])            # namesz, descsz, NT_GNU_BUILD_ID
+        self.assertEqual(got["name"], "GNU")
+        self.assertEqual(got["desc"], build)
+        self.assertTrue(got["missing"])
+
     def test_the_overlap_extension_runs_far_enough_to_refuse_an_unknown_shell(self):
         """End to end through the stubs, and the answer is checked against the
         rig: on GNOME 46.0 the table says libmutter-14.so.0, W11Overlap14 and

@@ -1,5 +1,6 @@
 // gi://Gio: the D-Bus export both extensions hang themselves on, plus the
-// two file/settings calls the bridge makes.
+// two file/settings calls the bridge makes and the File.read() the overlap
+// extension's elfBuildId() needs.
 //
 // `wrapJSObject(xml, obj)` keeps the object it wrapped, so a test drives the
 // extension the way the bus does -- `Gio.exported().object.ListWindowsAsync(
@@ -12,6 +13,7 @@ import {record, tag} from './harness.mjs';
 const exported = [];
 const owned = [];
 const files = new Map();
+const elves = new Map();
 let schemas = new Set();
 
 class ExportedObject {
@@ -118,6 +120,27 @@ const Gio = {
                 st.get_attribute_uint64 = a => record('info.get_attribute_uint64', [a], mtime);
                 return st;
             };
+            // g_file_read(): the whole of what elfBuildId() does with a file.
+            // A path nobody planted throws, which is the branch that answers
+            // null rather than refusing (extension.js:172-174).
+            f.read = cancellable => {
+                record('file.read', [path]);
+                if (!elves.has(path))
+                    throw new Error(`read: ${path}: No such file or directory`);
+                const bytes = elves.get(path);
+                const s = tag({}, `FileInputStream(${path})`);
+                s.read_bytes = (n, c) => {
+                    record('stream.read_bytes', [n]);
+                    const b = tag({}, 'Bytes');
+                    b.get_data = () => bytes.slice(0, n);
+                    return b;
+                };
+                s.close = c => {
+                    record('stream.close', []);
+                    return null;
+                };
+                return s;
+            };
             return f;
         },
     },
@@ -164,9 +187,58 @@ const Gio = {
         return owned.slice();
     },
 
-    /** Give `path` an mtime, which is all query_info() is asked for. */
+    /**
+     * Give `path` the one uint64 query_info() is ever asked for on that path:
+     * the bridge asks time::modified, the overlap extension unix::inode; the
+     * double answers the stored number for any attribute name.
+     */
+    setFileAttribute(path, value) {
+        files.set(path, value);
+    },
+
+    /** The bridge's spelling of the same thing. */
     setFileMtime(path, mtime) {
-        files.set(path, mtime);
+        return Gio.setFileAttribute(path, mtime);
+    },
+
+    /** What `File.new_for_path(path).read()` hands back, as raw bytes. */
+    setFileBytes(path, u8) {
+        elves.set(path, u8 instanceof Uint8Array ? u8 : new Uint8Array(u8));
+    },
+
+    /**
+     * ...and the same thing as the smallest ELF64 that carries a build id:
+     * one PT_NOTE program header pointing at one NT_GNU_BUILD_ID note whose
+     * descriptor is `buildIdHex`.
+     *
+     * elfBuildId() (extension.js:163-213) reads e_phoff/e_phentsize/e_phnum,
+     * walks the program headers for PT_NOTE and then the notes inside it for
+     * type 3 with the name `GNU`, so all of that has to be real; the rest of
+     * the file does not exist, which is the point -- a test that planted a
+     * copy of the host's libmutter would be a test of this machine.
+     */
+    setElf(path, buildIdHex) {
+        const desc = Buffer.from(buildIdHex, 'hex');
+        const note = Buffer.alloc(16 + desc.length);
+        note.writeUInt32LE(4, 0);                   // namesz: 'GNU\0'
+        note.writeUInt32LE(desc.length, 4);         // descsz
+        note.writeUInt32LE(3, 8);                   // NT_GNU_BUILD_ID
+        note.write('GNU\0', 12);
+        desc.copy(note, 16);
+        const NOFF = 0x1000;
+        const buf = Buffer.alloc(NOFF + note.length);
+        buf[0] = 0x7f; buf[1] = 0x45; buf[2] = 0x4c; buf[3] = 0x46;   // \x7fELF
+        buf[4] = 2;                                 // ELFCLASS64
+        buf[5] = 1;                                 // ELFDATA2LSB
+        buf[6] = 1;                                 // EV_CURRENT
+        buf.writeBigUInt64LE(64n, 0x20);            // e_phoff
+        buf.writeUInt16LE(56, 0x36);                // e_phentsize
+        buf.writeUInt16LE(1, 0x38);                 // e_phnum
+        buf.writeUInt32LE(4, 64);                   // p_type = PT_NOTE
+        buf.writeBigUInt64LE(BigInt(NOFF), 64 + 8);            // p_offset
+        buf.writeBigUInt64LE(BigInt(note.length), 64 + 32);    // p_filesz
+        note.copy(buf, NOFF);
+        Gio.setFileBytes(path, new Uint8Array(buf));
     },
 
     settingsValues: {},
@@ -179,6 +251,7 @@ const Gio = {
         exported.length = 0;
         owned.length = 0;
         files.clear();
+        elves.clear();
         schemas = new Set();
         Gio.settingsValues = {};
     },

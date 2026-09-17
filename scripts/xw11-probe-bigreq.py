@@ -1,14 +1,34 @@
 #!/usr/bin/env python3
-"""What a real X server answers to a BIG-REQUESTS length it cannot honour.
+# The docstring is raw: the Xwayland recipe below carries a shell `\$DISPLAY`
+# and a line-continuation backslash, and in an ordinary string Python would eat
+# the newline after the backslash and warn about the `\$`.
+r"""What a real X server answers to a BIG-REQUESTS length it cannot honour.
 
 The oracle for four of xw11's fixtures, and the reason this is a file in the
 tree rather than a page of scratchpad: `tests/fixtures/xw11/badlength-nobigreq.hex`
 names `scratchpad/b1/r3.py` in its comment, and a fixture nobody can re-cut is
-a fixture nobody can re-measure -- not on a newer Xvfb, and not on the Xwayland
-none of these numbers has been taken off yet.
+a fixture nobody can re-measure -- on a newer Xvfb, or on Xwayland, which
+answered every block the same as Xvfb when this was first run against it
+(24.1.10 under headless sway 1.11, 2026-09-17).
 
   Xvfb :95 -ac -screen 0 640x480x24 &
   python3 scripts/xw11-probe-bigreq.py 95
+
+  # The same probe against Xwayland, spawned by a headless sway.  The runtime
+  # dir has to be SHORT: a path under a deep scratch directory overruns the
+  # 108-byte sun_path of a Wayland socket and sway says only "Unable to open
+  # wayland socket".
+  RT=$(mktemp -d /tmp/w11bq.XXXXXX)
+  cat > $RT/sway.conf <<EOF
+  output HEADLESS-1 mode 1280x720
+  xwayland enable
+  default_border none
+  exec sh -c 'echo "\$DISPLAY" > $RT/display'
+  EOF
+  XDG_RUNTIME_DIR=$RT WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman \
+      DBUS_SESSION_BUS_ADDRESS=unix:path=$RT/no-bus sway -c $RT/sway.conf &
+  sleep 2; python3 scripts/xw11-probe-bigreq.py "$(cat $RT/display)"   # Xwayland starts on the first connection
+  kill %1; rm -rf $RT
 
 It starts no server: the display number names one that is ALREADY RUNNING, and
 the probes are destructive to a connection (one of them makes the server hang
@@ -159,9 +179,10 @@ def main(argv):
         ("d", "claims the ceiling plus one (%d words)" % (ceiling + 1), big(ceiling + 1)),
         # One letter per case, and they are cited: the fixture comments under
         # tests/fixtures/xw11/ name the block each was cut from, so a re-cut on
-        # a newer Xvfb -- or on the Xwayland none of this has been taken off yet
-        # -- lines up block for block. (d) and (e) carried the same letter until
-        # 2026-09-17, which made two blocks of one run's output head (d).
+        # a newer Xvfb or Xwayland (Xvfb 21.1.22 on 2026-09-16, Xwayland 24.1.10
+        # on 2026-09-17, six blocks identical) lines up block for block. (d) and
+        # (e) carried the same letter until 2026-09-17, which made two blocks of
+        # one run's output head (d).
         ("e", "claims 0x0FFFFFFF words -- a gigabyte", big(0x0FFFFFFF)),
         ("f", "claims exactly the ceiling (%d words)" % ceiling, big(ceiling)),
     ]

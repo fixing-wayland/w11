@@ -120,8 +120,12 @@ phase_bridge() {
 }
 
 # The layout half.  us,de with the Super+Space gesture; German types
-# `de: yz@ Straße` byte-exact and `keys explain` says group 2 of 3 (measured on
-# 46, 50 and 51 -- the third group is the keymap's, not a third source).
+# `de: yz@ Straße` byte-exact and `keys explain` names the second group.  How
+# many groups that keymap has is Mutter's business and has moved between shell
+# versions: 46, 50.4 and 51 compile `us, de, us` and say "group 2 of 3", and
+# 50.5 compiles `us, de` and says "group 2 of 2" (CI run 35201590455).  Both
+# are the same claim about wdotool -- the second group, and where it came
+# from -- so the count is not asserted here.
 layout_phase() {
     "$VM" scp "$NAME" "$STEPS/guest-gnome-layout.sh" "$NAME:/tmp/w11-layout.sh" >/dev/null
     guest "gsettings set org.gnome.desktop.input-sources sources \"[('xkb','us'),('xkb','de')]\"" >/dev/null || true
@@ -131,7 +135,7 @@ layout_phase() {
     got=$(guest "sh /tmp/w11-layout.sh de" | tr -d ' \n' || true)
     same "the Super+Space gesture reaches the German source" "de" "$got"
     want "keys explain names the second group and where it came from" \
-         "group 2 of 3" "$(guest 'wdotool keys explain yz@ 2>&1' || true)"
+         "group 2 of " "$(guest 'wdotool keys explain yz@ 2>&1' || true)"
     same "wdotool type under de arrives byte-exact" "de: yz@ Straße" "$(type_and_read 'de: yz@ Straße')"
     got=$(guest "sh /tmp/w11-layout.sh us" | tr -d ' \n' || true)
     same "the gesture switches back to us" "us" "$got"
@@ -141,8 +145,19 @@ layout_phase() {
 
 # Five sources, the 51.beta measurement: es/gr/fr/de/us each reached by holding
 # Super, each typing `yz@` -- except gr, which skips the Latin letters with the
-# documented warning.  That measurement is what REFUTED the review finding
-# "GNOME 51 changes the i % 3 + 1 chunk rule".
+# documented warning.  That measurement is what refuted the review finding
+# "GNOME 51 changes the i % 3 + 1 chunk rule": on 51.beta five sources still
+# chunk three at a time and es at index 4 really is group 2 of 3.
+#
+# 50.5 is the other shape, and this phase is where it was caught (CI run
+# 35201590455, 7 FAILs): there the chunk is four sources wide and carries no
+# appended `us` when one is already in it, so gr is group 4 of 4 and es is
+# group 1 of 2, while `i % 3 + 1` answered 1 and 2 -- answers that fit those
+# keymaps and so were not clamped away, which is why `gr warned:` came back
+# empty and `es` typed `yz"`.  The group now comes off the keymap's own
+# `xkb_symbols` name (hacks/input/xkbmap.py:symbols_groups), so both shapes
+# answer the same thing and the `group N of M` this phase notes is Mutter's
+# count rather than a claim of ours.
 phase_five() {
     [ -n "$WIN" ] || { fail "no window from phase_windows"; return 1; }
     "$VM" scp "$NAME" "$STEPS/guest-gnome-layout.sh" "$NAME:/tmp/w11-layout.sh" >/dev/null

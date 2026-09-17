@@ -27,11 +27,13 @@ path lives in `hacks/mirror/cinnamon.py`; this module owns the policy
 import contextlib
 import dataclasses
 import fcntl
+import math
 import os
 import re
 import shutil
 import subprocess
 import time
+from fractions import Fraction
 
 from w11common import distro, session
 from w11common.errors import CmdError
@@ -67,6 +69,42 @@ OUTPUT_MANAGER = "zwlr_output_manager_v1"
 
 SCALINGS = ("fit", "cover", "exact")
 DEFAULT_SCALING = "fit"
+
+
+def scale_plan(rw, rh, tw, th, mode=DEFAULT_SCALING):
+    """wl-mirror's three scalings as the exact ratio `(sn, sd)` of two integers.
+
+    `fit` = min(tw/rw, th/rh), `cover` = max(tw/rw, th/rh), `exact` = floor(fit) when fit >= 1 and
+    1/ceil(1/fit) below it -- whole-number factors up, their reciprocals down. A `Fraction` and not a float
+    because the Cinnamon path interpolates the numerator and the denominator as two integers and divides them
+    inside the compositor (hacks/mirror/cinnamon.py's interpolation rule), and because 256/175 has no exact
+    float. Measured against wl-mirror 0.18.5 (sway 1.11 headless, grim, 2026-09-17): the nine content boxes in
+    tests/test_wmirror_cinnamon.py's SCALE_TABLE, every one an exact ratio of the four integers. It lives in
+    core and not in cinnamon because it is wl-mirror's semantics, which any clone-side backend owes."""
+    rw, rh, tw, th = (int(v) for v in (rw, rh, tw, th))
+    if min(rw, rh, tw, th) <= 0:
+        raise ValueError("scale_plan: every side must be > 0")
+    if mode not in SCALINGS:
+        raise ValueError("scale_plan: mode %r is not one of %s" % (mode, SCALINGS))
+    fit = min(Fraction(tw, rw), Fraction(th, rh))
+    if mode == "fit":
+        s = fit
+    elif mode == "cover":
+        s = max(Fraction(tw, rw), Fraction(th, rh))
+    else:
+        s = Fraction(math.floor(fit), 1) if fit >= 1 else Fraction(1, math.ceil(1 / fit))
+    return s.numerator, s.denominator
+
+
+def content_box(rw, rh, tw, th, mode=DEFAULT_SCALING):
+    """`(x, y, w, h)` of the scaled picture inside the target, as `Fraction`s, centred: x = (tw - rw*s)/2 and
+    y = (th - rh*s)/2, which go negative under `cover` (that is the crop). A half-pixel centre -- odd sizes, or
+    an odd leftover -- is not a byte-parity spec on either side: wl-mirror 0.18.5 rasterised 801x601 `exact`
+    (s = 1) with x hard-edged at 559 (of 559.5) and y from 240 (of 239.5), so the caller rounds for a pixel
+    comparison and tests/test_wmirror_cinnamon.py's SCALE_TABLE keeps the exact halves."""
+    sn, sd = scale_plan(rw, rh, tw, th, mode)
+    s = Fraction(sn, sd)
+    return ((tw - rw * s) / 2, (th - rh * s) / 2, rw * s, rh * s)
 
 
 class Refusal(Exception):

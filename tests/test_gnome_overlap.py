@@ -188,8 +188,12 @@ class FakeOverlap:
                 return self._refuse(
                     "struct-size",
                     "this build's MetaMonitorsConfig is %s bytes and no "
-                    "description shipped here describes a struct that size"
-                    % self.instance_size, False)
+                    "description shipped here describes a struct that size "
+                    "(%s).  Forcing cannot invent a description: this needs a "
+                    "new one, from the release's own header"
+                    % (self.instance_size,
+                       ", ".join("%s %s" % (g["namespace"], g["struct_size"])
+                                 for g in gnome_overlap.GENERATIONS)), False)
             use = picked[-1]
             same = ([g["namespace"] for g in picked[:-1]])
             forced = {"shell_major": gnome_overlap.shell_major(self.shell),
@@ -203,16 +207,28 @@ class FakeOverlap:
         monitors = [dict(g, w=1920, h=1080, scale=1, transform=0,
                          primary=(g["x"] == 0))
                     for g in (req.get("want") or req.get("expect") or [])]
+        # The namespace the typelib check names is the generation that was
+        # PICKED, which on a forced run is not the one this shell's soname
+        # would have chosen (extension.js:523).
+        namespace = (forced["using"] if forced
+                     else gnome_overlap.generation_for(self.shell)["namespace"])
         out = {
             "ok": True, "version": 1, "shell": self.shell,
-            "libmutter": self.libmutter, "instance_size": self.instance_size,
+            # A string, the way sonameToken() answers it (rules.js:66-69).
+            # The records written when this was a number still compare equal:
+            # consent_drift() str()s both sides (gnome_overlap.py:924-930).
+            "libmutter": str(self.libmutter), "instance_size": self.instance_size,
             "forced": forced, "found": self.found(),
             "checks": [{"name": "shell-version", "ok": True,
-                        "detail": "GNOME Shell %s, libmutter-%s"
-                                  % (self.shell, self.libmutter)},
+                        "detail": "GNOME Shell %s, %s%s%s"
+                                  % (self.shell, self.sonames[0],
+                                     " (build %s)" % self.build_id[:12]
+                                     if self.build_id else "",
+                                     " -- FORCED: %s" % forced["because"]
+                                     if forced else "")},
                        {"name": "typelib", "ok": True,
-                        "detail": "W11Overlap%s, MetaMonitorsConfig %s bytes as declared"
-                                  % (self.libmutter, self.declared_size)},
+                        "detail": "%s, MetaMonitorsConfig %s bytes as declared"
+                                  % (namespace, self.declared_size)},
                        {"name": "sentinel", "ok": True,
                         "detail": "switch_config round-tripped at the declared offset"},
                        {"name": "pending-dialog", "ok": True,
@@ -221,7 +237,9 @@ class FakeOverlap:
                        {"name": "bounded-read", "ok": True,
                         "detail": "2 logical monitors, every address range-checked"},
                        {"name": "public-view", "ok": True,
-                        "detail": "identical to Mutter's public view"}],
+                        "detail": "identical to Mutter's public view "
+                                  "(global.display + get_monitor_for_connector "
+                                  "on the requested names)"}],
             "monitors": monitors,
             "libmutter_build": self.build_id,
             "notes": list(self.notes),
@@ -230,7 +248,10 @@ class FakeOverlap:
         if member == "ApplyOverlap":
             out.update({
                 "applied": True, "wrote_words": 2,
-                "fault": "logical monitors overlap",
+                # rules.js:191-207 tests adjacency first, and two rectangles
+                # that overlap share no edge either, so a two-monitor overlap
+                # comes back with this sentence and not the overlap one.
+                "fault": "logical monitors not adjacent",
                 "verify": "refused: Logical monitors not adjacent",
                 "saved_config": {"path": "/home/u/.config/monitors.xml",
                                  "before": "absent", "after": "absent",
@@ -1067,9 +1088,13 @@ class Applying(Case):
                 code, out, err = self.run_cli("--dryrun", FLAG, "--output",
                                               "Virtual-2", "--pos", "960x0")
                 self.assertEqual(code, 0, err)
-                self.assertIn("overlap check shell-version: GNOME Shell %d.0, "
-                              "libmutter-%s" % (g["shell_major"], g["libmutter"]),
-                              err)
+                # the whole detail, not its first half: it names the library
+                # file and the build of it the checks ran against, and
+                # tests/test_gnome_overlap_js.py holds the double to the
+                # sentence the extension really emits
+                self.assertIn("overlap check shell-version: GNOME Shell %d.0, %s "
+                              "(build %s)" % (g["shell_major"], g["soname"],
+                                              ov.build_id[:12]), err)
                 self.assertIn("overlap check typelib: W11Overlap%s, "
                               "MetaMonitorsConfig %d bytes as declared"
                               % (g["libmutter"], g["struct_size"]), err)
@@ -1280,6 +1305,19 @@ class NoOtherWayIn(unittest.TestCase):
 # ------------------------------------------------- the shipped extension
 
 class ShippedExtension(unittest.TestCase):
+    """What the shipped extension.js does NOT contain.
+
+    Every pin below is about absent code -- enable() touching nothing but
+    D-Bus, no length argument passed to `wr`, no writer of the saved
+    configuration named anywhere in the type description -- and absence is the
+    one thing no execution can demonstrate: a run proves what happened on the
+    path it took, never that a line which would have ruined the session is not
+    somewhere else in the file.  So these read the text.
+
+    What the file DOES is proved by running it: tests/test_gnome_overlap_js.py
+    puts it under node through the gi:// stubs, refusal by refusal.
+    """
+
     def setUp(self):
         self.js = open(os.path.join(EXT_DIR, "extension.js"), encoding="utf-8").read()
 
@@ -1316,12 +1354,14 @@ class ShippedExtension(unittest.TestCase):
                         body.index("this._pass('pending-dialog'"))
 
     # ------------------------------------------------------------------
-    # T03's static half.  There is no node harness for the guard chain: what is
-    # pinned here is what can be read off the file, and the chain itself runs
-    # end to end only on the rig (tests/test_gnome_overlap_live.py under
-    # WXRANDR_LIVE_GNOME, vm/live-smoke.sh).  A harness would start from
-    # tests/fixtures/gjs/loader.mjs plus fakes for GLib.file_get_contents
-    # (/proc/self/maps), GIRepository and the lib.
+    # T03's static half.  The guard chain itself runs, refusal by refusal, under
+    # node in tests/test_gnome_overlap_js.py -- support.js_harness through
+    # tests/fixtures/gjs/loader.mjs and the gi:// stubs, against the
+    # /proc/self/maps, GIRepository and lib that harness's WORLD scripts -- so
+    # what is pinned here is only the half no execution can reach: what has to
+    # be read off the file.  Neither half measures the offsets; those are still
+    # the rig's (tests/test_gnome_overlap_live.py under WXRANDR_LIVE_GNOME,
+    # vm/live-smoke.sh).
 
     @unittest.expectedFailure
     def test_a_bounded_string_read_checks_the_bytes_it_will_read(self):
@@ -2060,9 +2100,12 @@ class RulesJS(unittest.TestCase):
                           [255, 255, 255, 255], [64, 252, 255, 255]])
 
     def test_the_extension_itself_is_a_module(self):
-        """It cannot be run here -- it needs gi and a compositor -- but a syntax
-        error in it would be discovered by a user's session refusing to start,
-        which is exactly the moment this feature must not surprise anybody.
+        """It runs for real in tests/test_gnome_overlap_js.py, through the
+        gi:// stubs; this stays as the cheapest syntax gate, because a syntax
+        error would otherwise be discovered by a user's session refusing to
+        start, which is exactly the moment this feature must not surprise
+        anybody -- and this one costs a rewrite and a `--check`, not a node
+        process per case.
 
         Every import it makes is stubbed, and the rewrite fails loudly on an
         import that is not gi, not a gnome-shell resource and not the rules file

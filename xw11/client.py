@@ -264,7 +264,8 @@ class ClientConn:
 
         The two BIG-REQUESTS forms that reach here take the same route, and the
         four bytes are measured for them too (scripts/xw11-probe-bigreq.py
-        against Xvfb 2:21.1.22-1ubuntu1, 2026-09-16; Xwayland is not measured):
+        against Xvfb 2:21.1.22-1ubuntu1 on 2026-09-16 and against Xwayland
+        24.1.10 under sway 1.11 on 2026-09-17, byte for byte the same):
 
         * a big form claiming ONE word, less than its own 8-byte header
           [tests/fixtures/xw11/badlength-bigreq-short.hex]. The server answered
@@ -300,9 +301,9 @@ class ClientConn:
         """A BIG-REQUESTS form whose 32-bit length word is zero: the server
         sends nothing and hangs up.
 
-        Measured against Xvfb 2:21.1.22-1ubuntu1 on 2026-09-16 from a raw socket
-        (scripts/xw11-probe-bigreq.py, pinned as
-        tests/fixtures/xw11/badlength-bigreq-zero.hex; Xwayland is not measured):
+        Measured against Xvfb 2:21.1.22-1ubuntu1 on 2026-09-16 and Xwayland
+        24.1.10 on 2026-09-17 from a raw socket (scripts/xw11-probe-bigreq.py,
+        pinned as tests/fixtures/xw11/badlength-bigreq-zero.hex):
         no BadLength, no error of any kind, a zero-byte read, and the four
         NoOperations and the GetInputFocus behind the probe went nowhere. So
         nothing is written down here either -- the buffer is dropped and the
@@ -314,8 +315,9 @@ class ClientConn:
         self.state = CLOSED
         if self.server is not None:
             self.server.say("big-request length 0 words: the server closes the "
-                            "connection, measured 2026-09-16 against Xvfb "
-                            "21.1.22, scripts/xw11-probe-bigreq.py")
+                            "connection, measured 2026-09-16 against Xvfb 21.1.22 "
+                            "and 2026-09-17 against Xwayland 24.1.10, "
+                            "scripts/xw11-probe-bigreq.py")
 
     def dispatch(self, frame: bytes, opcode: int, byte1: int) -> None:
         """The policy, as a lookup and three ways to answer it.

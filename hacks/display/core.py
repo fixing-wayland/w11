@@ -47,7 +47,7 @@ import struct
 import sys
 import time
 
-from w11common import procs, session
+from w11common import asuser, procs, session
 from w11common.errors import CmdError
 
 PROGRAM_VERSION = "1.5.4"
@@ -1616,13 +1616,18 @@ SWAY_CREATED_BARE_NOTE = ("there was no user sway config and no %s either, so %s
 
 
 #: `--persistent`'s file half, said out loud on a session that is not the caller's: the layout is on the
-#: screen (the IPC apply crossed the uid boundary and landed) and the file is the half that did not happen.
-SWAY_PERSIST_OTHER_USER_NOTE = (
-    "--persistent: the layout was applied live and its file half was skipped: this sway session belongs to "
-    "uid %d and this command runs as uid %d, so the file would go into %s inside their home, which this "
-    "process does not write as root (a symlink planted there would be written through). Not yet; the route "
-    "is writing that half as the seated user (fork, setgid/setuid to uid %d, then the same write), at the "
-    "cost of a root-shell measurement on the rig. Until then run `wxrandr --persistent` as that user\n")
+#: screen (the IPC apply crossed the uid boundary and landed) and the file went into the SEATED user's home,
+#: written by a child that was them (`w11common/asuser.run_as_uid`).  Said because the caller asked for a
+#: file and a file was written somewhere their own `ls ~/.config/sway` will not show it.
+SWAY_PERSIST_AS_USER_NOTE = (
+    "--persistent: the file half was written as %s (uid %d), the owner of this sway session, into their home "
+    "rather than uid %d's\n")
+
+#: The same boundary when the drop or the write inside it did not work: the live apply still landed, so this
+#: is a note beside a success and not a refusal, and it names the file, the uid and what went wrong.
+SWAY_PERSIST_OTHER_USER_FAILED_NOTE = (
+    "--persistent: the layout was applied live and its file half, %s, could not be written as uid %d, the "
+    "owner of this sway session (%s); run `wxrandr --persistent` as that user\n")
 
 
 def _socket_owner(path: "str | None") -> "int | None":
@@ -1646,10 +1651,11 @@ def foreign_session_uid(sockpath: "str | None" = None) -> "int | None":
     session scan in `w11common/session.py` finds the seated user's sway or Hyprland socket across uids -- so
     the live apply lands on their session while `$HOME`, and with it `sway_config_dir()`, still names the
     caller's.  The GNOME half of the same flag answers that by resolving the session owner's home
-    (`monitors_xml.default_path`, which takes a uid for this reason); the wlroots halves do not follow it
-    yet, because a plain write into another account's `~/.config` as root is written through whatever symlink
-    is waiting there -- the hazard `monitors_xml.keep_backup` had to close for the one such write we do make.
-    So this is the test that tells the two cases apart, and the callers say which half they skipped.
+    (`monitors_xml.default_path`, which takes a uid for this reason); the wlroots halves follow it through
+    `w11common/asuser.run_as_uid`, a forked child that IS the seated user, which is also why a symlink
+    planted in their config directory reaches only what they could already write -- the hazard
+    `monitors_xml.keep_backup` closes with O_NOFOLLOW for the one write it makes as root.
+    So this is the test that tells the two cases apart, and the callers say whose home they wrote into.
 
     `sockpath` is the IPC socket the backend actually connected to, and when it is given it is the answer:
     the owner of THAT file is by definition the session being driven.  `session.session_uid()` answers a
@@ -1670,11 +1676,13 @@ def foreign_session_uid(sockpath: "str | None" = None) -> "int | None":
 
 
 def _seated_config_path(uid: int, *parts) -> str:
-    """`~<uid>/.config/<parts>` -- the file the notes above NAME and do not write.
+    """`~<uid>/.config/<parts>` -- the file the notes above name, and the one the dropped child writes.
 
     The home comes from the passwd database, not from the environment, which is the caller's; when there is
     no passwd entry to ask (a minimal container) the note carries a `~<uid>` placeholder rather than a path
-    that would be wrong."""
+    that would be wrong.  It is the single seam for that path: `asuser.run_as_uid` rewrites the child's
+    `HOME` out of the same passwd entry and drops `XDG_CONFIG_HOME`, so `sway_config_dir()` recomputes to
+    exactly this and a failure note cannot name a file the write would not have made."""
     from hacks.display.monitors_xml import home_of       # at call time: monitors_xml imports this module
     return os.path.join(home_of(uid) or "~%d" % uid, ".config", *parts)
 
@@ -1888,10 +1896,14 @@ class SwayBackend:
         `persist_sway_layout`).  It is only about the next session: the running one already has the layout
         from the two phases below, so no `swaymsg reload` is sent.  On a session this process does not own --
         root over ssh, or `sudo`, driving the seated user's sway, which the socket scan finds across uids --
-        that `~` is the caller's and not theirs, so the file half is skipped and named instead
-        (`SWAY_PERSIST_OTHER_USER_NOTE`); the live apply above has already landed either way.  Whose session
-        it is comes from the owner of the IPC socket these two phases were sent down, not from a second scan
-        that could stop at a different runtime dir -- see `foreign_session_uid`.
+        that `~` is the caller's and not theirs, so the file half runs inside a child that IS the seated user
+        (`w11common/asuser.run_as_uid`): the file and the `include` land in their home owned by them, and
+        every open the write makes is checked against their permissions, so a symlink planted in their
+        config directory reaches only what they could already write.  A drop that does not work, or a write
+        that they are refused, is a note beside a success (`SWAY_PERSIST_OTHER_USER_FAILED_NOTE`) and not a
+        failure: the live apply above has already landed either way.  Whose session it is comes from the
+        owner of the IPC socket these two phases were sent down, not from a second scan that could stop at a
+        different runtime dir -- see `foreign_session_uid`.
 
         On i3 nothing is sent at all: there is no `output` command to send it to, so the two phases could only
         produce i3's parse error twice over -- and the first phase would already have recorded the modes it
@@ -1905,8 +1917,13 @@ class SwayBackend:
             if other is None:
                 persist_sway_layout(targets, fresh)
             else:
-                warn(SWAY_PERSIST_OTHER_USER_NOTE
-                     % (other, os.geteuid(), _seated_config_path(other, "sway", SWAY_CONF_NAME), other))
+                ok, why = asuser.run_as_uid(other, lambda: persist_sway_layout(targets, fresh))
+                if ok:
+                    warn(SWAY_PERSIST_AS_USER_NOTE
+                         % (asuser.name_of(other) or str(other), other, os.geteuid()))
+                else:
+                    warn(SWAY_PERSIST_OTHER_USER_FAILED_NOTE
+                         % (_seated_config_path(other, "sway", SWAY_CONF_NAME), other, why))
         return fresh
 
     def close(self):

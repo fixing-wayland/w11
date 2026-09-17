@@ -1,11 +1,14 @@
-# Measured 2026-09-16 against Xvfb 2:21.1.22-1ubuntu1 on :95 from a raw socket
-# (scripts/xw11-probe-bigreq.py). Xwayland was NOT measured.
+# Measured 2026-09-16 against Xvfb 2:21.1.22-1ubuntu1 on :95 and 2026-09-17
+# against Xwayland 24.1.10 (2:24.1.10-1) on :0 under headless sway 1.11, both
+# from a raw socket with scripts/xw11-probe-bigreq.py; the Xwayland probe was
+# run twice, byte-identical, and all six blocks matched Xvfb's byte for byte.
 # Same shape as badlength-bigreq-short.hex -- setup, QueryExtension, Enable,
 # then the probe as request 3 -- but line 1 is a big-form GetProperty claiming
 # 4194304 words, one word OVER the 4194303 that connection's own BigReqEnable
 # reply had just advertised (16777212 bytes, recon/wire.md 2; the same ceiling
-# both servers gave in 2026-09 and the same one Xvfb gave again today). That is
-# block (d) of the probe's output.
+# both servers gave in 2026-09, Xvfb again on 2026-09-16 and Xwayland 24.1.10
+# on 2026-09-17). That is block (d) of the probe's output. Xwayland 24.1.10
+# answered block (d) with the same thirty-two bytes.
 # Line 2 is the whole answer: one 32-byte BadLength naming seq=3, major=20 --
 # byte for byte the answer to the too-SHORT form, and the connection stays open
 # for both. 0x0FFFFFFF words (a gigabyte) -- block (e), the next one in the same

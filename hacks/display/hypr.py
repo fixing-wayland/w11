@@ -35,6 +35,7 @@ import re
 import socket
 import time
 
+from w11common import asuser
 from w11common import session as wsession
 from hacks.display import core
 from hacks.display.core import Fatal, Mode, OutputState
@@ -48,6 +49,12 @@ IPC_TIMEOUT = 10.0
 #: What probe() waits. `hypr` is second in AUTO_ORDER and `wxrandr --backends` runs every probe, so a socket
 #: file whose compositor is gone must not cost ten seconds before the wlr fallback is even tried.
 PROBE_TIMEOUT = 2.0
+#: What a reload route running inside a dropped child (`_apply_by_reload` on somebody else's session) is
+#: given before `asuser.run_as_uid` stops waiting.  The route makes two requests down the socket FROM the
+#: child -- `reload`, then the `j/monitors` of `snapshot()` -- and each of those arms IPC_TIMEOUT on the
+#: connect and again on the reply, so four of them is above the child's own worst case and a child killed at
+#: RELOAD_CHILD_TIMEOUT + `asuser.GRACE` is one hung somewhere that is not the IPC.
+RELOAD_CHILD_TIMEOUT = 4 * IPC_TIMEOUT
 
 
 class HyprIPC:
@@ -220,20 +227,30 @@ NO_CONF_NOTE = ("there is no %s to source the rules from, and a config file writ
 
 
 #: `--persistent` on a session that is not the caller's: the layout is on the screen (the live `keyword
-#: monitor` crossed the uid boundary and landed) and the file is the half that did not happen.
-HYPR_PERSIST_OTHER_USER_NOTE = (
-    "--persistent: the layout was applied live and its file half was skipped: this Hyprland session belongs "
-    "to uid %d and this command runs as uid %d, so the file would go into %s inside their home, which this "
-    "process does not write as root (a symlink planted there would be written through). Not yet; the route "
-    "is writing that half as the seated user (fork, setgid/setuid to uid %d, then the same write), at the "
-    "cost of a root-shell measurement on the rig. Until then run `wxrandr --persistent` as that user\n")
+#: monitor` crossed the uid boundary and landed) and the file went into the SEATED user's home, written by a
+#: child that was them (`w11common/asuser.run_as_uid`).
+HYPR_PERSIST_AS_USER_NOTE = (
+    "--persistent: the file half was written as %s (uid %d), the owner of this Hyprland session, into their "
+    "home rather than uid %d's\n")
 
-#: The same boundary on the route-2 apply, where the file is not an extra but the apply itself: there is no
-#: layout to keep without it, so this one is the refusal rather than a note beside a success.
-HYPR_RELOAD_OTHER_USER_NOTE = (
-    "the live `keyword monitor` did not land and the reload route writes the rules into %s inside the home "
-    "of uid %d, which this process (uid %d) does not do as root; not yet -- the route and its cost are those "
-    "of --persistent (write it as the seated user), and until then run the command as that user\n")
+#: The same boundary when the drop or the write inside it did not work.  A note beside a success: the live
+#: keyword had already landed, so the layout is on the screen and only the next session's copy is missing.
+HYPR_PERSIST_OTHER_USER_FAILED_NOTE = (
+    "--persistent: the layout was applied live and its file half, %s, could not be written as uid %d, the "
+    "owner of this Hyprland session (%s); run `wxrandr --persistent` as that user\n")
+
+#: The route-2 apply on somebody else's session, where the file is not an extra but the apply itself: write,
+#: `source =`, `reload`, re-read and the restore-on-failure all run inside the child, which can drive the
+#: socket because it is now its owner (measured 2026-09-17: a dropped child opened the 1001-owned Hyprland
+#: IPC and got its version back).
+HYPR_RELOAD_AS_USER_NOTE = (
+    "the live `keyword monitor` did not land, so the rules were written, sourced and reloaded as %s (uid "
+    "%d), the owner of this Hyprland session, rather than as uid %d\n")
+
+#: And when that child could not do it: here there is no half that worked, so this one is the refusal.
+HYPR_RELOAD_OTHER_USER_FAILED_NOTE = (
+    "the live `keyword monitor` did not land and the reload route, run as uid %d (the owner of this "
+    "Hyprland session) into %s, failed: %s\n")
 
 
 def hypr_config_dir() -> str:
@@ -280,12 +297,13 @@ class HyprOutputs:
         self.conf_dir = conf_dir or hypr_config_dir()
         #: The seated uid when this session is somebody else's -- root over ssh or `sudo` on the user's own
         #: Hyprland, which the socket scan finds across uids.  `conf_dir` above is then the CALLER's
-        #: `~/.config/hypr` and not the directory Hyprland reads, so both file routes below stop and say so
-        #: (`core.foreign_session_uid`).  It is asked with the socket this backend just connected to, because
-        #: that file's owner IS the session being driven -- `find_hypr_socket()` already checks that owner
-        #: against the runtime dir it found it in and then throws it away, while the seated-session scan
-        #: behind `session.session_uid()` can stop in a different uid's runtime dir entirely.  Read once,
-        #: beside the directory it disqualifies.
+        #: `~/.config/hypr` and not the directory Hyprland reads, so both file routes below run inside a
+        #: child that IS that user (`w11common/asuser.run_as_uid`) and recompute `conf_dir` there, from
+        #: their own `$HOME` (`core.foreign_session_uid`).  It is asked with the socket this backend just
+        #: connected to, because that file's owner IS the session being driven -- `find_hypr_socket()`
+        #: already checks that owner against the runtime dir it found it in and then throws it away, while
+        #: the seated-session scan behind `session.session_uid()` can stop in a different uid's runtime
+        #: dir entirely.  Read once, beside the directory it disqualifies.
         self.foreign_uid = core.foreign_session_uid(self.ipc.sockpath)
 
     @property
@@ -484,9 +502,11 @@ class HyprOutputs:
         return os.path.join(self.conf_dir, W11_CONF_NAME)
 
     def _seated_rules_path(self) -> str:
-        """Where the rules file would be in the SEATED user's home -- named by the two notes below, written
-        by neither.  The file name is our own (`W11_CONF_NAME`); what the caller's environment decided, and
-        what is wrong on somebody else's session, is only the directory in front of it."""
+        """Where the rules file goes in the SEATED user's home: what the child writes, and what the two
+        failure notes below name when it could not.  The file name is our own (`W11_CONF_NAME`); what the
+        caller's environment decided, and what is wrong on somebody else's session, is only the directory in
+        front of it -- which is why the child recomputes `conf_dir` from the `HOME` `asuser.run_as_uid`
+        rewrote out of the same passwd entry this reads, so the two cannot disagree."""
         return core._seated_config_path(self.foreign_uid, "hypr", W11_CONF_NAME)
 
     def read_rules(self) -> dict:
@@ -627,19 +647,77 @@ class HyprOutputs:
         the same sentence read twice and was not measured on its own -- the session it would have been
         measured on was one where the keyword applied nothing].
 
-        On a session this process does not own the layout is already on the screen from the keyword and the
-        file is the only half left, so it is skipped and named (`HYPR_PERSIST_OTHER_USER_NOTE`) rather than
-        written into the caller's own `~/.config/hypr`, which that Hyprland has never opened."""
-        if self.foreign_uid is not None:
-            core.warn(HYPR_PERSIST_OTHER_USER_NOTE
-                      % (self.foreign_uid, os.geteuid(), self._seated_rules_path(), self.foreign_uid))
-            return
+        On a session this process does not own, the same write happens inside a forked child that IS the
+        seated user (`w11common/asuser.run_as_uid`), so the file lands in the `~/.config/hypr` that Hyprland
+        really reads, owned by them, and a symlink planted there reaches only what they could already write.
+        `conf_dir` is recomputed inside that child, after the drop rewrote `HOME` out of the passwd entry:
+        the object this method is on belongs to the parent, whose `~/.config/hypr` is the wrong one."""
+        if self.foreign_uid is None:
+            return self._persist_here(lines)
+
+        def body():
+            self.conf_dir = hypr_config_dir()
+            self._persist_here(lines)
+
+        ok, why = asuser.run_as_uid(self.foreign_uid, body)
+        if ok:
+            core.warn(HYPR_PERSIST_AS_USER_NOTE
+                      % (asuser.name_of(self.foreign_uid) or str(self.foreign_uid),
+                         self.foreign_uid, os.geteuid()))
+        else:
+            core.warn(HYPR_PERSIST_OTHER_USER_FAILED_NOTE
+                      % (self._seated_rules_path(), self.foreign_uid, why))
+
+    def _persist_here(self, lines: dict):
+        """The write itself, in whatever home this process's environment names: our rules file, the
+        `source =` line hyprland.conf needs for it, and the note naming both.
+
+        Split from `_persist` so the one body serves both callers -- the caller's own session directly, and
+        the seated user's from inside the dropped child, where it is reached through `conf_dir` recomputed
+        after the environment rewrite.  One body, so the file the two cases write is the same file."""
         path = self.write_rules(lines)
         self._say_source(path, self.ensure_source(path))
         core.warn(PERSIST_CONF_NOTE % path)
 
     def _apply_by_reload(self, state, touched: list, pos: dict, lines: dict, persistent: bool) -> list:
-        """The route-2 apply: write the rules, make sure hyprland.conf sources them, reload, re-read.
+        """The route-2 apply, in the home whose Hyprland is being driven.
+
+        On the caller's own session that is here; on somebody else's, the whole route -- write, `source =`,
+        `reload`, re-read, restore-on-failure -- runs inside a forked child that IS the seated user, which
+        can drive the socket because it is now its owner (measured 2026-09-17: a dropped child opened the
+        1001-owned Hyprland IPC and got the version back).  The child's `Fatal` comes back as its own
+        sentence, after its `finally` has already restored the file, and this re-raises it; the parent then
+        re-reads over the IPC itself, because the child's `snapshot()` does not cross the pipe and neither do
+        the `self.rows`/`self.mirrors` it refreshed.
+
+        The one branch that skips the child's restore is the SIGKILL at `RELOAD_CHILD_TIMEOUT` + `GRACE`:
+        the rules file then holds the rule this run wrote and hyprland.conf its `source =` line, which is
+        exactly the state a `kill -9` of an unforked run between the write and the re-read leaves, and the
+        failure note names that path so the user knows which file to look at.  No restore from the parent:
+        it would need a second drop and a `before` map the parent never had.
+
+        Before this, the uid check refused the route outright: the run that took it wrote the caller's own
+        `~/.config/hypr/w11-monitors.conf`, appended a `source =` to a hyprland.conf that session never
+        reads (or printed `NO_CONF_NOTE` about a file of root's), sent the reload and failed in
+        `_verify_applied` anyway.  Now the same three writes happen where they are read."""
+        if self.foreign_uid is None:
+            return self._reload_route(state, touched, pos, lines, persistent)
+
+        def body():
+            self.conf_dir = hypr_config_dir()
+            self._reload_route(state, touched, pos, lines, persistent)
+
+        ok, why = asuser.run_as_uid(self.foreign_uid, body, timeout=RELOAD_CHILD_TIMEOUT)
+        if not ok:
+            raise Fatal(HYPR_RELOAD_OTHER_USER_FAILED_NOTE
+                        % (self.foreign_uid, self._seated_rules_path(), why))
+        core.warn(HYPR_RELOAD_AS_USER_NOTE
+                  % (asuser.name_of(self.foreign_uid) or str(self.foreign_uid),
+                     self.foreign_uid, os.geteuid()))
+        return self.snapshot(state)
+
+    def _reload_route(self, state, touched: list, pos: dict, lines: dict, persistent: bool) -> list:
+        """The route itself: write the rules, make sure hyprland.conf sources them, reload, re-read.
 
         The file is restored to what it held BEFORE this run when the layout did not land: a layout the
         compositor would not take is not one to leave in a file that the next login reads, and restoring
@@ -651,15 +729,10 @@ class HyprOutputs:
         because until then there is no reload and no layout to claim -- and it is not printed at all on the
         path where nothing sources our file, which is the path that sends no reload.
 
-        The uid check is first, before a byte is read or written: this route IS the file, so on somebody
-        else's session there is no half of it that works.  Without it the run wrote the caller's own
-        `~/.config/hypr/w11-monitors.conf`, appended a `source =` to a hyprland.conf that session never
-        reads (or printed `NO_CONF_NOTE` about a file of root's), sent the reload and failed in
-        `_verify_applied` anyway -- the same rc 1, three writes further along.  Now nothing is written
-        anywhere and the refusal names the file it did not write and the uid that owns the home."""
-        if self.foreign_uid is not None:
-            raise Fatal(HYPR_RELOAD_OTHER_USER_NOTE
-                        % (self._seated_rules_path(), self.foreign_uid, os.geteuid()))
+        Split from `_apply_by_reload` so that one body serves the caller's own session and, unchanged, the
+        seated user's from inside the dropped child -- restore-on-failure included, which is why a `Fatal`
+        from `_verify_applied` in that child has already put the file back before its text reaches the
+        parent."""
         before = self.read_rules()
         path = self.write_rules(lines)
         sourced = self.ensure_source(path)

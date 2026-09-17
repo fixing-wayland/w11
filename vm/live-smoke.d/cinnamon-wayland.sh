@@ -498,17 +498,20 @@ phase_display() {
     # once read as a NOT-YET at route 6 (a muffin rebuilt with screen-cast).  It was WRONG: rung 2 was never
     # probed, and rung 2 works.  wmirror mirrors here over org.Cinnamon.Eval and a Clutter.Clone of the
     # on-screen actors, capturing NOTHING at all -- hacks/mirror/cinnamon.py, AGENTS.md route 2.  Measured on
-    # this golden 2026-09-14 (region 1000x700+0+0 of Virtual-1 onto Virtual-2's origin, via the real CLI): a
-    # QMP screendump of head 1 cropped to the region is byte-identical to the same crop of head 0,
-    # `compare -metric AE` 0 / RMSE 0, live, over a native Wayland window, the XWayland wallpaper actors and
-    # the panel; stays 0 after content changes (a Clone tracks its source) and after a window opens (the
-    # restacked/window-created handlers re-walk); --stop tears the actor down and head 1 shows its own pixels
-    # again (AE 700000).  The single Clone of Main.uiGroup magnifier.js uses does NOT mirror across heads
-    # (only the panel, AE 700000/700000).  So --check now EXITS 0 and names the Eval route.  wl-mirror is in
-    # DESKTOP_PKG, so the helper: row is the wl-mirror path, not a missing-helper story.
+    # this golden 2026-09-14 with the 1:1-at-origin program of that day (region 1000x700+0+0 of Virtual-1 onto
+    # Virtual-2's origin, via the real CLI): a QMP screendump of head 1 cropped to the region was
+    # byte-identical to the same crop of head 0, `compare -metric AE` 0 / RMSE 0, live, over a native Wayland
+    # window, the XWayland wallpaper actors and the panel; stayed 0 after content changes (a Clone tracks its
+    # source) and after a window opened (the restacked/window-created handlers re-walk); --stop tears the
+    # actor down and head 1 shows its own pixels again (AE 700000).  Since 2026-09-17 the group is scaled and
+    # centred (fit is the default, as on every path) and the same picture is --scaling exact, measured AE 0
+    # that day, docs/WMIRROR.md.  The single Clone of Main.uiGroup magnifier.js uses does NOT mirror across
+    # heads (only the panel, AE 700000/700000).  So --check now EXITS 0 and names the Eval route.  wl-mirror
+    # is in DESKTOP_PKG, so the helper: row is the wl-mirror path, not a missing-helper story.
     # [docs/WMIRROR.md "Where wl-mirror does not exist"; tests/test_wmirror_cinnamon.py;
-    # tests/test_wmirror_screencast.py.]  RE-HARVEST OWED: --check's output changed and the region-mirror
-    # commands below are new, so this flavor's committed recording is behind this step file.
+    # tests/test_wmirror_screencast.py.]  RE-HARVEST: the --scaling block below arrived on 2026-09-17; the
+    # committed recording is retired until CI's --record run of this step file is harvested by
+    # scripts/rig-recordings.sh.
     st=0
     out=$(guest 'wmirror --check 2>&1') || st=$?
     same "wmirror --check exits 0 here (the Eval clone is a capture route)" "0" "$st"
@@ -524,7 +527,8 @@ phase_display() {
     # (`compare -metric AE` 0 / RMSE 0, head 1 crop == head 0 crop) is NOT asserted here on purpose: on a
     # same-size multi-head layout the two heads carry identical wallpaper, so a crop compare is either trivial
     # or wrong without placing a distinctive window first; it was measured directly instead, via the real CLI
-    # on this golden 2026-09-14 (docs/WMIRROR.md, and the F2 report).  What this gate catches is the whole
+    # on this golden 2026-09-14 with the 1:1-at-origin program of that day, and again per mode under
+    # --scaling on 2026-09-17 (docs/WMIRROR.md, and the F2 report).  What this gate catches is the whole
     # Eval path breaking: no route-2 record, or an actor that --stop cannot end.
     local apos ax ay region
     apos=$(opos "$first"); ax=${apos%,*}; ay=${apos#*,}
@@ -536,6 +540,30 @@ phase_display() {
     shot mirror-region
     guest "wmirror --stop $second >/dev/null 2>&1" || true
     same "--list is empty after --stop" "" "$(guest 'wmirror --list 2>&1' | tr -d ' \r\n' || true)"
+    # --scaling on this path (hacks/mirror/cinnamon.py build_scaled_program, measured on this golden
+    # 2026-09-17, docs/WMIRROR.md): the mover is put at 1280x1024 so the two heads differ in size, then each
+    # mode is asked for through the real CLI and its record line has to name it.  The --dry-run per mode is
+    # the arithmetic gate -- core.scale_plan's exact ratio for 800x600 -> 1280x1024 is fit 8/5, cover 128/75,
+    # exact 1/1 -- and it is a pure string check, so it replays.  The screendump stays a `shot`, never a
+    # check: fake-vmctl writes a text placeholder for it on replay (common.sh:830-834's rule for every
+    # host-side image).
+    guest "wxrandr --output $second --mode 1280x1024" >/dev/null 2>&1 || true
+    sleep 2
+    local spec mode sn sd
+    for spec in fit:8:5 cover:128:75 exact:1:1; do
+        mode=${spec%%:*}; sn=${spec#*:}; sd=${sn#*:}; sn=${sn%%:*}
+        want "--dry-run --scaling $mode carries the exact ratio $sn/$sd for 800x600 -> 1280x1024" \
+             "SN=$sn,SD=$sd;" \
+             "$(guest "wmirror $first --to $second --region $region --scaling $mode --dry-run 2>&1" || true)"
+        want "wmirror --scaling $mode builds a scaled mirror over Eval and records the mode" \
+             "$second <- $first.*scaling $mode.*AGENTS.md route 2" \
+             "$(guest "wmirror $first --to $second --region $region --scaling $mode 2>&1" || true)"
+        shot "mirror-scaling-$mode"
+        guest "wmirror --stop $second >/dev/null 2>&1" || true
+    done
+    same "--list is empty after the three scaled mirrors" "" "$(guest 'wmirror --list 2>&1' | tr -d ' \r\n' || true)"
+    guest "wxrandr --output $second --mode 1920x1080" >/dev/null 2>&1 || true
+    sleep 2
     # Muffin carries Mutter's validator verbatim -- the strings `Logical monitors not adjacent`,
     # `Logical monitors overlap` and `Logical monitor scales must be identical` are all in
     # libmuffin.so.0.0.0 -- but the recon had no KMS, so no muffin has ever been made to print one.

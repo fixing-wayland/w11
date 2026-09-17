@@ -3,12 +3,15 @@
 
 Cinnamon publishes neither wl-mirror capture protocol, and muffin 6.4 has the ScreenCast machinery compiled
 out (measured -- see tests/test_wmirror_screencast.py and docs/WMIRROR.md). So the mirror does not capture at
-all: it puts a clipped `Clutter.Actor` on `global.stage` at the target head's origin and fills it with one
-`Clutter.Clone` per on-screen `Meta.WindowActor`/`Meta.BackgroundActor` (walked from `global.window_group` and
+all: it puts a black, clipped viewport the size of the target head on `global.stage` at its origin and, inside
+it, a clone group scaled by `--scaling`'s exact ratio and centred, filled with one `Clutter.Clone` per
+on-screen `Meta.WindowActor`/`Meta.BackgroundActor` (walked from `global.window_group` and
 `global.top_window_group`) plus the `panel`, each offset by the region origin. Measured on
-`resolute-cinnamon-wayland` (Cinnamon 6.4.13 / muffin 6.4.1), 2026-09-14: region `1000x700+0+0` of monitor 0
-onto monitor 1's origin compares byte-identical (`compare -metric AE` 0, RMSE 0) between the two heads, live,
-over a native Wayland window, the XWayland desktop/wallpaper actors and the panel.
+`resolute-cinnamon-wayland` (Cinnamon 6.4.13 / muffin 6.4.1): 2026-09-14, the 1:1-at-origin program of that
+day, region `1000x700+0+0` of monitor 0 onto monitor 1's origin, `compare -metric AE` 0 / RMSE 0 against head
+0's crop, live, over a native Wayland window, the XWayland desktop/wallpaper actors and the panel; 2026-09-17,
+the scaled program, Virtual-2 at 1280x1024, fit 1280x896+0+64 / cover the head filled / exact
+1000x700+140+162 at AE 0 (docs/WMIRROR.md).
 
 This file pins the JS the backend sends (hacks/window/cinnamon_js.py's interpolation rule: only integers ever
 go in) and the lifetime bookkeeping (start writes a kind/token record with no pid; stop destroys over Eval;
@@ -24,6 +27,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from fractions import Fraction as F
 from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -60,7 +64,7 @@ class FakeEval:
 
     def eval(self, script):
         FakeEval.scripts.append(script)
-        if "global.__w11m[tok]={grp" in script:            # build_program
+        if "global.__w11m[tok]={grp" in script:            # build_scaled_program
             FakeEval.seq += 1
             FakeEval.live.add(FakeEval.seq)
             return FakeEval.seq
@@ -80,36 +84,94 @@ class FakeEval:
         return int(m.group(1)) in FakeEval.live
 
 
+#: The nine content boxes wl-mirror 0.18.5 actually draws, `(rw, rh, tw, th, mode, (sn, sd), (x, y, w, h))`
+#: -- the unit table both paths answer to. Sampled from a screendump of the target head under sway 1.11
+#: headless with `grim` (2026-09-17); the first three rows are the 1920x1080 -> 1280x1024 boxes docs/WMIRROR.md
+#: has carried since the wl-mirror path was written. `Fraction`s compare equal to the ints, so a row's box is
+#: written the exact way and `core.content_box`'s tuple matches it whole.
+SCALE_TABLE = [
+    (1920, 1080, 1280, 1024, "fit", (2, 3), (0, 152, 1280, 720)),
+    (1920, 1080, 1280, 1024, "cover", (128, 135), (-F(2432, 9), 0, F(16384, 9), 1024)),
+    (1920, 1080, 1280, 1024, "exact", (1, 2), (160, 242, 960, 540)),
+    (800, 600, 1920, 1080, "fit", (9, 5), (240, 0, 1440, 1080)),
+    (800, 600, 1920, 1080, "cover", (12, 5), (0, -180, 1920, 1440)),
+    (800, 600, 1920, 1080, "exact", (1, 1), (560, 240, 800, 600)),        # 1x: it fits, it is not doubled
+    (400, 300, 1920, 1080, "exact", (3, 1), (360, 90, 1200, 900)),        # 3x, not 4.8x: whole factors only
+    (1920, 1080, 700, 480, "exact", (1, 3), (30, 60, 640, 360)),          # down: 1/ceil(1/fit), not 1/2
+    (801, 601, 1920, 1080, "exact", (1, 1), (F(1119, 2), F(479, 2), 801, 601)),   # the half-pixel centre
+]
+
+
 class Programs(unittest.TestCase):
     """The JS strings, and the one rule they must obey: only integers are interpolated."""
 
-    def test_build_interpolates_region_then_target_origin_as_ints(self):
-        prog = cinnamon.build_program((10, 20, 300, 400), 1280, 0)
-        self.assertIn("RX=10,RY=20,RW=300,RH=400,TX=1280,TY=0", prog)
+    def test_scale_plan_is_the_measured_wl_mirror_table(self):
+        """The nine boxes wl-mirror 0.18.5 draws, as exact ratios of the four integers. This is the oracle
+        both paths answer to: the wl-mirror paths because wl-mirror computes them, this one because
+        `core.scale_plan` has to reproduce them before `set_scale` can be trusted to draw them."""
+        for rw, rh, tw, th, mode, plan, box in SCALE_TABLE:
+            with self.subTest(region=(rw, rh), target=(tw, th), mode=mode):
+                self.assertEqual(core.scale_plan(rw, rh, tw, th, mode), plan)
+                self.assertEqual(core.content_box(rw, rh, tw, th, mode), box)
+
+    def test_scale_plan_invariants(self):
+        """What the three modes mean, apart from any one measurement: a target the size of the region is 1:1
+        in all three, `cover` is never smaller than `fit`, `exact` is never larger, `exact` is a whole factor
+        or the reciprocal of one, every plan is a pair of ints, and a mode or a side that cannot be drawn is a
+        ValueError rather than a silently wrong picture."""
+        for mode in core.SCALINGS:
+            self.assertEqual(core.scale_plan(1280, 1024, 1280, 1024, mode), (1, 1), mode)
+        for rw, rh, tw, th in ((1920, 1080, 1280, 1024), (800, 600, 1920, 1080), (801, 601, 1920, 1080),
+                               (400, 300, 1920, 1080), (1920, 1080, 700, 480)):
+            with self.subTest(region=(rw, rh), target=(tw, th)):
+                fit = F(*core.scale_plan(rw, rh, tw, th, "fit"))
+                cover = F(*core.scale_plan(rw, rh, tw, th, "cover"))
+                exact = F(*core.scale_plan(rw, rh, tw, th, "exact"))
+                self.assertGreaterEqual(cover, fit)
+                self.assertLessEqual(exact, fit)
+                self.assertTrue(exact.numerator == 1 or exact.denominator == 1, exact)
+                for plan in (fit, cover, exact):
+                    self.assertIsInstance(plan.numerator, int)
+                    self.assertIsInstance(plan.denominator, int)
+        with self.assertRaises(ValueError):
+            core.scale_plan(800, 600, 1920, 1080, "linear")     # wl-mirror's filter half, not a scaling
+        with self.assertRaises(ValueError):
+            core.scale_plan(800, 0, 1920, 1080, "fit")
+
+    def test_build_interpolates_ten_ints(self):
+        prog = cinnamon.build_scaled_program((10, 20, 300, 400), (1280, 0, 1920, 1080), "fit")
+        self.assertIn("RX=10,RY=20,RW=300,RH=400,TX=1280,TY=0,TW=1920,TH=1080,SN=27,SD=10;", prog)
 
     def test_build_coerces_through_int_and_leaves_no_format_holes(self):
         """The interpolation rule: floats are forced through int(), and nothing but numbers reaches the
-        program -- so a program built from odd inputs is still all-integer JS, never a stray %d or a string."""
-        prog = cinnamon.build_program((1.9, 2.9, 300.0, 400.0), 1280.5, 0.0)
-        self.assertIn("RX=1,RY=2,RW=300,RH=400,TX=1280,TY=0", prog)
+        program -- so a program built from odd inputs is still all-integer JS, never a stray %d, a string or a
+        decimal point (the scale itself is the pair SN/SD, divided inside the compositor)."""
+        prog = cinnamon.build_scaled_program((1.9, 2.9, 300.0, 400.0), (1280.5, 0.0, 1920.0, 1080.0), "fit")
+        self.assertIn("RX=1,RY=2,RW=300,RH=400,TX=1280,TY=0,TW=1920,TH=1080,", prog)
         self.assertNotIn("%d", prog)
+        self.assertIsNone(re.search(r"\d\.\d", prog))
 
     def test_build_is_the_per_actor_walk_not_the_uigroup_shortcut(self):
         """The working pattern is one Clone per Meta actor found under window_group + top_window_group, plus
         the panel. The magnifier-style single `Clone` of `Main.uiGroup` does NOT mirror across heads (measured
-        AE 700000/700000 on the rig -- only the panel comes through), so it must not be what we send."""
-        prog = cinnamon.build_program((0, 0, 800, 600), 0, 0)
+        AE 700000/700000 on the rig -- only the panel comes through), so it must not be what we send. The
+        viewport around it is the parity item: wl-mirror blacks out the whole target head, and the 1:1 group
+        that used to be the only actor let the target's own desktop show around the picture."""
+        prog = cinnamon.build_scaled_program((0, 0, 800, 600), (0, 0, 1280, 1024), "fit")
         for needle in ("global.window_group", "global.top_window_group",
                        "M.WindowActor", "M.BackgroundActor",
                        "get_transformed_position", "new C.Clone(",
-                       "name==='panel'", "clip_to_allocation:true"):
+                       "name==='panel'", "clip_to_allocation:true",
+                       "background_color:new C.Color({red:0,green:0,blue:0,alpha:255})",
+                       "grp.set_pivot_point(0,0);grp.set_scale(s,s);",
+                       "vp.add_child(grp)", "global.__w11m[tok]={grp:vp,"):
             self.assertIn(needle, prog, needle)
         self.assertNotIn("C.Clone({source:Main.uiGroup", prog)
 
     def test_build_stays_live_over_structural_changes(self):
         """A Clone tracks its source's content on its own; the tree's SHAPE (windows opening, closing,
         restacking) is what needs a re-walk, so the program connects `restacked` and `window-created`."""
-        prog = cinnamon.build_program((0, 0, 800, 600), 0, 0)
+        prog = cinnamon.build_scaled_program((0, 0, 800, 600), (0, 0, 1280, 1024), "fit")
         self.assertIn("connect('restacked'", prog)
         self.assertIn("connect('window-created'", prog)
 
@@ -148,16 +210,25 @@ class Lifetime(unittest.TestCase):
         self.assertEqual(rec["region"], [0, 0, 800, 600])
         self.assertNotIn("pid", rec)
         self.assertNotIn("helper_pid", rec)
-        # and no scaling mode: nothing on this path scales, so there is none to write down -- a `"scaling":
-        # "fit"` here is what made `--list` claim a letterbox the Clutter group never did.
-        self.assertNotIn("scaling", rec)
+        # and the mode the mirror is drawing, resolved by the caller: `fit` here as on every other path, so
+        # `--list` says what the scaled group does rather than what the flag happened to be.
+        self.assertEqual(rec["scaling"], "fit")
 
-    def test_start_places_the_group_at_the_target_origin(self):
+    def test_start_records_the_mode_it_was_asked_for(self):
+        recs = {}
+        cinnamon.start(recs, "A", "B", (0, 0, 800, 600), _Out("B", x=1280), scaling="cover")
+        self.assertEqual(recs["B"]["scaling"], "cover")
+        built = [s for s in FakeEval.scripts if "global.__w11m[tok]={grp" in s]
+        self.assertIn("SN=12,SD=5;", built[0])         # cover of 800x600 onto 1920x1080: max(12/5, 9/5)
+
+    def test_start_places_the_viewport_at_the_target_origin_and_size(self):
+        """The viewport is the target head, not the region: that is what blacks the head out the way
+        wl-mirror does and what the scaled group is centred inside."""
         recs = {}
         cinnamon.start(recs, "A", "B", (0, 0, 800, 600), _Out("B", x=1280, y=40))
         built = [s for s in FakeEval.scripts if "global.__w11m[tok]={grp" in s]
         self.assertEqual(len(built), 1)
-        self.assertIn("TX=1280,TY=40", built[0])
+        self.assertIn("TX=1280,TY=40,TW=1920,TH=1080", built[0])
 
     def test_alive_then_stop_then_not_alive(self):
         recs = {}
@@ -185,20 +256,24 @@ class Lifetime(unittest.TestCase):
             self.assertFalse(cinnamon.reap({"B": {"pid": 1, "helper_pid": 2}}))
 
     def test_fmt_record_names_the_route_and_token_not_a_pid(self):
-        # the `"scaling": "fit"` key is what a record written while this path still recorded a scaling mode
-        # looks like: it is ignored, not printed back, because the line has to say what the mirror does
-        # (1:1, clipped) and not what was once asked for. The column itself stays, so the line keeps the
-        # wl-mirror line's shape.
         rec = {"kind": "cinnamon", "source": "A", "region": [0, 0, 800, 600],
-               "scaling": "fit", "token": 5, "route": cinnamon.ROUTE}
+               "scaling": "cover", "token": 5, "route": cinnamon.ROUTE}
         line = cinnamon.fmt_record("B", rec)
         self.assertIn("B <- A", line)
         self.assertIn("region 800x600+0+0", line)
-        self.assertIn("scaling 1:1", line)
-        self.assertNotIn("scaling fit", line)
+        self.assertIn("scaling cover", line)
         self.assertIn("tok 5", line)
         self.assertIn("Eval", line)
         self.assertNotIn("wl-mirror", line)
+
+    def test_fmt_record_of_a_record_with_no_mode_says_1_to_1(self):
+        """A record with no `scaling` key was written by a tree whose program placed the clone group 1:1 at
+        the target origin -- it is still on disk after an upgrade, and the line has to say what THAT mirror
+        draws, not what the flag would mean today."""
+        rec = {"kind": "cinnamon", "source": "A", "region": [0, 0, 800, 600],
+               "token": 5, "route": cinnamon.ROUTE}
+        line = cinnamon.fmt_record("B", rec)
+        self.assertIn("scaling 1:1", line)
 
 
 SOCKET = "/run/user/1000/wayland-0"
@@ -254,7 +329,7 @@ class Cli(unittest.TestCase):
         rc, o, e = self.run_cli(["A", "--to", "B", "--region", "800x600+0+0", "--dry-run"])
         self.assertEqual(rc, 0, e)
         self.assertIn("org.Cinnamon.Eval:", o)
-        self.assertIn("RX=0,RY=0,RW=800,RH=600,TX=1280,TY=0", o)
+        self.assertIn("RX=0,RY=0,RW=800,RH=600,TX=1280,TY=0,TW=1920,TH=1080", o)
         self.assertEqual(FakeEval.live, set())             # nothing built
         self.assertEqual(core.records(core.load_state()), {})
 
@@ -274,31 +349,42 @@ class Cli(unittest.TestCase):
         self.assertIn("B <- A", o)
         self.assertIn("tok 1", o)
 
-    def test_an_explicit_scaling_is_refused_on_this_path(self):
-        """The Clutter group is placed 1:1 at the target origin and clipped, so fit/cover/exact are not
-        applied here. An explicit --scaling is refused with its route and its cost -- not recorded and then
-        quietly dropped, which is what made a `--list` line claim a letterbox that never happened."""
-        for mode in ("cover", "fit"):
-            with self.subTest(mode=mode):
-                FakeEval.live, FakeEval.seq, FakeEval.scripts = set(), 0, []
-                rc, o, e = self.run_cli(["A", "--to", "B", "--region", "800x600+0+0", "--scaling", mode])
-                self.assertEqual(rc, 1)
-                self.assertIn("--scaling %s" % mode, e)
-                self.assertIn("not yet done on this path", e)
-                self.assertIn("AGENTS.md route 2", e)
-                self.assertEqual(FakeEval.scripts, [])         # nothing was built inside muffin
-                self.assertEqual(FakeEval.live, set())
-                self.assertEqual(core.records(core.load_state()), {})
-                self.assertEqual(o, "")
+    def test_list_prints_the_mode(self):
+        self.run_cli(["A", "--to", "B", "--region", "800x600+0+0", "--scaling", "cover"])
+        rc, o, e = self.run_cli(["--list"])
+        self.assertEqual(rc, 0, e)
+        self.assertIn("scaling cover", o)
 
-    def test_an_explicit_scaling_is_refused_before_the_dry_run_prints_a_program(self):
-        """--dry-run is not a way past it: the program it would print is the 1:1 one, so printing it under
-        `--scaling cover` would be the same claim in another voice."""
+    def test_scaling_is_accepted_and_recorded(self):
+        """`--scaling cover` on this path is the same picture wl-mirror draws: the group is scaled by the
+        exact ratio `core.scale_plan` computes (800x600 onto B's 1920x1080: max(12/5, 9/5) = 12/5) and the
+        mode is written into the record, so the start line and `--list` say what the mirror is drawing."""
+        rc, o, e = self.run_cli(["A", "--to", "B", "--region", "800x600+0+0", "--scaling", "cover"])
+        self.assertEqual(rc, 0, e)
+        self.assertIn("scaling cover", o)
+        built = [s for s in FakeEval.scripts if "global.__w11m[tok]={grp" in s]
+        self.assertEqual(len(built), 1)
+        self.assertIn("SN=12,SD=5;", built[0])
+        self.assertEqual(core.records(core.load_state())["B"]["scaling"], "cover")
+
+    def test_dry_run_prints_the_scaled_program(self):
+        """The dry run prints the program that would run, scale and all -- `exact` of 800x600 onto 1920x1080
+        is 1x (whole factors only, and 2x would not fit), so SN/SD is 1/1 and the picture is centred."""
         rc, o, e = self.run_cli(["A", "--to", "B", "--region", "800x600+0+0",
-                                 "--scaling", "cover", "--dry-run"])
-        self.assertEqual(rc, 1)
-        self.assertIn("not yet done on this path", e)
-        self.assertNotIn("org.Cinnamon.Eval:", o)
+                                 "--scaling", "exact", "--dry-run"])
+        self.assertEqual(rc, 0, e)
+        self.assertIn("org.Cinnamon.Eval:", o)
+        self.assertIn("SN=1,SD=1;", o)
+        self.assertEqual(FakeEval.live, set())             # nothing built
+        self.assertEqual(core.records(core.load_state()), {})
+
+    def test_the_default_is_fit_like_the_wl_mirror_path(self):
+        """No flag is `fit` here as everywhere else: 800x600 onto 1920x1080 letterboxes at 9/5."""
+        rc, o, e = self.run_cli(["A", "--to", "B", "--region", "800x600+0+0"])
+        self.assertEqual(rc, 0, e)
+        self.assertIn("scaling fit", o)
+        built = [s for s in FakeEval.scripts if "global.__w11m[tok]={grp" in s]
+        self.assertIn("SN=9,SD=5;", built[0])
 
     def test_list_reaps_a_mirror_the_compositor_dropped(self):
         self.run_cli(["A", "--to", "B", "--region", "800x600+0+0"])

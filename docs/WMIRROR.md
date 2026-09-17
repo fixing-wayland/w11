@@ -44,14 +44,18 @@ wmirror --check               # can this session mirror at all, and what is miss
   corner. Use `wxrandr --query` to find output positions. `slurp` uses the same
   coordinate space but prints `x,y widthxheight`; convert that to the syntax above.
 
-* **`--scaling`** is passed straight through (the wl-mirror paths; the Cinnamon
-  path is placed 1:1, below): `fit` letterboxes (default),
-  `cover` fills and crops the sides, and `exact` enlarges by whole-number factors
-  (2×, 3×, …) or reduces by their reciprocals (½×, ⅓×, …), centering the result.
-  Measured on a 1920x1080 → 1280x1024 pair, content box sampled from a
-  screendump of the target head: `fit` gives 1280x720+0+152, `cover` fills
-  it (1280x1024+0+0, sides cropped), and `exact` gives **960x540+160+242**, wl-mirror centres what it cannot fill, horizontally as well as
-  vertically.
+* **`--scaling`** `fit` letterboxes (default), `cover` fills and crops, `exact`
+  enlarges by whole-number factors (2×, 3×, …) or reduces by their reciprocals
+  (½×, ⅓×, …), centring what it cannot fill. On the wl-mirror paths it is passed
+  straight through; on Cinnamon the same three modes are computed by
+  `hacks/mirror/core.scale_plan` as an exact ratio of two integers and applied by
+  `set_scale` on the clone group inside a black, clipped viewport the size of the
+  target (below). Measured on wl-mirror 0.18.5, content box sampled from a
+  screendump of the target head: 1920x1080 → 1280x1024 gives `fit` 1280x720+0+152,
+  `cover` 1280x1024+0+0 (sides cropped), `exact` **960x540+160+242**; 800x600 →
+  1920x1080 gives `fit` 1440x1080+240+0, `cover` 1920x1080+0+0 (top and bottom
+  cropped), `exact` 800x600+560+240 (1×). `tests/test_wmirror_cinnamon.py` pins
+  nine such boxes as the unit table both paths answer to.
 * **`--keep-layout`** is the way to ask for a mirror the layout could
   deliver: two same-sized outputs, mirrored while the target keeps its own
   rectangle (so the desktop keeps its area). Without it, that case is
@@ -305,12 +309,14 @@ surface the window plane rides (`hacks/window/backend_cinnamon.py`) — and the
 compositor is already holding every actor's texture, so a `Clutter.Clone` of an
 on-screen actor draws that actor's live pixels wherever it is placed, tracking
 it frame for frame with **no capture at all**. `hacks/mirror/cinnamon.py` puts a
-clipped `Clutter.Actor` on `global.stage` at the target head's origin and fills
-it with one clone per `Meta.WindowActor`/`Meta.BackgroundActor` (walked from
-`global.window_group` and `global.top_window_group`) plus the `panel`, each
-offset by the region origin.
+black, clipped viewport the size of the target head on `global.stage`, and inside
+it a clone group scaled to `--scaling`'s ratio and centred, filled with one clone
+per `Meta.WindowActor`/`Meta.BackgroundActor` (walked from `global.window_group`
+and `global.top_window_group`) plus the `panel`, each offset by the region
+origin.
 
-Measured on the same golden (two heads, monitor 0 = `1280x800+0+0`, monitor 1 =
+Measured on the same golden with the 1:1-at-origin program this path shipped
+until 2026-09-17 (two heads, monitor 0 = `1280x800+0+0`, monitor 1 =
 `1920x1080+1280+0`), 2026-09-14: mirroring region `1000x700+0+0` of monitor 0
 onto monitor 1's origin, a QMP `screendump` of head 1 cropped to the region
 compares against the same crop of head 0 at **`compare -metric AE` 0, RMSE 0** —
@@ -324,7 +330,10 @@ does **not** work, so nobody retries it: a single `Clutter.Clone` of
 `Main.uiGroup` (what `magnifier.js` clones) does not mirror across heads — on
 this golden its crop mismatched head 0 at every one of 700000 pixels (RMSE 0.29):
 only the panel comes through, the windows and wallpaper are black. The per-actor
-walk is the working pattern.
+walk is the working pattern. That program is gone (fit is the default here as
+everywhere), but what it proved is the clone walk the scaled group still does;
+the same 1:1 picture is `--scaling exact` on a region that fits, centred, and it
+measured AE 0 on 2026-09-17 (below).
 
 What is **not yet** on this path (`AGENTS.md route 2`, the same rung): a
 supervisor that watches the OUTPUT layout and drops the mirror when the two
@@ -334,19 +343,46 @@ is not wired here, because muffin has no wlr output manager; the same watch
 would read `org.cinnamon.Muffin.DisplayConfig`. Start-time geometry is fully
 policed by `core.decide`; only the live re-check while it runs is owed. The
 in-compositor group is torn down by `--stop`, by `--replace`, and when the
-session bus goes away. And `--scaling`: the clone group is placed 1:1 at the
-target's origin and clipped to the region, so a mirror onto a differently-sized
-head is neither letterboxed nor filled; an explicit `--scaling`, `fit` included,
-is refused with the sentence `NO_SCALING` carries (`hacks/mirror/cinnamon.py`) —
-`cinnamon mirror: --scaling fit is not yet done on this path: the Clutter clone
-group is placed 1:1 at the target origin and clipped to the region, so fit, cover
-and exact are not applied here` — rather than accepted and not done. The route
-is rung 2 again — the same `Eval` program carrying a `set_scale` and a centring
-translation on the group — and the cost is a rig measurement
-(`resolute-cinnamon-wayland`, two different-sized heads, a screendump of the
-target) of what `clip_to_allocation` does under a scaled actor before it ships.
-`--list` prints `scaling 1:1` for such a mirror.
-*(Cinnamon measured on the rig, 2026-09-14.)*
+session bus goes away.
+
+`--scaling` is applied here too. The clone group sits inside a viewport actor at
+the target's origin and size, black (`background_color`, what wl-mirror shows
+around a letterboxed picture) and clipped to its allocation; the group carries
+`set_pivot_point(0,0)` and `set_scale(s,s)` with `s = SN/SD` from
+`core.scale_plan`, and is placed at `((TW*SD-RW*SN)/(2*SD), (TH*SD-RH*SN)/(2*SD))`,
+so `fit`, `cover` and `exact` draw the boxes wl-mirror draws (above). Ten integers
+are interpolated, never a float: the scale and the offsets are divided in JS from
+them. Measured on `resolute-cinnamon-wayland` (Cinnamon 6.4.13 / muffin 6.4.1),
+2026-09-17, Virtual-1 `1920x1080+0+0` and Virtual-2 `1280x1024+1920+0`
+(`wxrandr --output Virtual-2 --mode 1280x1024`), region `1000x700+0+0` of
+Virtual-1 with a terminal at its top-left, one QMP screendump of each head per
+mode: `fit` → content box **1280x896+0+64**, the prediction exactly (s = 32/25),
+with 163840 black pixels — 1280×128, the two letterbox bars and not one pixel
+more — and RMSE **0.0016** against head 0's region crop resized with a triangle
+filter; `cover` → the head **filled**, 0 black pixels anywhere (s = 256/175, 91 px
+cut each side, so the predicted 1280x1024+0+0), RMSE **0.020** against that crop
+resized to 1463x1024 and centre-cropped (loose: the resize is rounded to the
+pixel; `-fuzz 5% -trim` reports 1253x982+27+42 there because it shaves the
+wallpaper's own smooth gradient, not because anything is letterboxed); `exact` →
+**1000x700+140+162**, the prediction exactly (s = 1), **AE 0, RMSE 0** — byte
+identical to head 0's crop, which is the 2026-09-14 result again, centred instead
+of at the origin. The one thing the program could not settle offline: an upscale,
+region `640x480+0+0` at `fit` (s = 2), drew **1280x960+0+32**, the prediction
+exactly, with 81920 black pixels (1280×64, the two bars), so `clip_to_allocation`
+on the scaled group clips in the group's own scaled coordinates and nothing is cut
+at 640x480 device pixels — the program ships without a `set_offscreen_redirect`.
+`--list` prints the mode; a record written by a tree that placed the clone 1:1
+carries none and lists as `scaling 1:1`.
+
+Two more **not yet**s, both of them things wl-mirror has: the cursor (wl-mirror
+mirrors it by default; the clone walk clones no cursor sprite — `AGENTS.md route
+2` again, one more `Clutter.Clone` of `Meta.CursorTracker`'s sprite, at the cost
+of a rig measurement of where it lands under scale) and the `linear|nearest`
+filter half of wl-mirror's own `--scaling` flag, which no path exposes yet — a
+flag through to wl-mirror on the wlroots paths, `minification-filter` /
+`magnification-filter` on the clone group here (route 2), at the cost of a
+screendump per filter to say what each one actually draws.
+*(Cinnamon measured on the rig, 2026-09-14 and 2026-09-17.)*
 
 **X11**: `xrandr --output B --same-as A` mirrors whole outputs, and a region
 mirror is not written yet: it wants an X capture client of our own, XShm off

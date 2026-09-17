@@ -1,8 +1,7 @@
-# Measured 2026-09-16 against Xvfb 2:21.1.22-1ubuntu1 on :95 from a raw socket
-# (scripts/xw11-probe-bigreq.py, which is in the tree so this can be re-cut on a
-# newer server -- or on Xwayland, which was NOT measured for any of the three
-# big-form fixtures; both servers are the same 21.1.x core, os/io.c, but that is
-# an argument and not a measurement).
+# Measured 2026-09-16 against Xvfb 2:21.1.22-1ubuntu1 on :95 and 2026-09-17
+# against Xwayland 24.1.10 (2:24.1.10-1) on :0 under headless sway 1.11, both
+# from a raw socket with scripts/xw11-probe-bigreq.py; the Xwayland probe was
+# run twice, byte-identical, and all six blocks matched Xvfb's byte for byte.
 # After a cookie-less setup, request 1 was QueryExtension("BIG-REQUESTS"),
 # request 2 that extension's Enable (its reply advertised 4194303 words), and
 # request 3 -- line 1 here -- a big-form GetProperty claiming ONE word, which is

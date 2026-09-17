@@ -480,6 +480,42 @@ def group_count(text: str) -> int:
     return min(n, MAX_GROUPS) or 1
 
 
+_SYMBOLS_NAME_RE = re.compile(r'\bxkb_symbols\s+"([^"]*)"')
+
+
+def symbols_groups(text: str):
+    """The layout codes the keymap's `xkb_symbols` section name lists, in group order, or None where the
+    name cannot say.
+
+    This is the one place a keymap states *which layout each group is*, rather than how many there are.
+    libxkbcommon writes the whole configured set into that single name: `pc_us_de_2_fr_3_gr_4_inet(evdev)`
+    is us,de,fr,gr and `pc_ru_es_2_us_3_inet(evdev)` is ru,es,us. The shape is the model, then the first
+    layout, then every further layout followed by its own group number, then the compat and option sections
+    -- and those carry digits of their own (`tests/fixtures/keymaps/us_grptoggle.xkb` ends
+    `_inet(evdev)_group(win_space_toggle)_1_group(win_space_toggle)_2`), which is why the scan stops at the
+    first token that is not followed by the group number it would have to have, rather than filtering on
+    what a token looks like.
+
+    A variant rides inside the token as `us(dvorak)` (`tests/fixtures/keymaps/dvorak.xkb`, whose name is
+    `pc_us(dvorak)_us_2_inet(evdev)`); GNOME writes that same source `us+dvorak` in `input-sources`, so the
+    `+` form is what comes back here and the two compare as they are.
+
+    KWin's keymaps and anything compiled without a layout list say `"(unnamed)"` (`kde5_de.xkb`, `neo.xkb`,
+    `noble_de.xkb`): no name, no answer, None -- and the caller keeps whatever it had.
+    """
+    m = _SYMBOLS_NAME_RE.search(text)
+    if m is None:
+        return None
+    toks = m.group(1).split("_")
+    if len(toks) < 2 or not toks[1] or toks[1].isdigit():
+        return None                      # no model-plus-layout pair in it: `(unnamed)` and its kin
+    out, i = [toks[1]], 2
+    while i + 1 < len(toks) and toks[i + 1] == str(len(out) + 1):
+        out.append(toks[i])
+        i += 2
+    return [tok.replace("(", "+").replace(")", "") for tok in out]
+
+
 def _brace_body(text: str, open_idx: int) -> str:
     """The text between the brace at open_idx and its match. String-aware."""
     depth = 0
@@ -929,8 +965,13 @@ def choose_group(text: str, from_modifiers=None) -> tuple:
       * otherwise group 1, flagged as *assumed*. It is the first configured
         source, which is the active one whenever the user configured exactly
         one -- the case this whole module exists for. GNOME appends its own
-        `us` fallback group after the user's sources, so "de,us" is a session
-        with one German source, and group 1 is right.
+        `us` fallback group after the user's sources, on every generation
+        measured here (46, 50.4, 50.5, 51.beta), so "de,us" is a session with
+        one German source and group 1 is right. What moved between them is
+        only whether that `us` is appended to a chunk that already holds one
+        -- see the three measurements at the GNOME reader below -- which is a
+        question about the second group of a multi-source session and not
+        about this one.
 
     "Assumed" is where `fetch()` goes and asks the desktop (`desktop_group`),
     so on the five desktops that reader can ask -- Hyprland, Wayfire, KWin,
@@ -1167,17 +1208,43 @@ def kwin_group(text: str):
 #     The portal is the only route, and it needs nothing installed and no new
 #     dependency -- `w11common/dbus_mini.py` speaks it as it stands.
 #
-# Turning the source's index into a keymap group is one rule with one wrinkle.
-# Mutter compiles the sources in order and ALWAYS appends its own `us` group
-# after them, even when `us` is already a source (`us,de` -> `us, de, us`);
-# that appended group is why a one-layout GNOME session looks exactly like a
-# two-layout one from the keymap alone, and why the notice used to fire on
-# every command of every non-US GNOME desktop. XKB allows four groups, so
-# beyond three sources Mutter recompiles around whichever source is in use:
-# with `de,fr,gr,ru,es` the keymap is `de, fr, gr, us` until Spanish is
-# picked, and then it is `ru, es, us` with group 2 active. So the group is the
-# source's index within its chunk of three, plus one -- `tests/fixtures/
-# keymaps/five_es.xkb` is that keymap, captured.
+# Turning the source's index into a keymap group takes two routes, because
+# what Mutter compiles has moved under us between shell versions and the
+# keymap itself turns out to say more than the arithmetic ever knew.
+#
+# The keymap's own `xkb_symbols` section name is the primary route
+# (`symbols_groups` above). libxkbcommon writes the configured layouts into
+# that name in group order -- `pc_us_de_2_fr_3_gr_4_inet(evdev)`,
+# `pc_ru_es_2_us_3_inet(evdev)` -- so the live source's position in that list
+# IS its group, and no model of how the shell chunks anything is needed. The
+# first position of the source's layout id is the answer, which is what keeps
+# the appended-`us` shape below answering 1 for `us` in `us, de, us`.
+#
+# The chunk arithmetic is the fallback, for the keymaps whose name says
+# nothing (`"(unnamed)"`) and for a live source the name does not list.
+# Mutter compiles the sources in order and appends its own `us` group after
+# them; that appended group is why a one-layout GNOME session looks exactly
+# like a two-layout one from the keymap alone, and why the notice used to fire
+# on every command of every non-US GNOME desktop. XKB allows four groups, so
+# beyond three sources the shell recompiles around whichever source is in use,
+# and the group is the source's index within its chunk of three, plus one.
+#
+# Three measurements, because the shapes differ and the arithmetic is only
+# right on two of them:
+#
+#   * GNOME 50.4 and 46, `de,fr,gr,ru,es` with Spanish picked: the keymap is
+#     `ru, es, us`, appended `us` and all, and es at index 4 is group 2.
+#     `tests/fixtures/keymaps/five_es.xkb` is that keymap, captured.
+#   * GNOME 51.beta, `us,de,fr,gr,es` with Spanish picked (CI run
+#     35037697473): still `i % 3 + 1`, still byte-exact -- pinned at
+#     tests/test_xkbmap.py so a name-based route cannot quietly overturn it.
+#   * GNOME 50.5, `us,de,fr,gr` and five sources (CI run 35201590455): the
+#     chunk is four wide and carries no appended `us` when `us` is already a
+#     source, so gr is group 4 of 4 and a five-source chunk reads `es, us`
+#     with es group 1 of 2. The arithmetic answers 1 and 2 there, both of
+#     which fit the keymap and so survive the clamp; the section name is what
+#     settles it. `us_de_fr_gr_50_5.xkb` and `es_us_50_5.xkb` are those two
+#     shapes.
 #
 # Two states are refused rather than answered, because there the setting
 # describes no single live layout:
@@ -1202,8 +1269,9 @@ GNOME_TIMEOUT = 2.0        # the read is 1-3 ms; this only bounds a wedge
 GNOME_RETRY_AFTER = 10.0   # monotonic seconds before re-dialling a bus that failed
 GNOME_FORK_GRACE = 2.0     # extra seconds before a silent child is killed
 
-# Mutter fits this many of the user's sources into one keymap (XKB's four
-# groups, less the `us` it appends). Beyond that it compiles in chunks.
+# How many of the user's sources the fallback route assumes fit one keymap
+# (XKB's four groups, less the `us` Mutter appends). Beyond that it assumes
+# chunks. Only the keymaps whose section name says nothing reach this.
 GNOME_SOURCES_PER_KEYMAP = 3
 
 # The same rule as KWin's: an answer that describes the session rather than
@@ -1249,10 +1317,23 @@ class GnomeInputSources:
 
         `text` is the keymap the answer has to fit: an index past its last
         group describes a keymap we did not read -- a layout list edited a
-        moment ago -- and the caller's own guess is the better one."""
+        moment ago -- and the caller's own guess is the better one.
+
+        Two routes, in this order. The keymap's own `xkb_symbols` name lists
+        the groups in order, so where it names the live source's layout that
+        position is the answer; where it says nothing, or does not list that
+        layout, the chunk arithmetic answers as it always did. The states the
+        setting refuses (per-window, a stale head, a source that is not xkb)
+        are refusals either way: the name is consulted only once the setting
+        has named one live source."""
         with self._lock:
             try:
-                n = _group_of_sources(self._ask())
+                got = self._ask()
+                n = _group_of_sources(got)
+                if n is not None:
+                    named = _group_of_symbols_name(got, text)
+                    if named is not None:
+                        n = named
                 return n if n is not None and 1 <= n <= group_count(text) else None
             except Exception:
                 # Nothing about typing may depend on this working (B13).
@@ -1473,10 +1554,13 @@ def _reap(pid: int):
         pass
 
 
-def _group_of_sources(d):
-    """The active keymap group from the setting, or None where the setting
-    describes no single one. Pure: this is the whole mapping, and the part
-    most worth pinning in a test."""
+def _active_source(d):
+    """(index, layout id) of the source the setting says is live, or None
+    where it names no single one.
+
+    Pure, and the whole of the *reading* of that setting: both routes to a
+    group start here, so a state refused for one of them is refused for the
+    other."""
     if not isinstance(d, dict):
         return None
     sources, mru = d.get("sources"), d.get("mru-sources")
@@ -1497,7 +1581,33 @@ def _group_of_sources(d):
             i = src.index(tuple(mru[0]))
         except (ValueError, TypeError):
             return None  # a head that names a source the list no longer has
-    return i % GNOME_SOURCES_PER_KEYMAP + 1
+    return i, src[i][1]
+
+
+def _group_of_sources(d):
+    """The active keymap group by the chunk arithmetic, or None where the
+    setting describes no single one. Pure: this is the fallback route whole,
+    and the part most worth pinning in a test."""
+    got = _active_source(d)
+    return None if got is None else got[0] % GNOME_SOURCES_PER_KEYMAP + 1
+
+
+def _group_of_symbols_name(d, text: str):
+    """The active keymap group from the keymap's own `xkb_symbols` name, or
+    None where that name cannot say: it is `"(unnamed)"`, or it does not list
+    the live source's layout at all -- a keymap read a moment before the list
+    was edited, or a chunk the live source is not in.
+
+    The FIRST position of that layout is the answer, deliberately: Mutter
+    appends its own `us` after the user's sources, so `us, de` compiles
+    `pc_us_de_2_us_3_inet(evdev)` and a live `us` there is the user's own
+    source, group 1, and never the appended copy at the end."""
+    got = _active_source(d)
+    groups = symbols_groups(text)
+    if got is None or not groups:
+        return None
+    want = str(got[1]).replace("(", "+").replace(")", "")
+    return groups.index(want) + 1 if want in groups else None
 
 
 _gnome = None

@@ -28,6 +28,8 @@ point of them.
 | `kde5_de.xkb` | `de` | `German` |
 | `four_us_de_fr_gr.xkb` | `us`, `de`, `fr`, `gr` | `English (US)`, `German`, `French`, `Greek` |
 | `ru_us.xkb` | `ru`, `us` | `Russian`, `English (US)` |
+| `us_de_fr_gr_50_5.xkb` | `us`, `de`, `fr`, `gr`, `es`, on Greek (GNOME 50.5) | `English (US)`, `German`, `French`, `Greek` |
+| `es_us_50_5.xkb` | `us`, `de`, `fr`, `gr`, `es`, on Spanish (GNOME 50.5) | `Spanish`, `English (US)` |
 
 `us_swapescape.xkb` and `us_grptoggle.xkb` are plain `us` sessions with a
 keyboard *option* set, which is
@@ -52,14 +54,32 @@ chunk them and the fourth source is group 4; five sources with Russian picked
 compile the chunk `ru, us`, where Russian is group 1. `i % 3 + 1` answers 1
 and 2 there, and both answers fit the keymap, so nothing clamps them away.
 Each file's `xkb_symbols` section name lists its own group order, `pc_us_de_2_fr_3_gr_4_inet(evdev)` and `pc_ru_us_2_inet(evdev)`, the same
-shape as `five_es.xkb`'s `pc_ru_es_2_us_3_inet(evdev)`, which is what the
-deferred cross-check in tests/test_xkbmap.py reads. On GNOME 51.beta,
-measured, five sources still follow the arithmetic exactly (Spanish at index
-4 is group 2 of 3), so the name is a guard on the awkward cases and not a
-replacement for the rule.
+shape as `five_es.xkb`'s `pc_ru_es_2_us_3_inet(evdev)`, and since fix 37 that
+name is the **primary** route `hacks/input/xkbmap.py` reads (`symbols_groups`),
+with the arithmetic behind it for the keymaps whose name says nothing. On
+GNOME 51.beta, measured, five sources still follow the arithmetic exactly
+(Spanish at index 4 is group 2 of 3, CI run 35037697473), which is why the
+arithmetic is still there and still pinned.
 
-Everything but the `kde*` six, `noble_de.xkb`, `sway_de.xkb`, `neo.xkb` and the
-two compiled files above comes from GNOME 50 / Mutter on Ubuntu 26.04 (libxkbcommon 1.11, which writes
+`us_de_fr_gr_50_5.xkb` and `es_us_50_5.xkb` are the shapes GNOME Shell 50.5
+compiled, and they are the only two files here that were **synthesized**
+rather than captured or compiled: they are byte-for-byte
+`four_us_de_fr_gr.xkb` and `es.xkb`, kept under their own names because the
+*session* each stands for is a different one. What names them is the section
+name rule above plus the log of CI run 35201590455 (`rig arch-gnome`, GNOME
+Shell 50.5, Arch), where five sources `us,de,fr,gr,es` reported `group 1 of 4`
+under Greek and `group 2 of 2` under Spanish: a chunk four sources wide, and
+no appended `us` where the chunk already had one. Under 50.4 the same session
+reported three-group chunks. A capture from that guest would replace both
+files with the real bytes -- `vm/live-smoke.sh arch-gnome --reuse --keep`
+and then `vm/live-smoke.d/capture-from-run`, which needs an arch-gnome golden
+this box does not have. Until then the group *order* in them is measured and
+the rest of their bytes are a stand-in, which is exactly what the tests read
+them for.
+
+Everything but the `kde*` six, `noble_de.xkb`, `sway_de.xkb`, `neo.xkb`, the
+two compiled files and the two synthesized ones above comes from GNOME 50 /
+Mutter on Ubuntu 26.04 (libxkbcommon 1.11, which writes
 every keysym as a hex number). `noble_de.xkb` comes from GNOME 46 / Mutter on
 Ubuntu 24.04 (libxkbcommon 1.6, which writes keysym *names*), the same layout
 in the other dialect, so the parser is pinned against both. `sway_de.xkb` is
@@ -83,8 +103,11 @@ and dialytika as dead keys) and no Latin letter on any of them.
 
 Two facts these files record, both needed by `hacks/input/xkbmap.py`:
 
-* GNOME always compiles **one more group than the user configured**, an
-  `English (US)` fallback appended at the end. A session with a single `de`
+* GNOME compiles **one more group than the user configured**, an
+  `English (US)` fallback appended at the end, on every generation captured
+  here -- 46, 50.4, 50.5 and 51.beta -- for every session whose own sources do
+  not already fill the keymap (`four_us_de_fr_gr.xkb` is four sources in four
+  groups, with nothing left to append to). A session with a single `de`
   source therefore has two groups, and group 1 is the one the user picked, which the file cannot say, because a session with two sources looks exactly
   the same. That is the question `xkbmap.GnomeInputSources` puts to
   `org.gnome.desktop.input-sources` through the portal, and `five_es.xkb` is
@@ -93,9 +116,14 @@ Two facts these files record, both needed by `hacks/input/xkbmap.py`:
   and beyond three sources it recompiles around whichever one is in use, with
   `de, fr, gr, ru, es` configured the keymap is `de, fr, gr, us` until Spanish
   is picked from the panel menu, and then it is this file,
-  `pc_ru_es_2_us_3_inet(evdev)`. So the group is the source's index *within
-  its chunk of three*, and `es` at index 4 is group 2. Through 0.4 wdotool
-  assumed group 1 there, Russian, and `type yz` typed nothing at all.
+  `pc_ru_es_2_us_3_inet(evdev)`. So on that generation the group is the
+  source's index *within its chunk of three*, and `es` at index 4 is group 2.
+  Through 0.4 wdotool assumed group 1 there, Russian, and `type yz` typed
+  nothing at all. How wide the chunk is, and whether the `us` is appended to
+  a chunk that already holds one, is the part that moved between 50.4 and
+  50.5 (`us_de_fr_gr_50_5.xkb`, `es_us_50_5.xkb`), which is why the reader
+  takes the group order off the section name first and counts only when the
+  name cannot say.
   KWin and sway do not: one source is one group. `kde_us_de.xkb` is what a
   KDE user who adds a second layout gets, two groups, no fallback, and
   which of the two is live is not in the file at all, because no compositor
