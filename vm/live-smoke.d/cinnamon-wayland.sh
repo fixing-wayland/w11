@@ -509,9 +509,10 @@ phase_display() {
     # heads (only the panel, AE 700000/700000).  So --check now EXITS 0 and names the Eval route.  wl-mirror
     # is in DESKTOP_PKG, so the helper: row is the wl-mirror path, not a missing-helper story.
     # [docs/WMIRROR.md "Where wl-mirror does not exist"; tests/test_wmirror_cinnamon.py;
-    # tests/test_wmirror_screencast.py.]  RE-HARVEST: the --scaling block below arrived on 2026-09-17; the
-    # committed recording is retired until CI's --record run of this step file is harvested by
-    # scripts/rig-recordings.sh.
+    # tests/test_wmirror_screencast.py.]  HARVESTED: the --scaling block below arrived on 2026-09-17 and
+    # retired the recording of 2026-09-14; the committed one is CI run 35215587574's, pulled by
+    # scripts/rig-recordings.sh on 2026-09-17 and replayed at 102 pass, 0 fail -- the tally that run's
+    # own log recorded, which is the script's acceptance rule (scripts/rig-recordings.sh:213-214).
     st=0
     out=$(guest 'wmirror --check 2>&1') || st=$?
     same "wmirror --check exits 0 here (the Eval clone is a capture route)" "0" "$st"

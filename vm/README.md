@@ -996,33 +996,42 @@ originals do.
 is grouped by desktop and is what a user reads; this one is grouped by flavor and names the
 image. Neither may claim what the other denies: change them together.
 
-**What the last whole-rig run printed**, per flavor: CI run **34340513060** (commit `a544dec`,
-the guest installing `release/w11_0.4.0_all.deb` built from that tree, three heads).
-Every tally is the run's own `done:` line, and the XFAIL column is the `xwant` lines that
-stayed expected-failures:
+**What the last whole-rig run printed**, per flavor: CI run **35215587574** (commit `126fd4e`,
+the guest installing the package the run built for its distribution — `release/w11_0.4.0_all.deb`
+on the 25 Ubuntu flavors, `dist/w11-0.4.0-1-any.pkg.tar.zst` on the six Arch, and the three
+`dist/*-0.4.0-1.fc44.noarch.rpm` (the `w11`, `gnome-shell-extension-w11-bridge` and `-overlap`
+packages) on the five Fedora, while the two NixOS carry the w11 module baked into the golden and
+install nothing — three heads, two on `fedora44-cosmic`, the one flavor whose yaml says
+`# vmctl-ci-heads: 2`). Every tally is the run's own `done:` line, and the XFAIL column is the
+`xwant` lines that stayed expected-failures:
 
 | flavor | checks | XFAIL lines | wall |
 |---|---|---|---|
-| `noble-gnome`, `noble-gnome-iso`, `resolute-gnome`, `resolute-gnome-iso`, `stonking-gnome` | 90 pass, 0 fail | 1 | 396–587 s |
-| `resolute-hypr` | 77 pass, 0 fail | 3 | 327 s |
-| `resolute-budgie`, `resolute-xfce-wayland` | 74 pass, 0 fail | 1 | 159–195 s |
-| `resolute-labwc`, `resolute-lxqt-wayland` | 70 pass, 0 fail | 1 | 175–176 s |
-| `resolute-wayfire` | 67 pass, 0 fail | 0 | 158 s |
-| `resolute-cinnamon-wayland` | 65 pass, 0 fail | 7 | 459 s |
-| `resolute-kde`, `stonking-kde` | 60 pass, 0 fail | 0 | 190–198 s |
-| `noble-kde` | 59 pass, 0 fail | 0 | 274 s |
-| `noble-gnome-x11` | 51 pass, 0 fail | 2 | 242 s |
-| `resolute-sway` | 38 pass, 0 fail | 0 | 137 s |
-| `resolute-i3` | 37 pass, 0 fail | 1 | 96 s |
-| `resolute-mate` | 33 pass, 0 fail | 1 | 164 s |
-| `resolute-cinnamon` | 32 pass, 0 fail | 1 | 106 s |
-| `resolute-lxqt` | 24 pass, 0 fail | 1 | 98 s |
-| `noble-kde-x11`, `noble-xfce`, `resolute-kde-x11`, `resolute-xfce` | 19 pass, 0 fail | 1 | 69–116 s |
-| `arch-hypr`, `arch-sway`, `fedora44-gnome`, `fedora44-sway`, `nixos-sway` | no smoke ran | — | — |
-
-The five that ran nothing on that run were the five non-Ubuntu push flavors, for the same
-missing fetch rule; run 34688228778 has since run every one of the 38, and the per-tool table
-below — `arch-river`, `arch-cosmic` and `fedora44-cosmic` among its rows — is what they do.
+| `fedora43-gnome`, `fedora44-gnome` | 118 pass, 0 fail | 0 | 581–613 s |
+| `arch-gnome`, `noble-gnome`, `noble-gnome-iso`, `resolute-gnome`, `resolute-gnome-iso`, `stonking-gnome` | 116 pass, 0 fail | 0 | 421–653 s |
+| `nixos-gnome` | 113 pass, 0 fail | 2 | 585 s |
+| `resolute-cinnamon-wayland` | 102 pass, 0 fail | 0 | 256 s |
+| `resolute-hypr` | 101 pass, 0 fail | 1 | 377 s |
+| `resolute-budgie`, `resolute-xfce-wayland` | 97 pass, 0 fail | 0 | 220–233 s |
+| `arch-hypr` | 95 pass, 0 fail | 0 | 360 s |
+| `resolute-labwc`, `resolute-lxqt-wayland` | 93 pass, 0 fail | 0 | 175–176 s |
+| `resolute-wayfire` | 89 pass, 0 fail | 0 | 177 s |
+| `fedora44-kde` | 87 pass, 0 fail | 0 | 340 s |
+| `arch-kde`, `fedora44-cosmic` | 86 pass, 0 fail | 0 | 278–300 s |
+| `arch-cosmic` | 85 pass, 0 fail | 0 | 382 s |
+| `resolute-kde`, `stonking-kde` | 83 pass, 0 fail | 0 | 220–232 s |
+| `noble-kde` | 82 pass, 0 fail | 0 | 277 s |
+| `arch-river` | 78 pass, 0 fail | 3 | 335 s |
+| `noble-gnome-x11` | 63 pass, 0 fail | 0 | 165 s |
+| `fedora44-sway` | 62 pass, 0 fail | 0 | 316 s |
+| `arch-sway` | 61 pass, 0 fail | 0 | 213 s |
+| `resolute-sway` | 59 pass, 0 fail | 0 | 167 s |
+| `nixos-sway` | 57 pass, 0 fail | 2 | 112 s |
+| `resolute-i3` | 42 pass, 0 fail | 0 | 102 s |
+| `resolute-mate` | 39 pass, 0 fail | 0 | 167 s |
+| `resolute-cinnamon` | 37 pass, 0 fail | 0 | 123 s |
+| `resolute-lxqt` | 29 pass, 0 fail | 0 | 102 s |
+| `noble-kde-x11`, `noble-xfce`, `resolute-kde-x11`, `resolute-xfce` | 24 pass, 0 fail | 0 | 97–108 s |
 
 **Three flavors were also measured by hand on this host on 2026-09-09**, over the working tree
 rather than the released package, and those numbers are here because two of the fixes they

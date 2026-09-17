@@ -2098,7 +2098,7 @@ themselves. They are not part of the interface.
 
 ## 9. Module → test file → fake
 
-5778 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
+5780 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
 hold across all of them and are enforced by tests of their own:
 
 * **every `tests/test_*.py` sets `W11_PASSTHROUGH=never`**, or the suite
@@ -2290,12 +2290,12 @@ every guest command and the bytes it answered beside each job's log, and
 `scripts/rig-recordings.sh <run-id>` turns the `live-smoke-<flavor>` artifacts a run
 uploaded into `tests/fixtures/live/*-replay.txt`, one per flavor, named after the log's
 phase list and its `w11-desktop-version:` note, keeping only the ones whose replay
-reproduces the tally the log recorded. As of the all-38 SMOKE-green run **34688228778**
-(commit `c0db8c5`) every phase of every flavor is recorded but for five the harvest could
-not yet name — an empty or noisy desktop-version note, or a proxy transcript one check
-short: `tests/fixtures/live/NOT-YET-RUN` keeps eight lines and no others, the `lxqt`,
-`river` and `wayfire` step tokens and the `proxy:` lines for arch-river, noble-kde,
-resolute-kde, resolute-wayfire and stonking-kde.
+reproduces the tally the log recorded. As of the all-38 SMOKE-green run **35215587574**
+(commit `126fd4e`) every phase of every flavor is recorded and
+`tests/fixtures/live/NOT-YET-RUN` carries no token line at all: the `lxqt`, `river` and
+`wayfire` step tokens and the five `proxy:` lines that run 34688228778's harvest could not
+name were cut from later runs, and a step file that gains a guest command puts its token
+back until the next harvest (the way `cinnamon-wayland` did on 2026-09-17).
 
 That script has a regression of its own that needs no VM. `vm/live-smoke.d/selftest-offline.sh`
 runs the `windows` and `wm` phases against `vm/live-smoke.d/fake-vmctl`, which replays

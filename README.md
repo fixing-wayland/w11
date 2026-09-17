@@ -180,7 +180,7 @@ pointer, so `wdotool type` needs no privilege at all and `wdotool mousemove` nee
 or root. `wmirror` works there on `ext_image_copy_capture_manager_v1` alone. What the
 window half does and does not do is footnote **(m)** — no move, resize, raise or lower
 for a native toplevel, and no pid — and none of it is in the support matrix above: the
-COSMIC goldens are built and SMOKE-green (run **34688228778**), but which of them are
+COSMIC goldens are built and SMOKE-green (run **35215587574**), but which of them are
 support targets rather than protocol probes is the owner's call, and a version claim in
 the header needs a checked-in `vm/reference/<flavor>-packages.txt`, which no COSMIC
 flavor has yet.
@@ -1084,13 +1084,13 @@ cloud image, which is a probe for one protocol change rather than a support targ
 and a GNOME 51 desktop on 26.10, which is where the third GNOME of the overlap route
 was measured and is not a support target either. The Fedora 43 and 44, Arch and NixOS
 flavors — and with them COSMIC and river — are now built and SMOKE-green in CI (run
-**34688228778**, commit `c0db8c5`, every one of the 38 flavors green); which of them are
+**35215587574**, commit `126fd4e`, every one of the 38 flavors green); which of them are
 support targets rather than protocol probes is the owner's call, and `vm/README.md` says
 what each is.
 `vm/README.md` keeps the rig and the verbatim messages behind these cells, and
 [docs/Technical.md § 10](docs/Technical.md#10-the-vm-rig) is what the images are and
 where a cloud flavor is measurably not a desktop install. The last whole-rig measurement
-is CI run **34688228778** (commit `c0db8c5`, the rig installing the package built from
+is CI run **35215587574** (commit `126fd4e`, the rig installing the package built from
 the tree for each distribution): all **38 jobs** ran the smoke and every one was
 SMOKE-green with no FAIL anywhere — Fedora, Arch and NixOS now fetched and booted
 alongside the Ubuntu flavors, where a run before them stopped short of the smoke for want
@@ -1272,7 +1272,7 @@ matrix header does not name for want of a checked-in package list: labwc 0.9.3 o
 wlroots 0.19.2, and Ubuntu Budgie 10.10.2, Xfce 4.20 (`startxfce4 --wayland`) and LXQt
 2.3 (`startlxqtwayland`), each of which *is* labwc with its own panels on top. The
 registry of labwc under Xfce is byte-identical to a bare labwc's. Two more members have
-goldens, built and SMOKE-green in CI (run **34688228778**), and nothing about them is
+goldens, built and SMOKE-green in CI (run **35215587574**), and nothing about them is
 claimed above for the two reasons the COSMIC section gives: which flavors are support
 targets rather than protocol probes is the owner's call, and a version claim in the
 header needs a checked-in `vm/reference/<flavor>-packages.txt`, which neither has. The two
@@ -1476,7 +1476,7 @@ GNOME. Running this README against that install is also what found the last of
 it, an overlap route whose every message spoke only to somebody who had a clone
 rather than the package. Both desktops report their active layout there, `wayland + kwin` on one and
 `wayland + gnome input-sources` on the other, and stderr is silent on both. The suite
-stands at **5778 tests**.
+stands at **5780 tests**.
 <!-- release-notes: 0.3 -->
 ### 0.3
 
@@ -1524,7 +1524,7 @@ Developed against real desktops, not against a model of them. `vm/` is the rig:
 `vmctl` builds and runs 38 flavors over four distributions, each with up to four virtual monitors
 that can be plugged, resized and unplugged from outside the guest, and every head
 screenshotted. `vm/README.md` documents the whole thing and `vm/SETUP.md` is how to
-set the rig up on a machine of your own. `tests/` holds the suite, 5778 tests: unit
+set the rig up on a machine of your own. `tests/` holds the suite, 5780 tests: unit
 tests, wire-level fake compositors and X servers, live-compositor integration,
 hostile-input torture, byte-parity oracles against the real xdotool, wmctrl, xprop
 and xrandr, and one static check that no package ever reaches for PolicyKit or for

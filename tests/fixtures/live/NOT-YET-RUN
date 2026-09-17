@@ -20,8 +20,8 @@
 # commit that adds the recording.  resolute-sway was the first, on 2026-09-11:
 # 27 pass, 0 fail, recorded as resolute-sway-1.11-windows-wm-proxy-replay.txt.
 # resolute-cinnamon-wayland's step file gained the --scaling block on
-# 2026-09-17; its recording of 2026-09-14 predates it and is retired until CI's
-# --record run is harvested.
+# 2026-09-17, which retired its recording of 2026-09-14 and put both of its
+# tokens back here; the replacement was harvested from CI run 35215587574 by
+# scripts/rig-recordings.sh on 2026-09-17 -- 102 pass, 0 fail, the same tally
+# that run's own log recorded -- and the two lines went with it.
 
-cinnamon-wayland
-proxy:resolute-cinnamon-wayland

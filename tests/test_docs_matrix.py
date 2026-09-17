@@ -583,6 +583,51 @@ class TheRigImages(unittest.TestCase):
         self.assertIn("Plasma 6.7", para)
         self.assertIn("GNOME 51", para)
 
+    def test_the_whole_rig_table_names_every_push_flavor_once(self):
+        """The per-run table under **What the last whole-rig run printed** is
+        the push flavors' own `done:` lines, cut off a green run's job logs by
+        hand and grouped by (checks, XFAIL), every flavor named exactly once.
+        Drop a push flavor from `vm/flavors/`, or add one, and the row set
+        stops matching -- which is the whole point, because the cut is manual
+        and this is what keeps the hand honest.  The second cell is the run's
+        verbatim `done:` tally, so a row that lost its numbers fails here too."""
+        text = self.docs["vm/README.md"]
+        body = text.split("**What the last whole-rig run printed**", 1)[1]
+        head = "| flavor | checks | XFAIL lines | wall |"
+        self.assertIn(head, body, "the per-run table's header has been reworded")
+        body = body.split(head, 1)[1].split("\n\n", 1)[0].splitlines()
+        names = []
+        for line in body[2:]:                   # [0] is empty, [1] the header rule
+            if not line.startswith("|"):
+                break
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            names += re.findall(r"`([a-z0-9-]+)`", cells[0])
+            self.assertRegex(cells[1], r"^\d+ pass, \d+ fail$")
+        self.assertEqual(sorted(names),
+                         sorted(n for n in self.names if self.ci[n] == "push"))
+        self.assertEqual(len(names), len(set(names)), "a flavor is named twice")
+
+    def test_the_whole_rig_run_id_is_one_measurement_across_the_documents(self):
+        """vm/README.md:995's own rule -- this table and README's *Desktop
+        support* matrix are one measurement, change them together -- written as
+        a test.  The run id under **What the last whole-rig run printed** is the
+        same eleven digits that README.md's "The last whole-rig measurement"
+        sentence and docs/Technical.md's "As of the all-N SMOKE-green run"
+        sentence carry.  README.md wraps that sentence across a line, hence the
+        `\\s+`; recut one document to a fresher run and forget the other two and
+        this is what says so."""
+        vm = self.docs["vm/README.md"]
+        readme = self.docs["README.md"]
+        technical = self.docs["docs/Technical.md"]
+        m = re.search(r"whole-rig run printed\*\*, per flavor: CI run \*\*(\d{11})\*\*", vm)
+        self.assertTrue(m, "vm/README.md's per-run run id is gone or not 11 digits")
+        r = re.search(r"The last whole-rig measurement\s+is CI run \*\*(\d{11})\*\*", readme)
+        self.assertTrue(r, "README.md's whole-rig sentence is gone or reworded")
+        t = re.search(r"As of the all-\d+ SMOKE-green run\s+\*\*(\d{11})\*\*", technical)
+        self.assertTrue(t, "docs/Technical.md's whole-rig sentence is gone or reworded")
+        self.assertEqual({m.group(1), r.group(1), t.group(1)}, {m.group(1)},
+                         "the three documents name different whole-rig runs")
+
 
 if __name__ == "__main__":
     unittest.main()

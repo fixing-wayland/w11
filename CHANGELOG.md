@@ -268,7 +268,9 @@ and the bytes are named wherever a number is.
   repository URL is the one the tree moved to, the labwc and COSMIC geometry rows carry the
   footnote that explains them, and 199 citations of the pre-`hacks/` module layout across 96
   files now name files that exist, with `tests/test_cited_paths.py` standing over them so the
-  next rename cannot do it again quietly. The `.deb` in `release/` is rebuilt from all of it.
+  next rename cannot do it again quietly, and `vm/README.md`'s per-run table is cut from run
+  **35215587574**, all 38 flavors, with a test that keeps its run id and its row set honest. The
+  `.deb` in `release/` is rebuilt from all of it.
 - **The active keyboard group on GNOME is read out of the keymap, not counted off it.**
   libxkbcommon writes the configured layouts into the keymap's own `xkb_symbols` section name in
   group order — `pc_us_de_2_fr_3_gr_4_inet(evdev)` — so that name is now the primary route
@@ -295,7 +297,7 @@ and the bytes are named wherever a number is.
   extension emitted. `Gio.File.read()` joined the stubs, so the libmutter build id is read out of
   a real ELF note instead of coming back null. The offsets themselves stay the rig's measurement;
   this proves their use.
-- **5778 tests**, up from 4146, the new ones being the four new window and display
+- **5780 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and
