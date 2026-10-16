@@ -105,6 +105,10 @@ and the bytes are named wherever a number is.
   and five `checks` so `nix flake check` stops passing with zero tests.
   `packages.xdotool` and `packages.wmctrl` exist, so `scripts/parity-oracle.sh`'s
   instructions are true, and `meta.license` is `bsd2` now that `LICENSE` exists.
+  `apps.<system>` names all seven console scripts, so `nix run github:fixing-wayland/w11#wwmctl`
+  (`#wxprop`, `#wxrandr`, `#wmirror`, `#xw11`, `#warandr`) works where only the default
+  `wdotool` did: with no `apps` output `nix run` fell through to `meta.mainProgram`, one
+  name, and `nix run .#wwmctl` answered "does not provide attribute" (nix 2.34.8).
 - **The rig grew from thirteen flavors to 38, over four distributions.** Ubuntu gained
   `resolute-hypr`, `resolute-wayfire`, `resolute-labwc`, `resolute-xfce-wayland`,
   `resolute-budgie`, `resolute-lxqt-wayland`, `resolute-cinnamon`,
@@ -297,7 +301,7 @@ and the bytes are named wherever a number is.
   extension emitted. `Gio.File.read()` joined the stubs, so the libmutter build id is read out of
   a real ELF note instead of coming back null. The offsets themselves stay the rig's measurement;
   this proves their use.
-- **5780 tests**, up from 4146, the new ones being the four new window and display
+- **5782 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and

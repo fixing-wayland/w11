@@ -56,6 +56,42 @@
           inherit (pkgs) xdotool wmctrl;
         });
 
+      # `nix run github:fixing-wayland/w11` was one tool, and only one.  With
+      # no `apps` output, `nix run` falls through to packages.default and runs
+      # its meta.mainProgram, which is a single name (wdotool, nix/package.nix);
+      # `nix run .#wwmctl` answered `does not provide attribute
+      # 'apps.x86_64-linux.wwmctl', 'packages.x86_64-linux.wwmctl' or 'wwmctl'`
+      # (measured on nix 2.34.8, 2026-10-16), because the four other CLI
+      # scripts live in bin/ of packages.w11 under its one pname and nothing
+      # named them.  One app per console script of pyproject.toml
+      # [project.scripts], so every tool is `nix run github:fixing-wayland/w11#<tool>`
+      # -- the six from packages.w11, and warandr from packages.warandr with
+      # its GTK wrapping behind it.  `default` stays wdotool, which keeps the
+      # README's `nix run ... -- --version` sentence true.  No app is named
+      # `xdotool` or `wmctrl`: `nix run .#xdotool` resolves apps before
+      # packages, and those two names are the nixpkgs ORACLES
+      # (packages.xdotool/wmctrl, above) that scripts/parity-oracle.sh builds.
+      apps = nixpkgs.lib.genAttrs systems (system:
+        let
+          p = self.packages.${system};
+          app = pkg: name: description: {
+            type = "app";
+            program = "${pkg}/bin/${name}";
+            meta = { inherit description; };
+          };
+          cli = app p.w11;
+        in
+        {
+          wdotool = cli "wdotool" "xdotool, for Wayland";
+          wwmctl = cli "wwmctl" "wmctrl, for Wayland";
+          wxprop = cli "wxprop" "xprop, for Wayland";
+          wxrandr = cli "wxrandr" "xrandr, for Wayland";
+          wmirror = cli "wmirror" "mirror one output onto another";
+          xw11 = cli "xw11" "the X11 protocol proxy in front of Xwayland";
+          warandr = app p.warandr "warandr" "arandr, for Wayland (GTK 3)";
+          default = cli "wdotool" "xdotool, for Wayland";
+        });
+
       # `{ self }` rather than the packages themselves: a consumer whose flake
       # sets `inputs.w11.inputs.nixpkgs.follows` gets the module built
       # against THEIR nixpkgs, because self.packages is evaluated at their

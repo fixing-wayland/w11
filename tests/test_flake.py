@@ -342,6 +342,30 @@ class Outputs(unittest.TestCase):
         directory" [recon2/pkg-nix §1 defect 1]."""
         self.assertRegex(read(PACKAGE), r'mainProgram = "wdotool";')
 
+    def test_every_console_script_is_an_app(self):
+        """`nix run github:fixing-wayland/w11` reached wdotool and nothing
+        else: with no `apps` output `nix run` falls through to
+        packages.default's one meta.mainProgram, and `nix run .#wwmctl`
+        answered "does not provide attribute 'apps.x86_64-linux.wwmctl',
+        'packages.x86_64-linux.wwmctl' or 'wwmctl'" (nix 2.34.8, 2026-10-16).
+        One app per [project.scripts] entry, `default` still wdotool so the
+        README's `-- --version` line stays true, and NO app named xdotool or
+        wmctrl: apps resolve before packages, and those two names are the
+        nixpkgs oracles scripts/parity-oracle.sh builds."""
+        flake = read(FLAKE)
+        apps = re.search(r"\n      apps = (.*?)\n      \}\);\n", flake, re.S)
+        self.assertIsNotNone(apps, "no apps output in flake.nix")
+        body = apps.group(1)
+        names = re.findall(r"(?m)^          ([a-z0-9]+) = (?:cli|app p\.[a-z0-9]+) \"([a-z0-9]+)\"", body)
+        self.assertEqual(sorted(dict(names)), sorted(TOOLS + ("default",)))
+        self.assertEqual(dict(names)["default"], "wdotool")
+        for name, script in names:
+            if name != "default":
+                self.assertEqual(name, script)
+        self.assertIn('warandr = app p.warandr "warandr"', body)
+        self.assertNotIn("xdotool =", body)
+        self.assertNotIn("wmctrl =", body)
+
     def test_the_platforms_claim_is_linux(self):
         """The old meta claimed nothing at all, so nixpkgs' default let the
         package advertise darwin and freebsd.  Every backend here is a
@@ -760,6 +784,28 @@ class Live(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr[-2000:])
         from wdotool import cli
         self.assertEqual(r.stdout.strip(), "xdotool version %s" % cli.XDO_VERSION)
+
+    def test_every_tool_runs_through_its_own_app(self):
+        """The apps point INTO the two packages setUpClass built -- the six
+        CLI scripts into packages.w11, warandr into packages.warandr's link --
+        and one of them is run, because an `apps` entry whose program path is
+        right but whose attribute nix never resolves is what the text test
+        cannot see."""
+        r = nix("eval", "--json", flake_ref("apps.x86_64-linux"),
+                "--apply", "builtins.mapAttrs (_: a: a.program)")
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        programs = json.loads(r.stdout)
+        self.assertEqual(sorted(programs), sorted(TOOLS + ("default",)))
+        for name, program in programs.items():
+            script = "wdotool" if name == "default" else name
+            pkg = "warandr" if script == "warandr" else "w11"
+            with self.subTest(name):
+                self.assertEqual(program, os.path.join(self.out[pkg], "bin", script))
+                self.assertTrue(os.path.exists(program), program)
+        env = dict(os.environ, W11_PASSTHROUGH="never")
+        r = nix("run", flake_ref("wwmctl"), "--", "--version", env=env)
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        self.assertEqual(r.stdout.strip(), "1.07")
 
     def test_flake_check_has_five_checks_to_run(self):
         r = nix("eval", flake_ref("checks.x86_64-linux"), "--apply", "builtins.attrNames")

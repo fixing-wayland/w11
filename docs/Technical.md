@@ -2098,7 +2098,7 @@ themselves. They are not part of the interface.
 
 ## 9. Module → test file → fake
 
-5780 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
+5782 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
 hold across all of them and are enforced by tests of their own:
 
 * **every `tests/test_*.py` sets `W11_PASSTHROUGH=never`**, or the suite
@@ -2534,7 +2534,13 @@ it is already the GitHub tarball at that host (3,952,338 bytes). CI uses neither
 
 ### The flake, and the NixOS module
 
-`nix run github:fixing-wayland/w11 -- --version` runs the tools without installing anything.
+`nix run github:fixing-wayland/w11 -- --version` runs `wdotool` without installing anything,
+and `apps.<system>` names every console script of `pyproject.toml`, so
+`nix run github:fixing-wayland/w11#wwmctl -- -l` (and `#wxprop`, `#wxrandr`, `#wmirror`, `#xw11`,
+`#warandr`) reaches the rest. Before that output existed `nix run` fell through to
+`packages.default`'s one `meta.mainProgram` and `nix run .#wwmctl` was "does not provide
+attribute". `#xdotool` and `#wmctrl` are deliberately not apps: `nix run` resolves `apps` before
+`packages`, and those two names are the nixpkgs oracles `scripts/parity-oracle.sh` builds.
 The flake is six packages rather than one: `w11` (five of the six tools, stdlib,
 216.0 MiB of closure), `warandr` (the one GTK program, 546.9 MiB), `gnome-bridge`,
 `gnome-overlap`, `udev-rules` and `x11-shadows`. The two installable ones have deliberately
