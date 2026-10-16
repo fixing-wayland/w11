@@ -7,10 +7,6 @@ drop-in clones that work on Wayland. Same commands, same flags, same output byte
 same scripts, bugs faithfully included. Symlink them over the originals and your
 muscle memory never finds out the compositor changed underneath it.
 
-<p align="center">
-<img src="media/meme.svg" width="880" alt="reject modernity, embrace tradition">
-</p>
-
 In the box:
 
 - **wdotool**, xdotool, all 48 commands, byte-parity
