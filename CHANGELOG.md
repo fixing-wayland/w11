@@ -109,6 +109,16 @@ and the bytes are named wherever a number is.
   (`#wxprop`, `#wxrandr`, `#wmirror`, `#xw11`, `#warandr`) works where only the default
   `wdotool` did: with no `apps` output `nix run` fell through to `meta.mainProgram`, one
   name, and `nix run .#wwmctl` answered "does not provide attribute" (nix 2.34.8).
+- **The rig refreshes apt lists before it installs, and says why an install failed.**
+  CI run 38967358762 (2026-10-16), rig stonking-kde: `apt-get install ./w11.deb` exited 100 on
+  the golden (`52adc7affc7edbfb`) that had passed a month before, after listing eight
+  GTK-typelib dependencies as NEW — a development release's archive had moved under lists as
+  old as the golden; stonking-gnome, whose golden carries the typelibs, passed from the same
+  archive in the same hour. `phase_install` runs `apt-get update` first on Ubuntu
+  (`pkg_refresh_cmd`; a failed refresh is a note, not a FAIL), a failed install prints the
+  installer's last eight lines (the FAIL line's clip is the first 400 bytes, which held the
+  dependency list and not apt's `E:`), and a guest that never answers ssh gets its
+  `serial.log` copied beside the smoke log, where the artifact picks it up.
 - **The rig grew from thirteen flavors to 38, over four distributions.** Ubuntu gained
   `resolute-hypr`, `resolute-wayfire`, `resolute-labwc`, `resolute-xfce-wayland`,
   `resolute-budgie`, `resolute-lxqt-wayland`, `resolute-cinnamon`,
@@ -301,7 +311,7 @@ and the bytes are named wherever a number is.
   extension emitted. `Gio.File.read()` joined the stubs, so the libmutter build id is read out of
   a real ELF note instead of coming back null. The offsets themselves stay the rig's measurement;
   this proves their use.
-- **5782 tests**, up from 4146, the new ones being the four new window and display
+- **5785 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and

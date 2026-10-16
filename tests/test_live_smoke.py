@@ -598,7 +598,7 @@ class TheDriversPackageAxis(unittest.TestCase):
             pre += 'DISTRO=%s\n' % distro
         pre += 'DEB=/repo/release/w11_0.4.0_all.deb\nVERSION=0.4.0\n'
         pre += 'LIVE_SMOKE_RPMS=/rpms\nLIVE_SMOKE_PKG=/pkgs/w11-0.4.0-1-any.pkg.tar.zst\n'
-        for name in ("pkg_files", "pkg_install_cmd", "pkg_remove_cmd",
+        for name in ("pkg_files", "pkg_install_cmd", "pkg_refresh_cmd", "pkg_remove_cmd",
                      "pkg_left_behind", "pkg_banner_re", "distro_phases"):
             pre += support.sh_function(DRIVER, name)
         run_env = dict(os.environ)
@@ -721,6 +721,39 @@ class TheDriversPackageAxis(unittest.TestCase):
         self.assertIn("dnf install -y", self.out("pkg_install_cmd", "fedora"))
         self.assertIn("pacman -U --noconfirm", self.out("pkg_install_cmd", "arch"))
         self.assertEqual(self.out("pkg_install_cmd", "nixos"), "")
+
+    def test_ubuntu_refreshes_its_lists_first_and_the_others_owe_none(self):
+        """CI run 38967358762 (2026-10-16), rig stonking-kde: the install
+        resolved eight gir1.2/harfbuzz/pango dependencies, listed them as NEW
+        and exited 100, on the golden (52adc7affc7edbfb) that had passed a
+        month before -- a development release's archive had moved under lists
+        as old as the golden.  stonking-gnome, whose golden carries the GTK
+        typelibs already, passed from the same archive in the same hour.  dnf
+        refreshes expired metadata itself and pacman -U fetches nothing the
+        golden lacks, so only the apt arm names a command."""
+        self.assertIn("apt-get update", self.out("pkg_refresh_cmd", "ubuntu"))
+        for distro in ("fedora", "arch", "nixos"):
+            with self.subTest(distro):
+                self.assertEqual(self.out("pkg_refresh_cmd", distro), "")
+
+    def test_a_failed_install_prints_the_last_lines_of_the_installer(self):
+        """`want` clips the FIRST 400 bytes of the installer's output, and on
+        the stonking-kde failure those were apt's dependency list; the E: line
+        that said why was past the clip and the artifact held nothing else.
+        The tail is printed on a nonzero exit, first install and reinstall
+        alike, eight lines, indented as a note."""
+        lines = "\n".join("line %d" % i for i in range(1, 13))
+        pre = support.sh_function(DRIVER, "installer_tail")
+        pre += "installer_tail %s\n" % shlex.quote(lines)
+        got = subprocess.run(["bash", "-c", pre], capture_output=True, text=True, timeout=60)
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertEqual(got.stdout.splitlines(),
+                         ["     installer: line %d" % i for i in range(5, 13)])
+        for fn, path in (("phase_install", COMMON_SH), ("phase_remove", DRIVER)):
+            with self.subTest(fn):
+                body = support.sh_function(path, fn)
+                ok_at = body.index('ok "')
+                self.assertIn('[ "$st" = 0 ] || installer_tail "$out"', body[ok_at:])
 
     def test_the_bridge_subpackage_is_named_and_not_left_to_supplements(self):
         """`Supplements: gnome-shell` only fires where gnome-shell is installed,
@@ -879,7 +912,7 @@ class TheDriversPackageAxis(unittest.TestCase):
         pre = "set -euo pipefail\nDISTRO=%s\nMODE=pkg\nDEB=/x.deb\nVERSION=0.4.0\n" % distro
         pre += "LIVE_SMOKE_RPMS=/rpms\nLIVE_SMOKE_PKG=/p.pkg.tar.zst\n"
         for name in ("pkg_files", "pkg_install_cmd", "pkg_remove_cmd",
-                     "pkg_left_behind", "pkg_banner_re"):
+                     "pkg_left_behind", "pkg_banner_re", "installer_tail"):
             pre += support.sh_function(DRIVER, name)
         pre += ('root() { return %d; }\nguest() { return %d; }\n' % (rc, rc)
                 + 'pkg_deploy() { :; }\nok() { echo "CHECK $1"; }\nwant() { echo "CHECK $1"; }\n'
@@ -966,6 +999,40 @@ class TheDistroPhases(unittest.TestCase):
         got = subprocess.run(["bash", "-c", pre], capture_output=True, text=True, timeout=60)
         self.assertIn("DONE", got.stdout, got.stdout + got.stderr)
         return got.stdout
+
+    def refresh(self, distro, rc):
+        """pkg_refresh, sliced, with `root` answering `rc` and the driver's own
+        pkg_refresh_cmd beside it (the phase helper above slices common.sh
+        alone, and the command table lives in the driver)."""
+        pre = "set -euo pipefail\nDISTRO=%s\n" % distro
+        # ROOT[...] goes to stderr: the phase captures root's stdout.
+        pre += 'root() { echo "ROOT[$1]" >&2; printf "%%s\\n" "Hit:1 http://x" "E: lists moved"; return %d; }\n' % rc
+        pre += 'note() { echo "NOTE|$*"; }\nfail() { echo "FAIL|$*"; }\nev() { printf "%s" "$*"; }\n'
+        pre += support.sh_function(DRIVER, "pkg_refresh_cmd")
+        pre += support.sh_function(self.COMMON, "pkg_refresh") + "\npkg_refresh\necho DONE\n"
+        got = subprocess.run(["bash", "-c", pre], capture_output=True, text=True, timeout=60)
+        self.assertIn("DONE", got.stdout, got.stdout + got.stderr)
+        return got.stdout + got.stderr
+
+    def test_the_install_phase_refreshes_the_lists_before_it_installs(self):
+        """The order is the point: a refresh after the install would be the
+        stonking-kde run again.  Under `set -e` the refresh must also not end
+        the phase when apt-get update itself fails -- that is the archive or
+        the network and not the package, so it is a note and the install one
+        line later says what it could not fetch."""
+        body = support.sh_function(self.COMMON, "phase_install")
+        self.assertLess(body.index("    pkg_refresh\n"), body.index("pkg_install_cmd"))
+        out = self.refresh("ubuntu", 0)
+        self.assertIn("ROOT[apt-get update -q 2>&1]", out)
+        self.assertIn("NOTE|package lists refreshed", out)
+        out = self.refresh("ubuntu", 100)
+        self.assertNotIn("FAIL|", out)
+        # (the stub `ev` above keeps the newline the real one folds into `|`)
+        self.assertIn("NOTE|package lists NOT refreshed [exit 100]: Hit:1 http://x", out)
+        self.assertIn("E: lists moved", out)
+        out = self.refresh("fedora", 0)
+        self.assertNotIn("ROOT[", out)
+        self.assertNotIn("NOTE|", out)
 
     def test_selinux_runs_both_checks_when_the_avc_count_is_zero(self):
         """`grep -c` exits 1 when it counts zero, which is the passing case, and

@@ -184,6 +184,31 @@ pkg_install_cmd() {
     esac
 }
 
+# The root command that refreshes the package lists before pkg_install_cmd
+# downloads what the package depends on, or empty where none is owed.
+#
+# A golden's lists are as old as the golden, and the archive behind a
+# DEVELOPMENT release drops a superseded version within days of superseding
+# it.  CI run 38967358762 (2026-10-16), rig stonking-kde, golden
+# 52adc7affc7edbfb -- the same golden the green run of 2026-09-16 used:
+# `apt-get install -y ./w11.deb` resolved its eight dependencies (gir1.2-atk-1.0,
+# gir1.2-freedesktop, gir1.2-gdkpixbuf-2.0, gir1.2-gtk-3.0, gir1.2-harfbuzz-0.0,
+# gir1.2-pango-1.0, libharfbuzz-gobject0, libpangoxft-1.0-0), listed them as
+# NEW, and exited 100; `apt-get remove -y w11` then exited 100 too, which is
+# apt not knowing the name, so nothing had been unpacked.  stonking-gnome
+# installed from the same archive in the same hour and passed: its golden
+# already carries the GTK typelibs, so apt had nothing to fetch.  The 400-byte
+# clip of the FAIL line held the dependency list and not apt's own E: line
+# (installer_tail prints that now).  dnf refreshes expired metadata by itself,
+# pacman -U installs a package whose dependencies the golden already has, and
+# NixOS installs nothing.
+pkg_refresh_cmd() {
+    case "$DISTRO" in
+    ubuntu) echo "apt-get update -q 2>&1" ;;
+    *)      echo "" ;;
+    esac
+}
+
 # The root command that takes it away again.
 pkg_remove_cmd() {
     case "$DISTRO" in
@@ -311,6 +336,12 @@ note()  { echo "     $*"; }
 # The evidence line for a failure: the bytes we saw, one line, clipped -- a
 # GNOME extension error can be a screenful and the log is meant to be read.
 ev()    { printf '%s' "$*" | tr '\n' '|' | cut -c1-400; }
+# The LAST lines of a package manager's output, one per line, where apt and dnf
+# put the reason: `want`'s clip is the first 400 bytes, and on the stonking-kde
+# install failure of 2026-10-16 those were the dependency list (pkg_refresh_cmd).
+installer_tail() {
+    printf '%s\n' "$1" | tail -n 8 | sed 's/^/     installer: /'
+}
 
 # want <what> <extended-regex> <text...>  -- PASS when the text matches
 want()    { local w=$1 re=$2; shift 2
@@ -524,7 +555,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-wait_ssh || { echo "cannot reach $NAME over ssh"; exit 2; }
+# A guest that never answers leaves its only account of itself in the serial
+# console, which vmctl keeps under the instance and the CI artifact does not
+# carry: rig noble-gnome-iso, run 38967358762 (2026-10-16), hit the 480 s wait
+# on the golden that booted in the run before and left a 1041-byte artifact
+# saying so and nothing else.  The copy lands beside the smoke log.
+keep_serial() {
+    local serial=${VMDATA:-$HOME/vm-data}/instances/$NAME/serial.log
+    [ -f "$serial" ] || return 0
+    cp "$serial" "$OUTDIR/$FLAVOR-$STAMP-serial.log" && echo "serial console: $OUTDIR/$FLAVOR-$STAMP-serial.log"
+}
+wait_ssh || { echo "cannot reach $NAME over ssh"; keep_serial; exit 2; }
 step "vmctl session $NAME (autologin; GDM's fires once per boot)"
 wait_session || { echo "no graphical session"; exit 2; }
 # The native display tool of this desktop, as a script the guest runs: every
@@ -662,6 +703,7 @@ phase_remove() {
     pkg_deploy || return 0
     st=0; out=$(root "$(pkg_install_cmd)") || st=$?
     ok "installing again" "$st"
+    [ "$st" = 0 ] || installer_tail "$out"
     local banner; banner=$(pkg_banner_re)
     if [ -n "$banner" ]; then
         want "installing again prints the first-install banner again" "$banner" "$out"

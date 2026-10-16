@@ -2098,7 +2098,7 @@ themselves. They are not part of the interface.
 
 ## 9. Module → test file → fake
 
-5782 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
+5785 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
 hold across all of them and are enforced by tests of their own:
 
 * **every `tests/test_*.py` sets `W11_PASSTHROUGH=never`**, or the suite
@@ -2263,7 +2263,17 @@ point of the phase. The first-install banner is **not** universal either: dpkg's
 pacman's `.install` print the same paragraph and the rpm prints none at all (Fedora
 discourages chatty scriptlets; the spec ships `README.Fedora` in `%doc` instead), so
 `phase_install` checks for the banner where there is one and for `README.Fedora` where there
-is not.
+is not. On Ubuntu the phase runs `apt-get update` first (`pkg_refresh_cmd`; the other three
+name no command): a golden's package lists are as old as the golden, and the archive behind a
+development release drops a superseded version within days — CI run 38967358762 (2026-10-16),
+rig stonking-kde, installed from a golden that had passed a month earlier and exited 100 after
+listing its eight GTK-typelib dependencies as NEW, while stonking-gnome, whose golden already
+carries them, passed from the same archive in the same hour. A refresh that fails is a note,
+not a FAIL. When an install does fail, the smoke prints the installer's last eight lines as
+`installer:` notes, because the FAIL line's 400-byte clip is the *first* 400 bytes and on that
+run they were the dependency list rather than apt's `E:` line. The same run's noble-gnome-iso
+guest never answered ssh in 480 s and left a 1041-byte artifact: the driver now copies the
+instance's `serial.log` beside the smoke log when the wait fails.
 
 `vm/live-smoke.d/oracle.py` answers for every `DESKTOPS` token: `hyprctl -j monitors`,
 `wlr-randr` (labwc, xfce-wayland, budgie, lxqt-wayland, river), Wayfire's own

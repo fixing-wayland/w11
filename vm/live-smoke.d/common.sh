@@ -302,6 +302,24 @@ phase_busrec() {
     fi
 }
 
+# The package lists, refreshed where pkg_refresh_cmd names a command for it
+# (Ubuntu: the archive behind a development release drops a superseded version
+# within days, and a golden's lists are as old as the golden -- the stonking-kde
+# install of 2026-10-16, live-smoke.sh pkg_refresh_cmd).  A refresh that fails
+# is a note and not a FAIL: it is the archive or the network, not the package,
+# and the install one line later says what it could not fetch.
+pkg_refresh() {
+    local cmd out st=0
+    cmd=$(pkg_refresh_cmd)
+    [ -n "$cmd" ] || return 0
+    out=$(root "$cmd") || st=$?
+    if [ "$st" = 0 ]; then
+        note "package lists refreshed ($cmd)"
+    else
+        note "package lists NOT refreshed [exit $st]: $(ev "$(printf '%s\n' "$out" | tail -n 3)")"
+    fi
+}
+
 phase_install() {
     if [ "$REUSE" = 1 ]; then
         note "--reuse: nothing installed; what is in the image is what is measured"
@@ -325,11 +343,13 @@ phase_install() {
         return 0
     fi
     command -v apt_lock_free >/dev/null 2>&1 && apt_lock_free   # defined by the driver; a sliced phase runs without it
+    pkg_refresh
     pkg_deploy || return 1
     local out st=0 cmd
     cmd=$(pkg_install_cmd)
     out=$(root "$cmd") || st=$?
     ok "$cmd" "$st"
+    [ "$st" = 0 ] || installer_tail "$out"
     # The postinst/scriptlet banner is printed on a FIRST install only (the
     # stamp /var/lib/w11/installed decides), which a --fresh instance
     # is.  dpkg and pacman print the same paragraph; the rpm prints nothing at
