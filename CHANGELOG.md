@@ -140,6 +140,9 @@ and the bytes are named wherever a number is.
   (Debian ships a 2024 git snapshot of it, no new release), xprop 1.2.8, xrandr 1.5.4, arandr
   0.1.11, sway 1.12, Hyprland 0.56.2. Not yet: Fedora 45 (final set for 2026-10-20) and the
   `releases/26.10/release/` cloud-image directory (not published yet; `stonking/current` is).
+  `scripts/ci-golden.sh` pulls a cached golden three times before it gives up: one HTTP/2
+  stream error from the registry (`PROTOCOL_ERROR; received from peer`, rig noble-kde-x11, run
+  39016159002) had cost a red job on a golden that was there.
 - **The rig refreshes apt lists before it installs, and says why an install failed.**
   CI run 38967358762 (2026-10-16), rig stonking-kde: `apt-get install ./w11.deb` exited 100 on
   the golden (`52adc7affc7edbfb`) that had passed a month before, after listing eight
@@ -342,7 +345,7 @@ and the bytes are named wherever a number is.
   extension emitted. `Gio.File.read()` joined the stubs, so the libmutter build id is read out of
   a real ELF note instead of coming back null. The offsets themselves stay the rig's measurement;
   this proves their use.
-- **5796 tests**, up from 4146, the new ones being the four new window and display
+- **5797 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and

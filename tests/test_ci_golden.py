@@ -452,6 +452,22 @@ class TheThreeBuilders(unittest.TestCase):
         self.assertIn('if [ -n "$cacheable" ] && command -v oras', self.text)
         self.assertIn('if [ -n "$cacheable" ] && [ "${GOLDEN_PUSH:-1}" = 1 ]', self.text)
 
+    def test_a_cached_golden_is_pulled_three_times_before_the_job_is_red(self):
+        """CI run 39016159002 (2026-10-17), rig noble-kde-x11: the manifest
+        fetch said cache hit and the one `oras pull` died with `copy failed:
+        stream error: stream ID 1; PROTOCOL_ERROR; received from peer` -- the
+        registry's side of a multi-gigabyte HTTP/2 transfer, and a red job for
+        a golden that was there.  Three tries, the partial file removed before
+        each (oras refuses to overwrite one), and only the third miss exits."""
+        pull = self.text.split('say "cache hit $ref"', 1)[1].split("qemu-img info", 1)[0]
+        self.assertIn("for attempt in 1 2 3; do", pull)
+        self.assertIn('oras pull "$ref"', pull)
+        self.assertIn('rm -f "$golden"', pull)
+        self.assertLess(pull.index('oras pull "$ref"'), pull.index('rm -f "$golden"'))
+        self.assertIn('[ "$pulled" = 1 ] || { echo "ci-golden: could not pull $ref in 3 tries" >&2; exit 1; }', pull)
+        # the "pulled but not there" check still stands behind the loop
+        self.assertIn('[ -f "$golden" ] ||', pull)
+
     def test_the_nix_branch_makes_the_root_key_the_build_needs(self):
         """build-nixos-golden.sh refuses with one line when
         $VMDATA/keys/id_ed25519.pub is not there, and a GitHub runner's

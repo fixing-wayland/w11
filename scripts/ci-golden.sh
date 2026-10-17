@@ -97,7 +97,19 @@ fi
 if [ -f "$golden" ]; then say "already at $golden"; exit 0; fi
 if [ -n "$cacheable" ] && command -v oras >/dev/null && oras manifest fetch "$ref" >/dev/null 2>&1; then
     say "cache hit $ref"
-    ( cd "$VMDATA/golden" && oras pull "$ref" >/dev/null )
+    # Three tries: a multi-gigabyte pull over HTTP/2 can die on a stream error
+    # from the registry's side (`copy failed: stream error: stream ID 1;
+    # PROTOCOL_ERROR; received from peer`, rig noble-kde-x11, CI run
+    # 39016159002, 2026-10-17), and one such error cost a red job on a golden
+    # that was there.  The partial file is removed before the retry, because
+    # oras refuses to overwrite one.
+    pulled=0
+    for attempt in 1 2 3; do
+        if ( cd "$VMDATA/golden" && oras pull "$ref" >/dev/null ); then pulled=1; break; fi
+        rm -f "$golden"
+        [ "$attempt" = 3 ] || { say "pull $attempt of $ref failed; retrying in 15 s"; sleep 15; }
+    done
+    [ "$pulled" = 1 ] || { echo "ci-golden: could not pull $ref in 3 tries" >&2; exit 1; }
     [ -f "$golden" ] || { echo "pulled $ref but $golden is not there" >&2; ls -la "$VMDATA/golden" >&2; exit 1; }
     qemu-img info "$golden" | sed 's/^/    /'; exit 0
 fi
