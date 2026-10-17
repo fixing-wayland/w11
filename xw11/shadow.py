@@ -157,6 +157,17 @@ def detect_backend(log=None):
                 "session to detect -- this proxy keeps serving X either way"
                 % e)
         return None
+    except CmdError as e:
+        # A backend that was named (`WDOTOOL_BACKEND=sway` with no sway) or
+        # that refused on the way up.  Detection runs at startup now, before
+        # the display file is written (xw11/cli.py:serve), so this must be a
+        # log line and pass-through rather than a dead proxy: the wrapper that
+        # spawned it is waiting for the file.
+        if log is not None:
+            log("no window backend for the shadow registry (%s): every "
+                "request passes through untouched -- this proxy keeps serving "
+                "X either way" % e)
+        return None
 
 
 class Shadows:

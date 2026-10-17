@@ -488,6 +488,75 @@ class AlwaysHasNoFallback(WrapCase):
         self.assertIsNone(got)
 
 
+class AProxyWithNoShadowSide(WrapCase):
+    """Rule 7.  Measured 2026-10-16 on Ubuntu GNOME 50.1 without the bridge:
+    `nix run github:fixing-wayland/w11#wwmctl -- -l` printed nothing and exited
+    0.  The wrapper had handed the real wmctrl a proxy whose shadow side was
+    off, so what it listed was Xwayland's own clients -- none -- and the one
+    line that said why went to the proxy's log.  The clone's refusal names the
+    route; the wrapper now lets it speak."""
+
+    def state(self, value):
+        from xw11 import display as display_mod
+        p = mock.patch.object(display_mod, "read_shadow_state", lambda path=None, uid=None: value)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_auto_runs_the_clone_and_says_why_under_debug(self):
+        self.original()
+        self.seam_proxy(":42")
+        self.state("off")
+        err = _Sink()
+        with mock.patch.object(sys, "stderr", err):
+            got, ex = self.run_hook("wmctrl", ["-l"], env=self.wayland(XW11_DEBUG="1"))
+        self.assertIsNone(got)
+        self.assertIsNone(ex, "the original ran against a proxy with no shadow side")
+        self.assertIn("ensure_proxy", self.calls)
+        self.assertIn("no shadow side in this session", err.getvalue())
+        self.assertIn("running the clone", err.getvalue())
+
+    def test_auto_is_silent_about_it_without_debug(self):
+        self.original()
+        self.seam_proxy(":42")
+        self.state("off")
+        err = _Sink()
+        with mock.patch.object(sys, "stderr", err):
+            got, ex = self.run_hook("wmctrl", ["-l"], env=self.wayland())
+        self.assertIsNone(got)
+        self.assertIsNone(ex)
+        self.assertEqual(err.getvalue(), "")
+
+    def test_always_hands_over_anyway_and_says_what_the_list_leaves_out(self):
+        """The bytes were asked for and they are delivered; the one stderr line
+        is the sentence that used to live in the log alone."""
+        self.original()
+        self.seam_proxy(":42")
+        self.state("off")
+        err = _Sink()
+        with mock.patch.object(sys, "stderr", err):
+            got, ex = self.run_hook("wmctrl", ["-l"], env=self.wayland(W11_PROXY="always"))
+        self.assertIsNotNone(ex)
+        self.assertEqual(ex.env["DISPLAY"], ":42")
+        self.assertIn("wmctrl: the xw11 proxy on :42 has no window registry in this session",
+                      err.getvalue())
+        self.assertIn("sees Xwayland's own clients only", err.getvalue())
+
+    def test_on_passthrough_and_an_older_proxy_hand_over_silently(self):
+        """`passthrough` is what the human asked `xw11 --passthrough` for, and
+        None is a proxy that predates the token: neither is this rule's case."""
+        self.original()
+        self.seam_proxy(":42")
+        for state in ("on", "passthrough", None):
+            with self.subTest(state):
+                self.state(state)
+                err = _Sink()
+                with mock.patch.object(sys, "stderr", err):
+                    got, ex = self.run_hook("wmctrl", ["-l"], env=self.wayland(XW11_DEBUG="1"))
+                self.assertIsNotNone(ex, state)
+                self.assertEqual(ex.env["DISPLAY"], ":42")
+                self.assertEqual(err.getvalue(), "")
+
+
 class HelpNeedsNoProxy(WrapCase):
     """A usage string opens no display, so it starts no proxy.
 

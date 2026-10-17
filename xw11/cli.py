@@ -247,7 +247,20 @@ def _serve_locked(args, upstream) -> int:
             server.say("a proxy already holds %s on %s: this one does not write it"
                        % (display_mod.display_file_path(), other))
         else:
-            display.write_display_file(upstream)
+            # The backend is detected HERE, before the display file exists, so
+            # the file's `shadow=` token is true from the first byte a wrapper
+            # reads: a wrapper that handed the original a proxy with no shadow
+            # side gave the user Xwayland's client list -- empty, on a GNOME
+            # desktop full of windows -- and the one line that said why went
+            # to this log and nowhere else (measured 2026-10-16, `nix run
+            # github:fixing-wayland/w11#wwmctl -- -l` on Ubuntu GNOME 50.1
+            # without the bridge).  `detect()` is 0.7 ms and touches no X
+            # server, so the rule that no upstream is dialled at startup
+            # stands.
+            server.ensure_backend()
+            display.write_display_file(upstream, shadow=server.shadow_state())
+            server.on_shadow_state = (
+                lambda state: display.write_display_file(upstream, shadow=state))
         server.install_signal_handlers()
         return server.serve_forever()
     except BaseException:

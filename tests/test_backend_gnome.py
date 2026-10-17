@@ -2055,6 +2055,35 @@ class DetectTests(_Base):
         self.assertIsNone(backend_detect.session_registry())
 
 
+class InstallHintTests(unittest.TestCase):
+    """The hint names a script, gnome/install-bridge.sh, that a Nix-installed
+    copy of the tools does not have anywhere (2026-10-16: `nix run
+    github:fixing-wayland/w11#wwmctl -- -l` on Ubuntu GNOME 50.1 was told to run
+    it).  Installed from the store, the hint names the module option and the
+    extension package instead; a source tree that merely sits in the store --
+    `nix flake check` runs this suite from one -- is not an install."""
+
+    def hint_at(self, path):
+        with mock.patch.object(backend_gnome.os.path, "realpath", lambda p: path):
+            return backend_gnome.install_hint()
+
+    def test_a_checkout_gets_the_script(self):
+        self.assertEqual(self.hint_at("/home/u/w11/hacks/window/backend_gnome.py"),
+                         backend_gnome._HINT)
+
+    def test_a_nix_install_gets_the_module_option_and_the_package(self):
+        got = self.hint_at("/nix/store/abc-w11-0.4.0/lib/python3.14/site-packages/"
+                           "hacks/window/backend_gnome.py")
+        self.assertTrue(got.startswith(backend_gnome._HINT), got)
+        self.assertIn("programs.w11.gnomeBridge.enable = true", got)
+        self.assertIn("packages.gnome-bridge", got)
+        self.assertIn("log out and back in", got)
+
+    def test_a_source_tree_in_the_store_is_not_an_install(self):
+        self.assertEqual(self.hint_at("/nix/store/abc-source/hacks/window/backend_gnome.py"),
+                         backend_gnome._HINT)
+
+
 class ShippedFilesTests(unittest.TestCase):
     """Regressions on the files gnome/ ships: the udev rule grants nothing
     beyond the seat user's ACL, the installer restores the node, and the

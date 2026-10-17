@@ -109,6 +109,23 @@ and the bytes are named wherever a number is.
   (`#wxprop`, `#wxrandr`, `#wmirror`, `#xw11`, `#warandr`) works where only the default
   `wdotool` did: with no `apps` output `nix run` fell through to `meta.mainProgram`, one
   name, and `nix run .#wwmctl` answered "does not provide attribute" (nix 2.34.8).
+- **A proxy with no shadow side no longer hands the original an empty desktop.** Measured
+  2026-10-16 on Ubuntu GNOME 50.1 without the bridge extension: `nix run
+  github:fixing-wayland/w11#wwmctl -- -l` printed nothing and exited 0. The wrapper had handed
+  the real `wmctrl` the `xw11` proxy, the proxy had no window backend to shadow native windows
+  from, so it forwarded every byte untouched and `wmctrl` listed Xwayland's own clients — none —
+  while the one sentence that said why went to `/tmp/xw11-<uid>.log` alone. Three changes:
+  the proxy detects its backend at start, before the display file exists, and writes a fourth
+  token, `shadow=on|off|passthrough`, rewritten whenever the state changes; a proxy that found
+  no backend looks again on each accept (at most every two seconds) and leaves pass-through
+  the moment one appears, where before the first miss was for the life of the process; and
+  the wrapper's rule 7 reads the token — `off` runs the clone, whose refusal names the route,
+  and under `W11_PROXY=always` hands over with one stderr line saying the list is Xwayland's
+  clients only. A named backend that will not construct (`WDOTOOL_BACKEND=sway` with no sway)
+  is now a log line and pass-through rather than a proxy that dies at start. And the GNOME
+  refusal's hint names `gnome/install-bridge.sh`, which a Nix-installed copy does not have:
+  from the store it names `programs.w11.gnomeBridge.enable` and `packages.gnome-bridge`
+  instead.
 - **The rig's inputs move to the current releases (2026-10-17).** `vm/golden-epoch` is 2, so
   every cached golden is rebuilt from today's archives: Ubuntu 26.10 shipped on 2026-10-15 and
   the two `stonking-*` goldens had been built from the development series; Arch's cloud image
@@ -323,7 +340,7 @@ and the bytes are named wherever a number is.
   extension emitted. `Gio.File.read()` joined the stubs, so the libmutter build id is read out of
   a real ELF note instead of coming back null. The offsets themselves stay the rig's measurement;
   this proves their use.
-- **5785 tests**, up from 4146, the new ones being the four new window and display
+- **5796 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and

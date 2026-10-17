@@ -34,10 +34,17 @@ Six rules decide it, in order, and the first five cost no process at all:
    process and a pinned Xwayland.
 6. the proxy cannot be started: the clone runs, and one line goes to stderr
    under `XW11_DEBUG`.
+7. the proxy is up but has no shadow side -- its display file says
+   `shadow=off`, because the session has no window backend (GNOME without the
+   bridge): the clone runs, so that its own refusal names the route; one line
+   under `XW11_DEBUG` says why.  An older proxy whose file has no such token
+   is handed over to as before.
 
 `W11_PROXY=always` turns 5 and 6 into exit 127 with `passthrough`'s own
 `_missing_message(x11=False)` wording: a script that asks for the original's
 bytes gets them or an error, never a silently different implementation.
+Under 7 it hands over anyway -- the bytes were asked for -- and one line on
+stderr says the list is Xwayland's own clients only.
 
 `always` also overrides rule 4 -- but only for the tokens that REACH this hook,
 which is not all of `CLONE_ONLY`. `--persistent`, `--unsafe-gnome-overlap*`
@@ -508,6 +515,28 @@ def maybe_exec_through_proxy(tool, args, *, entry=True, env=None):
             return 127
         _debug(e, "%s: no proxy could be started: running the clone" % tool)
         return None
+    from xw11 import display as display_mod                             # 7
+    if display_mod.read_shadow_state(uid=_seated_uid(e)) == "off":
+        # The proxy is up and forwarding every byte untouched, because the
+        # session has no window backend it could shadow native windows from
+        # (on GNOME: the bridge extension is not running).  Through it the
+        # original sees Xwayland's own clients and nothing else -- `wmctrl -l`
+        # printed an empty list on a desktop full of windows, exit 0, and the
+        # reason went to the proxy's log alone (2026-10-16, Ubuntu GNOME 50.1,
+        # `nix run github:fixing-wayland/w11#wwmctl -- -l`).  The clone's own
+        # refusal names the route (install the bridge), so in `auto` the clone
+        # runs; under `always` the original's bytes were asked for and they
+        # are delivered, with the one line here saying what they leave out.
+        if mode == "always":
+            sys.stderr.write(
+                "%s: the xw11 proxy on %s has no window registry in this "
+                "session (see %s): %s sees Xwayland's own clients only\n"
+                % (tool, display, _log_path_for_message(), tool))
+        else:
+            _debug(e, "%s: the proxy on %s has no shadow side in this session: "
+                      "running the clone, whose refusal names the route"
+                   % (tool, display))
+            return None
     # After the repair, and the repair is never asked to choose: `repair_x_env`
     # fills `DISPLAY` only when the current one does not work
     # (passthrough.py:784), and on a Wayland session Xwayland's own `:0` works

@@ -158,16 +158,28 @@ class Display:
     def sockets(self):
         return [s for s in (self.abs_sock, self.fs_sock) if s is not None]
 
-    def write_display_file(self, upstream: str) -> str:
-        """`:N <pid> <upstream>` in `$XDG_RUNTIME_DIR/xw11/display`. One line,
-        no second control protocol: a reader dials the abstract socket it names
-        and checks who answers (`read_display`)."""
+    def write_display_file(self, upstream: str, shadow: str | None = None) -> str:
+        """`:N <pid> <upstream> [shadow=<state>]` in `$XDG_RUNTIME_DIR/xw11/display`.
+        One line, no second control protocol: a reader dials the abstract socket
+        it names and checks who answers (`read_display`).
+
+        `shadow` is the proxy's own account of its shadow side -- `on`, `off`
+        (no window backend in this session: every request forwarded untouched)
+        or `passthrough` (asked for with `--passthrough`) -- and the wrapper
+        reads it (`read_shadow_state`) before it hands an original a display
+        on which native windows would be invisible.  Written at start and
+        again whenever the state changes (`Server.on_shadow_state`).  A file
+        with three tokens is a proxy that predates the field and reads as
+        None."""
         path = display_file_path()
         os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
         tmp = path + ".%d" % os.getpid()
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        line = "%s %d %s" % (self.name, os.getpid(), upstream)
+        if shadow:
+            line += " shadow=%s" % shadow
         try:
-            os.write(fd, ("%s %d %s\n" % (self.name, os.getpid(), upstream)).encode())
+            os.write(fd, (line + "\n").encode())
         finally:
             os.close(fd)
         os.rename(tmp, path)
@@ -385,6 +397,29 @@ def read_display_file(path=None, uid=None):
     except ValueError:
         return None
     return parts[0], pid, (parts[2] if len(parts) > 2 else "")
+
+
+def read_shadow_state(path=None, uid=None):
+    """`"on"`, `"off"` or `"passthrough"` off the display file's fourth token,
+    or None when there is no file or the proxy that wrote it predates the
+    field.  Same path rules as `read_display_file`."""
+    if path is None:
+        if uid is None:
+            path = display_file_path()
+        else:
+            try:
+                path = display_file_path(uid)
+            except CmdError:
+                return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            parts = f.readline().split()
+    except (OSError, ValueError):
+        return None
+    for tok in parts[3:]:
+        if tok.startswith("shadow="):
+            return tok[len("shadow="):] or None
+    return None
 
 
 def _peer(sock):

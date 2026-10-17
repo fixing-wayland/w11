@@ -108,6 +108,12 @@ LOG_ENV = "XW11_LOG"
 DEBUG_ENV = "XW11_DEBUG"
 
 
+#: How often a proxy with no window backend looks for one again, at most: once
+#: per accept and never more often than this.  `detect()` is 0.7 ms
+#: [recon/seams.md 2.2]; the bound is for the log and the bus, not the CPU.
+BACKEND_RETRY_SECONDS = 2.0
+
+
 def log_path() -> str:
     return (os.environ.get(LOG_ENV)
             or ("/tmp/xw11.log" if os.geteuid() == 0
@@ -198,6 +204,14 @@ class Server:
         #: forward everything and synthesize nothing (`--passthrough`, and the
         #: mode a box with no Wayland session falls into by itself)
         self.passthrough = bool(passthrough)
+        #: the flag as asked for: the mode above is also what a session with no
+        #: window backend falls into, and that one is left again when a backend
+        #: appears (`ensure_backend` re-detects), where the asked-for one is for
+        #: the life of the process
+        self._asked_passthrough = bool(passthrough)
+        #: told `shadow_state()` whenever it changes, so the display file's
+        #: `shadow=` token follows the process (xw11/cli.py:serve sets it)
+        self.on_shadow_state = None
         #: the proxy's own upstream connection, opened at the FIRST ACCEPT and
         #: never at startup: a proxy that dialled at startup would pin an
         #: Xwayland nobody asked for (design section 2.6, recon/env.md 6)
@@ -205,7 +219,8 @@ class Server:
         self.shadows = None
         self.events_pump = None
         self.backend = backend
-        self._backend_tried = False
+        #: when detection last ran and found nothing (monotonic), or None
+        self._backend_tried_at = None
         #: the own connection's fd, remembered at registration: `fileno()` is
         #: -1 once the socket is closed, and a registration left behind under a
         #: number the kernel hands out again is a socket the loop never reads
@@ -353,10 +368,12 @@ class Server:
         which is not nothing, since a held connection is what keeps Xwayland
         from self-terminating [recon/env.md 6], and since the server hands out
         resource-id bases per connection [recon/wire.md 1.3]."""
-        if self.passthrough:
+        if self._asked_passthrough:
             return None
         if self.own is not None and self.own.open:
             return self.own
+        # Not `if self.passthrough`: the no-session kind of pass-through is left
+        # again when a backend turns up, and this is the call that looks.
         if self.ensure_backend() is None:
             return None
         if self.own is None:
@@ -381,13 +398,46 @@ class Server:
         is already built for; `detect()` is 0.7 ms [recon/seams.md 2.2]. No
         session is not a refusal -- the proxy drops to pass-through and says
         so."""
-        if self.backend is None and not self._backend_tried:
-            self._backend_tried = True
-            with self.block:
-                self.backend = shadow_mod.detect_backend(self.say)
+        if self._asked_passthrough:
+            return None
         if self.backend is None:
-            self.passthrough = True
+            now = time.monotonic()
+            due = (self._backend_tried_at is None
+                   or now - self._backend_tried_at >= BACKEND_RETRY_SECONDS)
+            if due:
+                self._backend_tried_at = now
+                with self.block:
+                    # Quiet after the first miss: `detect_backend` logs the
+                    # reason, and a retry every BACKEND_RETRY_SECONDS would
+                    # write that line as often as clients connect.
+                    log = self.say if self.passthrough is False else self.debug_say
+                    self.backend = shadow_mod.detect_backend(log)
+                if self.backend is None and not self.passthrough:
+                    self.passthrough = True
+                    self._shadow_changed()
+                elif self.backend is not None and self.passthrough:
+                    # The route back (design section 4.1): the session a
+                    # wrapper started this proxy in has a window backend now --
+                    # the bridge was enabled, the compositor's bus name came up
+                    # -- and the registry is built on the next accept.
+                    self.passthrough = False
+                    self.say("window backend found (%s): the shadow side is on"
+                             % type(self.backend).__name__)
+                    self._shadow_changed()
         return self.backend
+
+    def shadow_state(self) -> str:
+        """`passthrough` when asked for, `on` with a backend, `off` without."""
+        if self._asked_passthrough:
+            return "passthrough"
+        return "on" if self.backend is not None else "off"
+
+    def _shadow_changed(self) -> None:
+        if self.on_shadow_state is not None:
+            try:
+                self.on_shadow_state(self.shadow_state())
+            except OSError as e:               # pragma: no cover - diagnostics only
+                self.say("display file not rewritten: %s" % e)
 
     def ensure_registry(self):
         """The registry over that backend. Re-based rather than rebuilt when the

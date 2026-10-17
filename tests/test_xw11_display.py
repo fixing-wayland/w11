@@ -497,6 +497,27 @@ class DisplayFileVerified(RuntimeDirCase):
         self.assertEqual(display_mod.read_display_file(path),
                          (got.name, os.getpid(), ":7"))
 
+    def test_the_fourth_token_is_the_shadow_state_and_the_first_three_are_untouched(self):
+        """`shadow=on|off|passthrough`, read by the wrapper's rule 7 before it
+        hands an original a display on which native windows would be invisible
+        (2026-10-16: an empty `wmctrl -l` on a GNOME desktop full of windows).
+        `read_display_file` keeps its three-tuple, because every caller of it
+        does, and a file with no token -- a proxy that predates the field --
+        reads as None."""
+        got = self.allocate()
+        for state in ("on", "off", "passthrough"):
+            with self.subTest(state):
+                path = got.write_display_file(":7", shadow=state)
+                with open(path, encoding="utf-8") as f:
+                    self.assertEqual(f.read(), "%s %d :7 shadow=%s\n" % (got.name, os.getpid(), state))
+                self.assertEqual(display_mod.read_shadow_state(path), state)
+                self.assertEqual(display_mod.read_display_file(path),
+                                 (got.name, os.getpid(), ":7"))
+                self.assertEqual(display_mod.read_display(), got.name)
+        path = got.write_display_file(":7")
+        self.assertIsNone(display_mod.read_shadow_state(path))
+        self.assertIsNone(display_mod.read_shadow_state(path + ".missing"))
+
     def test_a_file_naming_another_pid_is_refused(self):
         """The socket answers, and it answers with OUR pid -- which is not the
         pid the file claims, so the reader walks away."""
@@ -730,6 +751,12 @@ class _StubServer:
     def say(self, text):
         self.said.append(text)
 
+    def ensure_backend(self):
+        return None
+
+    def shadow_state(self):
+        return "off"
+
     def install_signal_handlers(self):
         pass
 
@@ -775,7 +802,7 @@ class ServeStartup(RuntimeDirCase):
         path = display_mod.display_file_path()
         with open(path, encoding="utf-8") as f:
             self.assertEqual(f.read(),
-                             "%s %d :7\n" % (stub.display.name, os.getpid()))
+                             "%s %d :7 shadow=off\n" % (stub.display.name, os.getpid()))
 
     def test_the_file_is_written_after_the_bind_and_reads_back_verified(self):
         """Order, not content: the display file is what every wrapper dials
@@ -838,7 +865,7 @@ class ServeStartup(RuntimeDirCase):
         self.assertEqual(stub.display.file_path, path)
         with open(path, encoding="utf-8") as f:
             self.assertEqual(f.read(),
-                             "%s %d :7\n" % (stub.display.name, os.getpid()))
+                             "%s %d :7 shadow=off\n" % (stub.display.name, os.getpid()))
 
     @unittest.skipIf(os.geteuid() == 0, "root can write a 0444 file")
     def test_a_cookie_that_cannot_be_appended_to_is_logged_and_survived(self):

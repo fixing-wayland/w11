@@ -17,7 +17,7 @@ is not installed, when `W11_PROXY=never` (or `WXPROP_PROXY=never`) asks for it, 
 of which `xprop` has none: every byte this clone takes, xprop takes too.
 Everything this document says about the clone's output is still what the clone prints;
 through the proxy the output is the original's, byte for byte, because it **is** the
-original. The six rules in order are
+original. The rules, in order, are
 [XW11.md § The wrapper rules](XW11.md#the-wrapper-rules).
 
 ## Planes

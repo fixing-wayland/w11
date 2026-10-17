@@ -64,6 +64,30 @@ EXT_UUID = "w11-bridge@w11"
 _HINT = ("gnome backend: the w11 bridge extension is not running in "
          "GNOME Shell; run gnome/install-bridge.sh and restart the session "
          "(log out and back in)")
+#: appended to _HINT when this copy of the tools was installed by Nix: there
+#: is no gnome/install-bridge.sh to run, and the route is the module option or
+#: the extension package (nix/module.nix, nix/home-manager.nix, flake.nix's
+#: packages.gnome-bridge).  Measured 2026-10-16: `nix run
+#: github:fixing-wayland/w11#wwmctl -- -l` on Ubuntu GNOME 50.1 was told to run
+#: a script that was nowhere on the machine.
+_NIX_HINT = ("; this copy runs from the Nix store, where there is no "
+             "install-bridge.sh: set programs.w11.gnomeBridge.enable = true "
+             "(the NixOS or home-manager module), or install "
+             "packages.gnome-bridge of the flake where GNOME Shell loads "
+             "extensions from, then log out and back in")
+
+
+def _nix_installed() -> bool:
+    """This module as a Nix-INSTALLED package: `/nix/store/...-w11-<ver>/lib/
+    python3.X/site-packages/hacks/...`.  A source tree copied into the store
+    (`nix flake check` runs the suite from one) has no `/lib/python` in its
+    path and is not an install."""
+    p = os.path.realpath(__file__)
+    return p.startswith("/nix/store/") and "/lib/python" in p
+
+
+def install_hint() -> str:
+    return _HINT + (_NIX_HINT if _nix_installed() else "")
 _GONE = ("gnome backend: the w11 bridge vanished from the session bus "
          "(extension disabled, screen locked, or shell restarting); run "
          "gnome/install-bridge.sh --check")
@@ -253,7 +277,7 @@ class GnomeBackend(WindowBackend):
         locked = mode in _LOCKED_MODES or self._screen_locked()
         where = extension_installed()
         if not where:
-            return _HINT + (_ALSO_LOCKED if locked else "")
+            return install_hint() + (_ALSO_LOCKED if locked else "")
         if mode in _LOCKED_MODES:
             return ("gnome backend: the w11 bridge is unavailable while "
                     "GNOME Shell is in '%s' mode (screen locked?); extensions run "

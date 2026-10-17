@@ -34,6 +34,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -46,6 +47,7 @@ from w11common.errors import CmdError                               # noqa: E402
 from hacks.window import x11_mini  # noqa: E402
 from xw11 import display as display_mod                             # noqa: E402
 from xw11 import server as server_mod                               # noqa: E402
+from xw11 import shadow as shadow_mod                               # noqa: E402
 from xw11 import policy, wire                                       # noqa: E402
 
 # The suite never hands a tool over to the real X11 one: see tests/conftest.py
@@ -565,6 +567,81 @@ class Lifetime(RigCase):
         self.assertIn(path, rig.server.reason)
 
 
+class TheShadowSide(unittest.TestCase):
+    """What the display file's `shadow=` token says, and the route back.
+
+    Measured 2026-10-16 on Ubuntu GNOME 50.1 without the bridge: the proxy
+    detected no backend at the first accept, logged it, and stayed in
+    pass-through for the life of the process -- `_backend_tried` was a flag,
+    not a time -- while the wrapper, told nothing, handed the real wmctrl a
+    display on which native windows were invisible.  The proxy now says what
+    it has (`shadow_state`), tells the file when that changes
+    (`on_shadow_state`) and looks again, at most every BACKEND_RETRY_SECONDS."""
+
+    def server(self, **kw):
+        server, _conn = idle_server(self)
+        for k, v in kw.items():
+            setattr(server, k, v)
+        return server
+
+    def detect(self, answers):
+        """`shadow_mod.detect_backend` answering `answers` in turn, and the
+        calls counted."""
+        calls = []
+
+        def fake(log=None):
+            calls.append(log)
+            return answers.pop(0)
+        p = mock.patch.object(shadow_mod, "detect_backend", fake)
+        p.start()
+        self.addCleanup(p.stop)
+        return calls
+
+    def test_no_backend_is_off_and_pass_through_and_the_file_is_told_once(self):
+        calls = self.detect([None, None])
+        told = []
+        server = self.server(on_shadow_state=told.append)
+        self.assertEqual(server.shadow_state(), "off")
+        self.assertIsNone(server.ensure_backend())
+        self.assertTrue(server.passthrough)
+        self.assertEqual(server.shadow_state(), "off")
+        self.assertEqual(told, ["off"])
+        # inside the retry interval nothing is asked again, and the file is
+        # not rewritten for a state that did not change
+        self.assertIsNone(server.ensure_backend())
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(told, ["off"])
+
+    def test_a_backend_that_appears_later_ends_pass_through(self):
+        """The route back: the bridge enabled on a running GNOME Shell, the
+        compositor's bus name up.  The next accept past the interval finds it,
+        pass-through ends and the file says `on`."""
+        backend = object()
+        calls = self.detect([None, backend])
+        told = []
+        server = self.server(on_shadow_state=told.append)
+        self.assertIsNone(server.ensure_backend())
+        self.assertTrue(server.passthrough)
+        server._backend_tried_at -= server_mod.BACKEND_RETRY_SECONDS + 1
+        self.assertIs(server.ensure_backend(), backend)
+        self.assertFalse(server.passthrough)
+        self.assertEqual(server.shadow_state(), "on")
+        self.assertEqual(told, ["off", "on"])
+        self.assertEqual(len(calls), 2)
+        # the first miss is logged in full and the retries are debug-only:
+        # the reason would otherwise be written as often as clients connect
+        self.assertEqual(calls[0], server.say)
+        self.assertEqual(calls[1], server.debug_say)
+
+    def test_asked_for_pass_through_detects_nothing_and_says_so(self):
+        calls = self.detect([object()])
+        server = self.server()
+        server.passthrough = server._asked_passthrough = True
+        self.assertIsNone(server.ensure_backend())
+        self.assertEqual(server.shadow_state(), "passthrough")
+        self.assertEqual(calls, [])
+
+
 class EnvironIsUpstream(RigCase):
     """R15."""
 
@@ -623,7 +700,7 @@ class Teardown(unittest.TestCase):
             time.sleep(0.05)
         self.assertTrue(os.path.exists(dfile), "the proxy never wrote its display file")
         with open(dfile, encoding="utf-8") as f:
-            name, pid, up = f.read().split()
+            name, pid, up = f.read().split()[:3]
         self.assertEqual(pid, str(proxy.pid))
         self.assertEqual(up, ":%d" % num)
         mine = int(name[1:])
