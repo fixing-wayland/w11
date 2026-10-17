@@ -2075,11 +2075,35 @@ class InstallHintTests(unittest.TestCase):
         got = self.hint_at("/nix/store/abc-w11-0.4.0/lib/python3.14/site-packages/"
                            "hacks/window/backend_gnome.py")
         self.assertTrue(got.startswith(backend_gnome._HINT), got)
-        # the one-command route first -- a `nix run` user has no checkout and
-        # is not on NixOS -- and the module option after it
+        # the profile route first -- it is what `gnome-extensions enable` in a
+        # dotfiles script wants, and a `nix run` user has no checkout and is
+        # not on NixOS -- then the copy route, then the module option
+        self.assertIn("nix profile add github:fixing-wayland/w11#gnome-bridge && gnome-extensions enable w11-bridge@w11", got)
         self.assertIn("nix run github:fixing-wayland/w11#install-bridge", got)
+        self.assertLess(got.index("#gnome-bridge"), got.index("#install-bridge"))
         self.assertLess(got.index("#install-bridge"), got.index("programs.w11.gnomeBridge.enable = true"))
         self.assertIn("log out and back in", got)
+
+    def test_a_profile_copy_the_session_cannot_see_is_named_as_such(self):
+        """`nix profile add ...#gnome-bridge` on a session whose XDG_DATA_DIRS
+        never got ~/.nix-profile/share: the copy is there, GNOME Shell will
+        never scan it, and a re-login changes nothing.  The ordinary hint would
+        tell the reader to install what they installed."""
+        with tempfile.TemporaryDirectory() as home:
+            share = os.path.join(home, ".nix-profile", "share")
+            ext = os.path.join(share, "gnome-shell", "extensions", backend_gnome.EXT_UUID)
+            os.makedirs(ext)
+            open(os.path.join(ext, "extension.js"), "w").close()
+            with mock.patch.dict(os.environ, {"HOME": home, "XDG_DATA_DIRS": "/usr/local/share:/usr/share"}), \
+                 mock.patch.object(backend_gnome, "_NIX_PROFILE_SHARES",
+                                   (os.path.join(home, ".nix-profile", "share"),)):
+                self.assertEqual(backend_gnome.nix_profile_copy_off_path(), ext)
+                # on the path, it is extension_installed()'s copy and not this one's
+                with mock.patch.dict(os.environ, {"XDG_DATA_DIRS": share + ":/usr/share"}):
+                    self.assertEqual(backend_gnome.nix_profile_copy_off_path(), "")
+            with mock.patch.dict(os.environ, {"HOME": home, "XDG_DATA_DIRS": "/usr/share"}), \
+                 mock.patch.object(backend_gnome, "_NIX_PROFILE_SHARES", (os.path.join(home, "nowhere"),)):
+                self.assertEqual(backend_gnome.nix_profile_copy_off_path(), "")
 
     def test_a_source_tree_in_the_store_is_not_an_install(self):
         self.assertEqual(self.hint_at("/nix/store/abc-source/hacks/window/backend_gnome.py"),

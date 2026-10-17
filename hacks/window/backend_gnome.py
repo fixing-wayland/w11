@@ -71,11 +71,18 @@ _HINT = ("gnome backend: the w11 bridge extension is not running in "
 #: github:fixing-wayland/w11#wwmctl -- -l` on Ubuntu GNOME 50.1 was told to run
 #: a script that was nowhere on the machine.
 _NIX_HINT = ("; this copy runs from the Nix store, which has no "
-             "install-bridge.sh to run: `nix run "
-             "github:fixing-wayland/w11#install-bridge` installs and enables "
-             "the extension for this user, then log out and back in; on "
-             "NixOS or under home-manager set programs.w11.gnomeBridge.enable "
-             "= true instead")
+             "install-bridge.sh to run: `nix profile add "
+             "github:fixing-wayland/w11#gnome-bridge && gnome-extensions "
+             "enable w11-bridge@w11` puts the extension in your profile (GNOME "
+             "Shell finds it through ~/.nix-profile/share on XDG_DATA_DIRS), or "
+             "`nix run github:fixing-wayland/w11#install-bridge` copies it into "
+             "~/.local/share; either way log out and back in; on NixOS or under "
+             "home-manager set programs.w11.gnomeBridge.enable = true instead")
+#: `nix profile add ...#gnome-bridge` lands the extension here; GNOME Shell
+#: sees it only when the SESSION's XDG_DATA_DIRS carries the profile's share/,
+#: which the Nix installer's /etc/profile.d/nix.sh adds and a session started
+#: some other way may lack.
+_NIX_PROFILE_SHARES = ("~/.nix-profile/share", "/nix/var/nix/profiles/default/share")
 
 
 def _nix_installed() -> bool:
@@ -169,6 +176,25 @@ def _extension_dirs() -> list:
     system = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
     dirs.extend(d for d in system.split(":") if d and d not in dirs)
     return dirs
+
+
+def nix_profile_copy_off_path() -> str:
+    """The directory of a copy the Nix profile holds that XDG_DATA_DIRS does NOT reach, or "".
+
+    A `nix profile add github:fixing-wayland/w11#gnome-bridge` on a box whose session never sourced the
+    Nix installer's profile.d is a copy GNOME Shell will never scan, and a re-login changes nothing about
+    that; `install_hint()` would send the reader to install what they already installed.  Only the
+    directories that are off the path are answered, because an on-path copy is `extension_installed()`'s
+    and gets the ordinary "log out and back in"."""
+    on_path = set(_extension_dirs())
+    for share in _NIX_PROFILE_SHARES:
+        share = os.path.expanduser(share)
+        if share in on_path:
+            continue
+        d = os.path.join(share, _EXT_SUBDIR)
+        if os.path.isfile(os.path.join(d, "extension.js")):
+            return d
+    return ""
 
 
 def extension_installed() -> str:
@@ -278,6 +304,15 @@ class GnomeBackend(WindowBackend):
         locked = mode in _LOCKED_MODES or self._screen_locked()
         where = extension_installed()
         if not where:
+            off = nix_profile_copy_off_path()
+            if off:
+                return ("gnome backend: the w11 bridge extension is installed in your Nix profile at %s, "
+                        "but that profile's share/ is not on this session's XDG_DATA_DIRS, so GNOME Shell "
+                        "cannot find it: put `XDG_DATA_DIRS=$HOME/.nix-profile/share:${XDG_DATA_DIRS:-"
+                        "/usr/local/share:/usr/share}` in ~/.config/environment.d/nix.conf (the Nix "
+                        "installer's /etc/profile.d/nix.sh does the same for a login shell), run "
+                        "`gnome-extensions enable %s` if you have not, then log out and back in"
+                        % (off, EXT_UUID)) + (_ALSO_LOCKED if locked else "")
             return install_hint() + (_ALSO_LOCKED if locked else "")
         if mode in _LOCKED_MODES:
             return ("gnome backend: the w11 bridge is unavailable while "

@@ -2098,7 +2098,7 @@ themselves. They are not part of the interface.
 
 ## 9. Module → test file → fake
 
-5797 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
+5798 tests, run as `python3 -m unittest discover -s tests` or file by file. Two rules
 hold across all of them and are enforced by tests of their own:
 
 * **every `tests/test_*.py` sets `W11_PASSTHROUGH=never`**, or the suite
@@ -2551,7 +2551,12 @@ and `apps.<system>` names every console script of `pyproject.toml`, so
 `nix run github:fixing-wayland/w11#wwmctl -- -l` (and `#wxprop`, `#wxrandr`, `#wmirror`, `#xw11`,
 `#warandr`) reaches the rest, and `#install-bridge` runs `gnome/install-bridge.sh` out of the
 store with the clones' `bin/` first on `PATH`, for the GNOME desktop that is not NixOS and has no
-checkout (the GNOME refusal names that command when the tools run from the store). Before that
+checkout. The profile route is the other half: `packages.gnome-bridge` installs
+`share/gnome-shell/extensions/w11-bridge@w11`, so `nix profile add ...#gnome-bridge` plus
+`gnome-extensions enable w11-bridge@w11` is a complete install wherever the session's
+`XDG_DATA_DIRS` carries `~/.nix-profile/share` (the Nix installer's `profile.d` adds it). The
+GNOME refusal under `/nix/store` names both routes, and a profile copy the session cannot see
+gets its own sentence (`nix_profile_copy_off_path`), naming the `environment.d` line. Before that
 output existed `nix run` fell through to
 `packages.default`'s one `meta.mainProgram` and `nix run .#wwmctl` was "does not provide
 attribute". `#xdotool` and `#wmctrl` are deliberately not apps: `nix run` resolves `apps` before

@@ -124,9 +124,13 @@ and the bytes are named wherever a number is.
   clients only. A named backend that will not construct (`WDOTOOL_BACKEND=sway` with no sway)
   is now a log line and pass-through rather than a proxy that dies at start. And the GNOME
   refusal's hint names `gnome/install-bridge.sh`, which a Nix-installed copy does not have:
-  from the store it names `nix run github:fixing-wayland/w11#install-bridge`, a new app that
-  runs the script out of the store with nothing checked out, and `programs.w11.gnomeBridge.enable`
-  for NixOS and home-manager.
+  from the store it names `nix profile add github:fixing-wayland/w11#gnome-bridge` plus
+  `gnome-extensions enable w11-bridge@w11` (the profile route: the package lays the extension
+  under `~/.nix-profile/share`, which the Nix installer puts on `XDG_DATA_DIRS`), then
+  `nix run github:fixing-wayland/w11#install-bridge`, a new app that runs the script out of the
+  store with nothing checked out, then `programs.w11.gnomeBridge.enable` for NixOS and
+  home-manager. A profile copy the session's `XDG_DATA_DIRS` does not reach is named as such,
+  with the `~/.config/environment.d` line that fixes it, instead of "not installed".
 - **The rig's inputs move to the current releases (2026-10-17).** `vm/golden-epoch` is 2, so
   every cached golden is rebuilt from today's archives: Ubuntu 26.10 shipped on 2026-10-15 and
   the two `stonking-*` goldens had been built from the development series; Arch's cloud image
@@ -347,7 +351,7 @@ and the bytes are named wherever a number is.
   extension emitted. `Gio.File.read()` joined the stubs, so the libmutter build id is read out of
   a real ELF note instead of coming back null. The offsets themselves stay the rig's measurement;
   this proves their use.
-- **5797 tests**, up from 4146, the new ones being the four new window and display
+- **5798 tests**, up from 4146, the new ones being the four new window and display
   backends and every desktop behind them, the rig's own scripts sliced and run against
   stubbed package managers and display managers, the three distribution packagings read
   back out of what they build, the flake and its NixOS module, and the CI workflow and

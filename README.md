@@ -361,9 +361,13 @@ not by what is possible.
   without installing anything, and every other tool is an app of the same name:
   `nix run github:fixing-wayland/w11#wwmctl -- -l`, `#wxprop`, `#wxrandr`, `#wmirror`,
   `#xw11` and `#warandr` (`#xdotool` and `#wmctrl` are the nixpkgs originals, kept for
-  the parity oracle). On a GNOME desktop that is not NixOS,
-  `nix run github:fixing-wayland/w11#install-bridge` installs and enables the bridge
-  extension for your user with nothing checked out; log out and back in once afterwards.
+  the parity oracle). On a GNOME desktop that is not NixOS, the bridge extension is
+  `nix profile add github:fixing-wayland/w11#gnome-bridge` followed by
+  `gnome-extensions enable w11-bridge@w11` (the same line a dotfiles script enables any other
+  extension with; GNOME Shell finds the profile through `~/.nix-profile/share` on
+  `XDG_DATA_DIRS`, which the Nix installer's `profile.d` adds), or
+  `nix run github:fixing-wayland/w11#install-bridge` to copy it into `~/.local/share` instead;
+  either way log out and back in once afterwards.
   `nix build` gives you `result/bin/` with all six
   plus `xdotool`, `wmctrl`, `xprop`, `xrandr` and `arandr` symlinks next to them
   (`wmirror` gets none, because there is no X11 original to shadow). The flake wraps
@@ -1478,7 +1482,7 @@ GNOME. Running this README against that install is also what found the last of
 it, an overlap route whose every message spoke only to somebody who had a clone
 rather than the package. Both desktops report their active layout there, `wayland + kwin` on one and
 `wayland + gnome input-sources` on the other, and stderr is silent on both. The suite
-stands at **5797 tests**.
+stands at **5798 tests**.
 <!-- release-notes: 0.3 -->
 ### 0.3
 
@@ -1526,7 +1530,7 @@ Developed against real desktops, not against a model of them. `vm/` is the rig:
 `vmctl` builds and runs 38 flavors over four distributions, each with up to four virtual monitors
 that can be plugged, resized and unplugged from outside the guest, and every head
 screenshotted. `vm/README.md` documents the whole thing and `vm/SETUP.md` is how to
-set the rig up on a machine of your own. `tests/` holds the suite, 5797 tests: unit
+set the rig up on a machine of your own. `tests/` holds the suite, 5798 tests: unit
 tests, wire-level fake compositors and X servers, live-compositor integration,
 hostile-input torture, byte-parity oracles against the real xdotool, wmctrl, xprop
 and xrandr, and one static check that no package ever reaches for PolicyKit or for

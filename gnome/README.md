@@ -54,10 +54,23 @@ sh gnome/install-bridge.sh --uninstall
 sudo sh gnome/install-bridge.sh --udev  # /dev/uinput for the logged-in user (see below)
 ```
 
-With nothing checked out, the same script runs out of the Nix store, with every flag above:
+With nothing checked out there are two routes. The extension is a package of the flake, so a
+profile holds it the way it holds anything else, and enabling it is the same line a dotfiles
+script uses for every other extension:
 
 ```sh
-nix run github:fixing-wayland/w11#install-bridge            # install + enable for this user
+nix profile add github:fixing-wayland/w11#gnome-bridge     # ~/.nix-profile/share/gnome-shell/extensions/<uuid>
+gnome-extensions enable w11-bridge@w11                      # the gsettings entry; the shell loads it at the next login
+```
+
+GNOME Shell scans every `gnome-shell/extensions` under `XDG_DATA_DIRS`, and the Nix installer's
+`/etc/profile.d/nix.sh` puts `~/.nix-profile/share` there (Ubuntu's GNOME session inherits it, the
+way flatpak's entries get in). A session that never got it is told so by the tools: the refusal
+names the profile copy and the `~/.config/environment.d` line that makes the session see it. The
+other route is the same script, run out of the store, with every flag above:
+
+```sh
+nix run github:fixing-wayland/w11#install-bridge            # copy into ~/.local/share + enable
 nix run github:fixing-wayland/w11#install-bridge -- --check
 ```
 
