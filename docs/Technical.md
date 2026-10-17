@@ -2331,7 +2331,7 @@ claim rests on it.
 `vm/vmctl` builds and runs **38 flavors** over four distributions — 25 Ubuntu, 6 Arch,
 5 Fedora, 2 NixOS — and there are three builders, not one: 34 are a *cloud* image plus a
 desktop metapackage, two — `resolute-gnome-iso` and `noble-gnome-iso` — are installed from
-`ubuntu-26.04.1-desktop-amd64.iso` and `ubuntu-24.04.4-desktop-amd64.iso` **by the Ubuntu
+`ubuntu-26.04.1-desktop-amd64.iso` and `ubuntu-24.04.5.1-desktop-amd64.iso` **by the Ubuntu
 installer itself**, unattended, with every question left alone, and two are NixOS
 configurations built with `nix build` out of `vm/nixos/`. CI builds all 38 on every push and 0
 on demand. The cloud-image ones exist because one script gets 19 desktops out of them.

@@ -16,7 +16,7 @@
 #
 # vmctl fills in the two @@...@@ placeholders at build time (root ssh public key; the
 # contents of vm/build-image.sh). The base image lives in $VMIMAGES:
-# vmctl-base: Arch-Linux-x86_64-cloudimg-20260901.583572.qcow2
+# vmctl-base: Arch-Linux-x86_64-cloudimg-20261015.611680.qcow2
 # vmctl-desktop: kde
 # vmctl-distro: arch
 # vmctl-ci: push

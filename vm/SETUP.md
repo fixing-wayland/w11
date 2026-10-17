@@ -228,7 +228,7 @@ $ cd ~/images
 $ curl -LO https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img          # the noble-* flavors
 $ curl -LO https://cloud-images.ubuntu.com/releases/26.04/release/ubuntu-26.04-server-cloudimg-amd64.img   # resolute-*
 $ curl -LO https://releases.ubuntu.com/26.04/ubuntu-26.04.1-desktop-amd64.iso                    # resolute-gnome-iso only
-$ curl -LO https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso                    # noble-gnome-iso only
+$ curl -LO https://releases.ubuntu.com/24.04/ubuntu-24.04.5.1-desktop-amd64.iso                    # noble-gnome-iso only
 $ curl -LO https://cloud-images.ubuntu.com/stonking/current/stonking-server-cloudimg-amd64.img    # stonking-kde and stonking-gnome (26.10, a development release: this image moves)
 ```
 

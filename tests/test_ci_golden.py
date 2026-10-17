@@ -146,7 +146,7 @@ class FetchRules(FetchHarness, unittest.TestCase):
                 "https://cloud-images.ubuntu.com/releases/26.04/release/",
             "stonking-server-cloudimg-amd64.img":
                 "https://cloud-images.ubuntu.com/stonking/current/",
-            "ubuntu-24.04.4-desktop-amd64.iso":
+            "ubuntu-24.04.5.1-desktop-amd64.iso":
                 "https://releases.ubuntu.com/24.04/",
             "ubuntu-26.04.1-desktop-amd64.iso":
                 "https://releases.ubuntu.com/26.04/",
@@ -154,8 +154,8 @@ class FetchRules(FetchHarness, unittest.TestCase):
                 "https://dl.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/",
             "Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2":
                 "https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/",
-            "Arch-Linux-x86_64-cloudimg-20260901.583572.qcow2":
-                "https://geo.mirror.pkgbuild.com/images/v20260901.583572/",
+            "Arch-Linux-x86_64-cloudimg-20261015.611680.qcow2":
+                "https://geo.mirror.pkgbuild.com/images/v20261015.611680/",
         }
         for name, prefix in sorted(cases.items()):
             with self.subTest(name):
@@ -170,7 +170,7 @@ class FetchRules(FetchHarness, unittest.TestCase):
         """The dated arch-boxes build publishes `<file>.SHA256` beside itself;
         a rolling image that is not checked is a golden built from whatever the
         mirror had that minute."""
-        got, urls = self.run_fetch("Arch-Linux-x86_64-cloudimg-20260901.583572.qcow2")
+        got, urls = self.run_fetch("Arch-Linux-x86_64-cloudimg-20261015.611680.qcow2")
         self.assertEqual(got.returncode, 0, got.stderr)
         self.assertEqual(len(urls), 2, urls)
         self.assertEqual(urls[1], urls[0] + ".SHA256")
@@ -179,7 +179,7 @@ class FetchRules(FetchHarness, unittest.TestCase):
     def test_a_wrong_sha256_on_the_arch_image_stops_the_build(self):
         """The premise of the check above: with the mirror's answer changed by
         one character the fetch fails and names both digests."""
-        got, _ = self.run_fetch("Arch-Linux-x86_64-cloudimg-20260901.583572.qcow2",
+        got, _ = self.run_fetch("Arch-Linux-x86_64-cloudimg-20261015.611680.qcow2",
                                 sha="0" * 64)
         self.assertEqual(got.returncode, 1)
         self.assertIn("sha256 mismatch", got.stderr)

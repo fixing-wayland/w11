@@ -8,7 +8,8 @@
 # so it is the only image on which wxrandr's second discovery path runs at all.
 #
 # Two ways this differs from noble-kde / resolute-kde, both forced by 26.10
-# being a development release:
+# being a development release when the flavor was written (26.10 shipped on
+# 2026-10-15; the first golden built after that date is the release):
 #  * kde-plasma-desktop, not kubuntu-desktop. kubuntu-desktop pulls the
 #    `firefox` deb, which is a wrapper whose postinst installs the firefox
 #    SNAP -- and snapd does not work in this cloud image (snapd.service fails

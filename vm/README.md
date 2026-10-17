@@ -62,7 +62,7 @@ KVM access, and the Ubuntu cloud images in `~/images/`
 override the directory with `VMIMAGES=`). `vmctl` is stdlib-only Python.
 The ISO flavors additionally need `isoinfo` (genisoimage) and the desktop ISO each yaml
 names, in the same `~/images/`: `ubuntu-26.04.1-desktop-amd64.iso` (6.1 GB) from
-<https://releases.ubuntu.com/26.04/> and `ubuntu-24.04.4-desktop-amd64.iso` (6.2 GB) from
+<https://releases.ubuntu.com/26.04/> and `ubuntu-24.04.5.1-desktop-amd64.iso` (6.2 GB) from
 <https://releases.ubuntu.com/24.04/> — `vm/build-iso-golden.sh` checks each one's sha256
 against the one in the flavor before it boots anything.
 `selftest.sh` additionally wants ImageMagick's `identify` (to prove a screenshot is not a flat colour).
@@ -155,7 +155,7 @@ no firmware at all, 8 snaps against the default 13; 24.04: 240 / 55 and the same
 
 The 25 Ubuntu flavors are what the *Desktop support* matrix in the repo README is measured on,
 minus four that stand behind that table rather than in it: the two `stonking-*` images (Ubuntu
-26.10, a development release), which are probes for one protocol change each, and the two
+26.10, an interim release that was still in development when they were written), which are probes for one protocol change each, and the two
 `*-gnome-iso` ones, which are the default-install check rather than a desktop of their own. That
 leaves 21 images under the matrix, which is the number the README's own sentence carries.
 
@@ -196,7 +196,7 @@ bridge claims every shell the rig carries, so the header line is an anchor as we
 | flavor | release | desktop (as built) | display manager | session | native display tool | distro | CI |
 |---|---|---|---|---|---|---|---|
 | `noble-gnome` | Ubuntu 24.04 LTS | GNOME Shell 46 / mutter 46 (`ubuntu-desktop`) | GDM | Wayland | mutter's `org.gnome.Mutter.DisplayConfig.GetCurrentState` | `ubuntu` | push |
-| **`noble-gnome-iso`** | Ubuntu 24.04 LTS | **GNOME Shell 46.0 / mutter 46 — installed from `ubuntu-24.04.4-desktop-amd64.iso` by the Ubuntu installer, default source `ubuntu-desktop-minimal`** | GDM | Wayland | the same | `ubuntu` | push |
+| **`noble-gnome-iso`** | Ubuntu 24.04 LTS | **GNOME Shell 46.0 / mutter 46 — installed from `ubuntu-24.04.5.1-desktop-amd64.iso` by the Ubuntu installer, default source `ubuntu-desktop-minimal`** | GDM | Wayland | the same | `ubuntu` | push |
 | `noble-gnome-x11` | Ubuntu 24.04 LTS | GNOME Shell 46 on **Xorg** (`ubuntu-xorg.desktop`, the same `ubuntu-desktop` as `noble-gnome`) | GDM with `WaylandEnable=false` | **X11** | `xrandr`, with `org.gnome.Mutter.DisplayConfig` as a second opinion that must agree | `ubuntu` | push |
 | `noble-kde` | Ubuntu 24.04 LTS | Plasma 5.27 / KWin 5.27 (`kubuntu-desktop`, `plasma-workspace-wayland`) | SDDM | Wayland | `kscreen-doctor -o` | `ubuntu` | push |
 | `noble-kde-x11` | Ubuntu 24.04 LTS | the same packages, started as the **Plasma X11 session** (Xorg + `kwin_x11`) | SDDM | **X11** | `kscreen-doctor -o` (libkscreen's XRandR backend); `xrandr` | `ubuntu` | push |
@@ -334,8 +334,8 @@ two NixOS ones are a configuration rather than an install — see below for what
   every boot. `resolute-sway` has no NetworkManager; there networkd stays in charge.
 * the finished image's package list is dumped over the serial console and stored in
   `golden/<flavor>-packages.txt`, and committed as `vm/reference/<flavor>-packages.txt`
-  for the flavors built on a released Ubuntu. The two 26.10 images are a
-  development release whose package set moves under the flavor, so theirs stay in
+  for the flavors built on a released Ubuntu. The two 26.10 images were built while
+  26.10 was a development release whose package set moved under the flavor, so theirs stay in
   `golden/` only.
 
 **GNOME** (`noble-gnome`, `resolute-gnome`)
@@ -410,7 +410,7 @@ first Ubuntu carrying it: `kwin-wayland 4:6.7.4-0ubuntu2`, against 6.6.4 in
 26.04.
 
 It is the one flavor that does **not** install its distro's desktop
-metapackage, and 26.10 being a development release is why. `kubuntu-desktop`
+metapackage, and 26.10 being a development release when the flavor was written is why. `kubuntu-desktop`
 pulls the `firefox` deb, whose postinst installs the firefox *snap* — and
 snapd does not work in the 26.10 cloud image (`snapd.service` fails to start),
 so that postinst parks in `Unable to contact the store, trying every minute
@@ -422,8 +422,9 @@ Recommends chain can drag one back in. Everything else (SDDM autologin, the
 screen-lock and power-management overrides) is the shared `kde` path in
 `build-image.sh`, unchanged.
 
-For the same reason — a development release whose cloud image
-(`stonking-server-cloudimg-amd64.img`) and packages move under you — this
+For the same reason — a release whose cloud image
+(`stonking-server-cloudimg-amd64.img`, from `stonking/current`) and packages moved under you
+while it was in development — this
 flavor is a probe for one protocol change, not a support target: the other
 nine are what the desktop-support matrix is measured on.
 
@@ -654,7 +655,7 @@ both want scheduling:
 
 The same question one release earlier: "does this work on **a default Ubuntu 24.04 LTS
 desktop**, freshly installed and updated?", answered the only way it can be — by being one.
-`ubuntu-24.04.4-desktop-amd64.iso`, the Ubuntu installer, every question left alone, nothing
+`ubuntu-24.04.5.1-desktop-amd64.iso`, the Ubuntu installer, every question left alone, nothing
 taken away. The repo supports 24.04 and 26.04, so it needs a default install of each; this
 is the 24.04 half, and `resolute-gnome-iso` above is the model it is built to.
 

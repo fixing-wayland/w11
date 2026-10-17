@@ -80,7 +80,7 @@ jobs:
       image_key_fedora: ${{ steps.list.outputs.image_key_fedora }}
       image_key_arch: ${{ steps.list.outputs.image_key_arch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: list
         env:
           WANTED: ${{ inputs.scope || 'push' }}
@@ -152,8 +152,8 @@ jobs:
             dockerfile: Dockerfile.arch
             key: ${{ needs.plan.outputs.image_key_arch }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -168,8 +168,8 @@ jobs:
   lint:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
       # `.` is every package in the tree, xw11/ included; pyproject's extend-exclude
       # is one generated keysym table and nothing else.
       - run: uvx ruff check .
@@ -195,7 +195,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
       options: --user root --init
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: ${{ matrix.file }}
         run: |
           chown -R ci "$PWD"
@@ -218,7 +218,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
       options: --user root --init
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: ${{ matrix.file }}
         run: |
           chown -R ci "$PWD"
@@ -247,7 +247,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
       options: --user root --init
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: ${{ matrix.file }}
         run: |
           chown -R ci "$PWD"
@@ -293,7 +293,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
       options: --user root --init
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: every tests/test_*.py, one process each, all of them before the verdict
         run: |
           chown -R ci "$PWD"
@@ -312,7 +312,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@main
       # sway, xwayland and foot are for tests/test_xw11_parity.py::NativeParity, which
       # compares the pinned xdotool/wmctrl THROUGH the proxy with the clones on one
@@ -357,7 +357,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
       options: --user root --init
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: W11_ORACLE_PATH=/usr/bin, then scripts/parity-oracle.sh
         run: |
           chown -R ci "$PWD"
@@ -376,7 +376,7 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: build the package
         run: |
           git config --global --add safe.directory "$PWD"
@@ -387,7 +387,7 @@ jobs:
       # died at `download-artifact` with "Artifact not found" -- twelve desktops that
       # measured nothing because of a number in a unit test. The job still goes red on its
       # own test below; what changes is that the rigs get the package that was built.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deb
           path: release/*.deb
@@ -421,7 +421,7 @@ jobs:
     container:
       image: ${{ matrix.image }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: deb
       - name: apt install, then every tool answers
@@ -490,7 +490,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
       options: --user root --init
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: scripts/build-rpm.sh --no-deps --lint
         run: |
           chown -R ci "$PWD"
@@ -498,7 +498,7 @@ jobs:
               sh scripts/build-rpm.sh --no-deps --lint
       # before the release test, for the reason written out in the `deb` job: run
       # 34662004383 lost six fedora rigs to a test-count pin that ran first
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: rpms
           path: dist/*.rpm
@@ -572,7 +572,7 @@ jobs:
     container:
       image: ${{ matrix.image }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: rpms
       - name: dnf install, then every tool answers
@@ -609,7 +609,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
       options: --user root --init
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: scripts/build-pkgbuild.sh --no-deps --lint
         run: |
           chown -R ci "$PWD"
@@ -617,7 +617,7 @@ jobs:
               sh scripts/build-pkgbuild.sh --no-deps --lint
       # before the release test, for the reason written out in the `deb` job: run
       # 34662004383 lost six arch rigs to a test-count pin that ran first
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pkg
           path: dist/*.pkg.tar.zst
@@ -677,7 +677,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # the same extra-conf the vm job's installer passes: `nixos-sway` below is a NixOS VM
       # test and wants the kvm feature to run at speed. nix adds kvm by itself when the
       # daemon can open /dev/kvm, which an ubuntu-24.04 runner can today -- writing it down
@@ -738,7 +738,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           extra-conf: system-features = nixos-test benchmark big-parallel kvm
@@ -784,7 +784,7 @@ jobs:
       VMIMAGES: /mnt/images
       LIVE_SMOKE_BOOT_TIMEOUT: "480"   # an ISO-installed desktop took over 240 s to ssh on a loaded runner
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: flavor
         name: what this flavor is built from and installs
         run: |
@@ -794,17 +794,17 @@ jobs:
       # the package THIS run built from THIS tree replaces the committed one under release/,
       # so the rig measures the push and not the last release; the rpm and the pkg arrive the
       # same way, into the directories vm/live-smoke.sh reads by default
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         if: steps.flavor.outputs.distro == 'ubuntu'
         with:
           name: deb
           path: release
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         if: steps.flavor.outputs.distro == 'fedora'
         with:
           name: rpms
           path: dist
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         if: steps.flavor.outputs.distro == 'arch'
         with:
           name: pkg
@@ -885,7 +885,7 @@ jobs:
             [ "$attempt" = 4 ] || echo "::warning::${{ matrix.flavor }} attempt $attempt: $why"
           done
           exit "$rc"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: live-smoke-${{ matrix.flavor }}
@@ -931,7 +931,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       RIG_REC_GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: flavor
         name: what this flavor installs
         run: |
@@ -942,17 +942,17 @@ jobs:
       # those needs the package file ON THIS HOST (rig-recordings.sh drops both halves
       # with a printed reason when it is not there, and 12 of the 38 flavors would then
       # replay a third less than they recorded)
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         if: steps.flavor.outputs.distro == 'ubuntu'
         with:
           name: deb
           path: release
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         if: steps.flavor.outputs.distro == 'fedora'
         with:
           name: rpms
           path: dist
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         if: steps.flavor.outputs.distro == 'arch'
         with:
           name: pkg

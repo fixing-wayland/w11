@@ -22,9 +22,9 @@
 # vmctl-desktop: gnome
 # vmctl-distro: ubuntu
 # vmctl-ci: push
-# vmctl-iso: ubuntu-24.04.4-desktop-amd64.iso
-# vmctl-iso-sha256: 3a4c9877b483ab46d7c3fbe165a0db275e1ae3cfe56a5657e5a47c2f99a99d1e
-# vmctl-iso-url: https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso
+# vmctl-iso: ubuntu-24.04.5.1-desktop-amd64.iso
+# vmctl-iso-sha256: 4da4a0c9035da8e68a59a838674f403f0a54472c78a83b4fb7f78d03588f85a7
+# vmctl-iso-url: https://releases.ubuntu.com/24.04/ubuntu-24.04.5.1-desktop-amd64.iso
 #
 # EVERY DEVIATION FROM AN UNTOUCHED INSTALL IS LISTED HERE AND IN vm/README.md.
 # They are the same eight as resolute-gnome-iso's, numbered the same way: stage 1

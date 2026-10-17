@@ -109,6 +109,18 @@ and the bytes are named wherever a number is.
   (`#wxprop`, `#wxrandr`, `#wmirror`, `#xw11`, `#warandr`) works where only the default
   `wdotool` did: with no `apps` output `nix run` fell through to `meta.mainProgram`, one
   name, and `nix run .#wwmctl` answered "does not provide attribute" (nix 2.34.8).
+- **The rig's inputs move to the current releases (2026-10-17).** `vm/golden-epoch` is 2, so
+  every cached golden is rebuilt from today's archives: Ubuntu 26.10 shipped on 2026-10-15 and
+  the two `stonking-*` goldens had been built from the development series; Arch's cloud image
+  moves from the 2026-09-01 build to `20261015.611680` (which brings Plasma 6.8, released
+  2026-10-14, GNOME 51 and COSMIC 1.10 onto the `arch-*` flavors); `noble-gnome-iso` installs
+  from `ubuntu-24.04.5.1-desktop-amd64.iso` (2026-09-14) instead of 24.04.4. Both flake locks
+  follow nixpkgs to 2026-10-14/15. The workflow's actions move to `checkout@v7`,
+  `upload-artifact@v7`, `download-artifact@v8`, `setup-uv@v10` and `login-action@v4` (Node 24,
+  runner 2.337 on ubuntu-24.04). Checked and already current: xdotool 4.20260303.1, wmctrl 1.07
+  (Debian ships a 2024 git snapshot of it, no new release), xprop 1.2.8, xrandr 1.5.4, arandr
+  0.1.11, sway 1.12, Hyprland 0.56.2. Not yet: Fedora 45 (final set for 2026-10-20) and the
+  `releases/26.10/release/` cloud-image directory (not published yet; `stonking/current` is).
 - **The rig refreshes apt lists before it installs, and says why an install failed.**
   CI run 38967358762 (2026-10-16), rig stonking-kde: `apt-get install ./w11.deb` exited 100 on
   the golden (`52adc7affc7edbfb`) that had passed a month before, after listing eight

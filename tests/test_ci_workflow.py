@@ -325,7 +325,7 @@ class ThePackagingJobs(unittest.TestCase):
             with self.subTest(builder):
                 block = jobs()[builder]
                 self.assertIn(release, block)
-                self.assertLess(block.index("uses: actions/upload-artifact@v4"),
+                self.assertLess(block.index("uses: actions/upload-artifact@v7"),
                                 block.index(release), block)
 
     def test_rpm_install_covers_the_two_released_fedora_tags(self):
