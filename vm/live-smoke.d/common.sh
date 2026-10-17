@@ -311,7 +311,10 @@ phase_busrec() {
 pkg_refresh() {
     local cmd out st=0
     cmd=$(pkg_refresh_cmd)
-    [ -n "$cmd" ] || return 0
+    if [ -z "$cmd" ]; then
+        [ -z "${ISO_INSTALLED:-}" ] || note "package lists left as the installer wrote them: a refresh wakes this golden's update-notifier (live-smoke.sh pkg_refresh_cmd)"
+        return 0
+    fi
     out=$(root "$cmd") || st=$?
     if [ "$st" = 0 ]; then
         note "package lists refreshed ($cmd)"

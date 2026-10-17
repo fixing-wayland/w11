@@ -2264,7 +2264,9 @@ pacman's `.install` print the same paragraph and the rpm prints none at all (Fed
 discourages chatty scriptlets; the spec ships `README.Fedora` in `%doc` instead), so
 `phase_install` checks for the banner where there is one and for `README.Fedora` where there
 is not. On Ubuntu the phase runs `apt-get update` first (`pkg_refresh_cmd`; the other three
-name no command): a golden's package lists are as old as the golden, and the archive behind a
+name no command, and so do the two ISO-installed goldens, whose update-notifier is left live
+on purpose and launches Software Updater over the editor the moment the lists are fresh —
+CI run 39016159002, both attempts of noble-gnome-iso): a golden's package lists are as old as the golden, and the archive behind a
 development release drops a superseded version within days — CI run 38967358762 (2026-10-16),
 rig stonking-kde, installed from a golden that had passed a month earlier and exited 100 after
 listing its eight GTK-typelib dependencies as NEW, while stonking-gnome, whose golden already

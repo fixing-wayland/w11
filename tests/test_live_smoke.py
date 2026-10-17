@@ -735,6 +735,11 @@ class TheDriversPackageAxis(unittest.TestCase):
         for distro in ("fedora", "arch", "nixos"):
             with self.subTest(distro):
                 self.assertEqual(self.out("pkg_refresh_cmd", distro), "")
+        # ... and not on an ISO-installed golden: those keep update-notifier
+        # live, and fresh lists made it launch Software Updater over the editor
+        # on both attempts of rig noble-gnome-iso in CI run 39016159002.
+        self.assertEqual(self.out("ISO_INSTALLED=ubuntu-24.04.5.1-desktop-amd64.iso; pkg_refresh_cmd", "ubuntu"), "")
+        self.assertIn("apt-get update", self.out("ISO_INSTALLED=; pkg_refresh_cmd", "ubuntu"))
 
     def test_a_failed_install_prints_the_last_lines_of_the_installer(self):
         """`want` clips the FIRST 400 bytes of the installer's output, and on
@@ -1000,11 +1005,11 @@ class TheDistroPhases(unittest.TestCase):
         self.assertIn("DONE", got.stdout, got.stdout + got.stderr)
         return got.stdout
 
-    def refresh(self, distro, rc):
+    def refresh(self, distro, rc, iso=""):
         """pkg_refresh, sliced, with `root` answering `rc` and the driver's own
         pkg_refresh_cmd beside it (the phase helper above slices common.sh
         alone, and the command table lives in the driver)."""
-        pre = "set -euo pipefail\nDISTRO=%s\n" % distro
+        pre = "set -euo pipefail\nDISTRO=%s\nISO_INSTALLED=%s\n" % (distro, shlex.quote(iso))
         # ROOT[...] goes to stderr: the phase captures root's stdout.
         pre += 'root() { echo "ROOT[$1]" >&2; printf "%%s\\n" "Hit:1 http://x" "E: lists moved"; return %d; }\n' % rc
         pre += 'note() { echo "NOTE|$*"; }\nfail() { echo "FAIL|$*"; }\nev() { printf "%s" "$*"; }\n'
@@ -1033,6 +1038,10 @@ class TheDistroPhases(unittest.TestCase):
         out = self.refresh("fedora", 0)
         self.assertNotIn("ROOT[", out)
         self.assertNotIn("NOTE|", out)
+        # the ISO golden says why it was not refreshed, and runs nothing
+        out = self.refresh("ubuntu", 0, iso="ubuntu-24.04.5.1-desktop-amd64.iso")
+        self.assertNotIn("ROOT[", out)
+        self.assertIn("NOTE|package lists left as the installer wrote them", out)
 
     def test_selinux_runs_both_checks_when_the_avc_count_is_zero(self):
         """`grep -c` exits 1 when it counts zero, which is the passing case, and

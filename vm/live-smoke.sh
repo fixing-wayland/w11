@@ -142,6 +142,9 @@ DESKTOP=$(sed -n 's/^#[[:space:]]*vmctl-desktop:[[:space:]]*//p' "$HERE/flavors/
 DESKTOP=${DESKTOP:-gnome}
 DISTRO=$(sed -n 's/^#[[:space:]]*vmctl-distro:[[:space:]]*//p' "$HERE/flavors/$FLAVOR.yaml" | head -1)
 DISTRO=${DISTRO:-ubuntu}
+# Non-empty for the two goldens the Ubuntu installer made (`# vmctl-iso:`), which keep
+# update-notifier live where build-image.sh hides it: pkg_refresh_cmd reads it.
+ISO_INSTALLED=$(sed -n 's/^#[[:space:]]*vmctl-iso:[[:space:]]*//p' "$HERE/flavors/$FLAVOR.yaml" | head -1)
 [ -f "$STEPS/$DESKTOP.sh" ] || { echo "no step file $STEPS/$DESKTOP.sh for desktop $DESKTOP" >&2; exit 2; }
 
 # ------------------------------------------------------- the package axis
@@ -202,9 +205,18 @@ pkg_install_cmd() {
 # (installer_tail prints that now).  dnf refreshes expired metadata by itself,
 # pacman -U installs a package whose dependencies the golden already has, and
 # NixOS installs nothing.
+#
+# Not on an ISO-installed golden ($ISO_INSTALLED).  Those two keep
+# update-notifier exactly as the installer left it -- the point of the flavor
+# -- and fresh lists are what make it launch Software Updater: CI run
+# 39016159002 (2026-10-17), rig noble-gnome-iso, both attempts, the "Ubuntu
+# 26.04.1 LTS Upgrade Available" and "Software Updater" windows over the
+# editor in proxy-0.png and R9's `xdotool type` landing in neither.  Their
+# lists are the installer's own, as fresh as the golden, which is what they
+# were before the refresh existed.
 pkg_refresh_cmd() {
     case "$DISTRO" in
-    ubuntu) echo "apt-get update -q 2>&1" ;;
+    ubuntu) if [ -n "${ISO_INSTALLED:-}" ]; then echo ""; else echo "apt-get update -q 2>&1"; fi ;;
     *)      echo "" ;;
     esac
 }

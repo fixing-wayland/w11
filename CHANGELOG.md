@@ -149,7 +149,9 @@ and the bytes are named wherever a number is.
   GTK-typelib dependencies as NEW — a development release's archive had moved under lists as
   old as the golden; stonking-gnome, whose golden carries the typelibs, passed from the same
   archive in the same hour. `phase_install` runs `apt-get update` first on Ubuntu
-  (`pkg_refresh_cmd`; a failed refresh is a note, not a FAIL), a failed install prints the
+  (`pkg_refresh_cmd`; a failed refresh is a note, not a FAIL; not on the two ISO-installed
+  goldens, whose live update-notifier answered fresh lists with Software Updater over the
+  editor on both attempts of noble-gnome-iso in run 39016159002), a failed install prints the
   installer's last eight lines (the FAIL line's clip is the first 400 bytes, which held the
   dependency list and not apt's `E:`), and a guest that never answers ssh gets its
   `serial.log` copied beside the smoke log, where the artifact picks it up.
