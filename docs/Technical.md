@@ -2547,7 +2547,10 @@ it is already the GitHub tarball at that host (3,952,338 bytes). CI uses neither
 `nix run github:fixing-wayland/w11 -- --version` runs `wdotool` without installing anything,
 and `apps.<system>` names every console script of `pyproject.toml`, so
 `nix run github:fixing-wayland/w11#wwmctl -- -l` (and `#wxprop`, `#wxrandr`, `#wmirror`, `#xw11`,
-`#warandr`) reaches the rest. Before that output existed `nix run` fell through to
+`#warandr`) reaches the rest, and `#install-bridge` runs `gnome/install-bridge.sh` out of the
+store with the clones' `bin/` first on `PATH`, for the GNOME desktop that is not NixOS and has no
+checkout (the GNOME refusal names that command when the tools run from the store). Before that
+output existed `nix run` fell through to
 `packages.default`'s one `meta.mainProgram` and `nix run .#wwmctl` was "does not provide
 attribute". `#xdotool` and `#wmctrl` are deliberately not apps: `nix run` resolves `apps` before
 `packages`, and those two names are the nixpkgs oracles `scripts/parity-oracle.sh` builds.

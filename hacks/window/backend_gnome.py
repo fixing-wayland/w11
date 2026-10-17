@@ -70,11 +70,12 @@ _HINT = ("gnome backend: the w11 bridge extension is not running in "
 #: packages.gnome-bridge).  Measured 2026-10-16: `nix run
 #: github:fixing-wayland/w11#wwmctl -- -l` on Ubuntu GNOME 50.1 was told to run
 #: a script that was nowhere on the machine.
-_NIX_HINT = ("; this copy runs from the Nix store, where there is no "
-             "install-bridge.sh: set programs.w11.gnomeBridge.enable = true "
-             "(the NixOS or home-manager module), or install "
-             "packages.gnome-bridge of the flake where GNOME Shell loads "
-             "extensions from, then log out and back in")
+_NIX_HINT = ("; this copy runs from the Nix store, which has no "
+             "install-bridge.sh to run: `nix run "
+             "github:fixing-wayland/w11#install-bridge` installs and enables "
+             "the extension for this user, then log out and back in; on "
+             "NixOS or under home-manager set programs.w11.gnomeBridge.enable "
+             "= true instead")
 
 
 def _nix_installed() -> bool:

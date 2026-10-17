@@ -124,8 +124,9 @@ and the bytes are named wherever a number is.
   clients only. A named backend that will not construct (`WDOTOOL_BACKEND=sway` with no sway)
   is now a log line and pass-through rather than a proxy that dies at start. And the GNOME
   refusal's hint names `gnome/install-bridge.sh`, which a Nix-installed copy does not have:
-  from the store it names `programs.w11.gnomeBridge.enable` and `packages.gnome-bridge`
-  instead.
+  from the store it names `nix run github:fixing-wayland/w11#install-bridge`, a new app that
+  runs the script out of the store with nothing checked out, and `programs.w11.gnomeBridge.enable`
+  for NixOS and home-manager.
 - **The rig's inputs move to the current releases (2026-10-17).** `vm/golden-epoch` is 2, so
   every cached golden is rebuilt from today's archives: Ubuntu 26.10 shipped on 2026-10-15 and
   the two `stonking-*` goldens had been built from the development series; Arch's cloud image
@@ -133,7 +134,8 @@ and the bytes are named wherever a number is.
   2026-10-14, GNOME 51 and COSMIC 1.10 onto the `arch-*` flavors); `noble-gnome-iso` installs
   from `ubuntu-24.04.5.1-desktop-amd64.iso` (2026-09-14) instead of 24.04.4. Both flake locks
   follow nixpkgs to 2026-10-14/15. The workflow's actions move to `checkout@v7`,
-  `upload-artifact@v7`, `download-artifact@v8`, `setup-uv@v10` and `login-action@v4` (Node 24,
+  `upload-artifact@v7`, `download-artifact@v8`, `setup-uv@v10.3.0` (that action publishes no floating
+  major tag) and `login-action@v4` (Node 24,
   runner 2.337 on ubuntu-24.04). Checked and already current: xdotool 4.20260303.1, wmctrl 1.07
   (Debian ships a 2024 git snapshot of it, no new release), xprop 1.2.8, xrandr 1.5.4, arandr
   0.1.11, sway 1.12, Hyprland 0.56.2. Not yet: Fedora 45 (final set for 2026-10-20) and the

@@ -2075,8 +2075,10 @@ class InstallHintTests(unittest.TestCase):
         got = self.hint_at("/nix/store/abc-w11-0.4.0/lib/python3.14/site-packages/"
                            "hacks/window/backend_gnome.py")
         self.assertTrue(got.startswith(backend_gnome._HINT), got)
-        self.assertIn("programs.w11.gnomeBridge.enable = true", got)
-        self.assertIn("packages.gnome-bridge", got)
+        # the one-command route first -- a `nix run` user has no checkout and
+        # is not on NixOS -- and the module option after it
+        self.assertIn("nix run github:fixing-wayland/w11#install-bridge", got)
+        self.assertLess(got.index("#install-bridge"), got.index("programs.w11.gnomeBridge.enable = true"))
         self.assertIn("log out and back in", got)
 
     def test_a_source_tree_in_the_store_is_not_an_install(self):

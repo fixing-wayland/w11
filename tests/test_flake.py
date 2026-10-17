@@ -365,6 +365,13 @@ class Outputs(unittest.TestCase):
         self.assertIn('warandr = app p.warandr "warandr"', body)
         self.assertNotIn("xdotool =", body)
         self.assertNotIn("wmctrl =", body)
+        # ... and the one app that is not a tool: gnome/install-bridge.sh out
+        # of the store, with the clones' bin/ first on PATH for --try-unsafe.
+        # A `nix run` user on a GNOME desktop was told to run a script they had
+        # nowhere (2026-10-17); this is where they get it.
+        self.assertIn("install-bridge = {", body)
+        self.assertIn('${./gnome}/install-bridge.sh "$@"', body)
+        self.assertIn("PATH=${p.w11}/bin:$PATH", body)
 
     def test_the_platforms_claim_is_linux(self):
         """The old meta claimed nothing at all, so nixpkgs' default let the
@@ -795,7 +802,17 @@ class Live(unittest.TestCase):
                 "--apply", "builtins.mapAttrs (_: a: a.program)")
         self.assertEqual(r.returncode, 0, r.stderr[-2000:])
         programs = json.loads(r.stdout)
-        self.assertEqual(sorted(programs), sorted(TOOLS + ("default",)))
+        self.assertEqual(sorted(programs), sorted(TOOLS + ("default", "install-bridge")))
+        bridge = programs.pop("install-bridge")
+        self.assertTrue(bridge.endswith("-w11-install-bridge"), bridge)
+        # Evaluation names the path; only a run builds it.  `--check` opens no
+        # display and needs no GNOME: on a box with none it reports "no" down
+        # the list and exits 1 (do_check's rc is "is the bridge there"), on a
+        # desktop with the bridge 0 -- either is the script running out of the
+        # store, and anything else (127, a nix error) is not.
+        r = nix("run", flake_ref("install-bridge"), "--", "--check")
+        self.assertIn(r.returncode, (0, 1), r.stdout[-1500:] + r.stderr[-2000:])
+        self.assertIn("udev rule:", r.stdout)
         for name, program in programs.items():
             script = "wdotool" if name == "default" else name
             pkg = "warandr" if script == "warandr" else "w11"

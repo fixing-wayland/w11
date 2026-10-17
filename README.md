@@ -361,7 +361,10 @@ not by what is possible.
   without installing anything, and every other tool is an app of the same name:
   `nix run github:fixing-wayland/w11#wwmctl -- -l`, `#wxprop`, `#wxrandr`, `#wmirror`,
   `#xw11` and `#warandr` (`#xdotool` and `#wmctrl` are the nixpkgs originals, kept for
-  the parity oracle). `nix build` gives you `result/bin/` with all six
+  the parity oracle). On a GNOME desktop that is not NixOS,
+  `nix run github:fixing-wayland/w11#install-bridge` installs and enables the bridge
+  extension for your user with nothing checked out; log out and back in once afterwards.
+  `nix build` gives you `result/bin/` with all six
   plus `xdotool`, `wmctrl`, `xprop`, `xrandr` and `arandr` symlinks next to them
   (`wmirror` gets none, because there is no X11 original to shadow). The flake wraps
   the GTK typelibs into `warandr`, so the GUI works without a system PyGObject. On

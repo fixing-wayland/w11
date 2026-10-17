@@ -54,6 +54,16 @@ sh gnome/install-bridge.sh --uninstall
 sudo sh gnome/install-bridge.sh --udev  # /dev/uinput for the logged-in user (see below)
 ```
 
+With nothing checked out, the same script runs out of the Nix store, with every flag above:
+
+```sh
+nix run github:fixing-wayland/w11#install-bridge            # install + enable for this user
+nix run github:fixing-wayland/w11#install-bridge -- --check
+```
+
+That is for a GNOME desktop that is *not* NixOS; on NixOS and under home-manager the module's
+`programs.w11.gnomeBridge.enable = true` installs the extension system-wide and turns it on.
+
 The script copies the files, adds the uuid to `org.gnome.shell
 enabled-extensions` (`gnome-extensions enable`, or gsettings by hand), and then
 tries to make it live without a logout:

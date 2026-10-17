@@ -74,6 +74,7 @@
       apps = nixpkgs.lib.genAttrs systems (system:
         let
           p = self.packages.${system};
+          pkgs = pkgsFor system;
           app = pkg: name: description: {
             type = "app";
             program = "${pkg}/bin/${name}";
@@ -90,6 +91,24 @@
           xw11 = cli "xw11" "the X11 protocol proxy in front of Xwayland";
           warandr = app p.warandr "warandr" "arandr, for Wayland (GTK 3)";
           default = cli "wdotool" "xdotool, for Wayland";
+          # gnome/install-bridge.sh, runnable with nothing checked out: on a
+          # GNOME desktop the clones refuse without the bridge extension, and
+          # the refusal used to tell a `nix run` user to run a script they had
+          # nowhere (2026-10-17, Ubuntu GNOME 50.1).  The script finds the
+          # extension beside itself, so the store copy of gnome/ is enough;
+          # bin/ of packages.w11 goes first on PATH for `--try-unsafe`, which
+          # drives Looking Glass through wdotool.  The desktop's own
+          # gnome-extensions, gsettings and gdbus are taken from the host, as
+          # the script documents.  Not for NixOS, where the module's
+          # programs.w11.gnomeBridge.enable installs the same extension
+          # system-wide and turns it on for every user.
+          install-bridge = {
+            type = "app";
+            program = "${pkgs.writeShellScript "w11-install-bridge" ''
+              PATH=${p.w11}/bin:$PATH exec ${./gnome}/install-bridge.sh "$@"
+            ''}";
+            meta.description = "install and enable the GNOME Shell bridge extension for this user";
+          };
         });
 
       # `{ self }` rather than the packages themselves: a consumer whose flake

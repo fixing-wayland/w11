@@ -1043,7 +1043,29 @@ class SpawnCase(unittest.TestCase):
             except OSError:
                 return
             time.sleep(0.05)
-        raise AssertionError("the proxy (pid %d) would not stop" % pid)
+        # Seen once, in the flake's tools check (CI run 39011882667,
+        # 2026-10-17) and nowhere since, including the same check run locally:
+        # the pid alone said nothing about WHY.  What the proxy wrote, and what
+        # the kernel says it is doing, go into the message.
+        state = ""
+        for name in ("status", "wchan"):
+            try:
+                with open("/proc/%d/%s" % (pid, name), encoding="utf-8") as f:
+                    text = f.read()
+            except OSError as e:
+                text = str(e)
+            if name == "status":
+                text = " ".join(ln for ln in text.splitlines()
+                                if ln.split(":")[0] in ("State", "Threads", "PPid"))
+            state += "\n  /proc/%d/%s: %s" % (pid, name, text.strip())
+        try:
+            from xw11 import server as server_mod
+            with open(server_mod.log_path(), encoding="utf-8") as f:
+                tail = f.read().splitlines()[-12:]
+        except OSError as e:
+            tail = [str(e)]
+        raise AssertionError("the proxy (pid %d) would not stop%s\n  log:\n    %s"
+                             % (pid, state, "\n    ".join(tail)))
 
     def settled(self, want, timeout=10.0):
         """The `__serve` processes of ours, once their number has stopped
